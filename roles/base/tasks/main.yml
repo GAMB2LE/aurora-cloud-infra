@@ -1,0 +1,30 @@
+---
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install baseline packages
+  ansible.builtin.apt:
+    name: "{{ aurora_apt_packages }}"
+    state: present
+
+- name: Ensure unattended upgrades are enabled
+  ansible.builtin.systemd:
+    name: unattended-upgrades
+    enabled: true
+    state: started
+
+- name: Ensure dashboard service group exists
+  ansible.builtin.group:
+    name: "{{ aurora_service_group }}"
+    state: present
+
+- name: Ensure dashboard service user exists
+  ansible.builtin.user:
+    name: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    shell: /bin/bash
+    home: "/home/{{ aurora_service_user }}"
+    create_home: true
+    state: present

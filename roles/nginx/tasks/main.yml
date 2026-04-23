@@ -1,0 +1,34 @@
+---
+- name: Install nginx site
+  ansible.builtin.template:
+    src: aurora-dashboard.nginx.j2
+    dest: /etc/nginx/sites-available/{{ aurora_domain }}
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload nginx
+
+- name: Enable nginx site
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/{{ aurora_domain }}
+    dest: /etc/nginx/sites-enabled/{{ aurora_domain }}
+    state: link
+  notify: Reload nginx
+
+- name: Disable default nginx site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Reload nginx
+
+- name: Enable nginx
+  ansible.builtin.systemd:
+    name: nginx
+    enabled: true
+    state: started
+
+- name: Obtain or renew certificate with certbot nginx plugin
+  ansible.builtin.command: certbot --nginx -d {{ aurora_domain }} --non-interactive --agree-tos --register-unsafely-without-email --redirect
+  args:
+    creates: /etc/letsencrypt/live/{{ aurora_domain }}/fullchain.pem
+  notify: Reload nginx

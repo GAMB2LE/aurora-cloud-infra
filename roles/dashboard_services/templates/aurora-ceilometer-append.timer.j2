@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Aurora ceilometer Zarr append every 5 minutes
+
+[Timer]
+OnCalendar=*:04/5
+RandomizedDelaySec=0
+Persistent=true
+Unit=aurora-ceilometer-append.service
+
+[Install]
+WantedBy=timers.target

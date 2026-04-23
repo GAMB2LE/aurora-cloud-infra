@@ -1,0 +1,36 @@
+---
+- name: Check out dashboard application
+  ansible.builtin.git:
+    repo: "{{ aurora_app_repo }}"
+    dest: "{{ aurora_app_dir }}"
+    version: "{{ aurora_app_version }}"
+    update: true
+  become_user: "{{ aurora_service_user }}"
+
+- name: Ensure app ownership
+  ansible.builtin.file:
+    path: "{{ aurora_app_dir }}"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    recurse: true
+
+- name: Create Python virtual environment
+  ansible.builtin.command: "{{ aurora_python }} -m venv {{ aurora_venv }}"
+  args:
+    creates: "{{ aurora_venv }}/bin/python"
+  become_user: "{{ aurora_service_user }}"
+
+- name: Write pinned requirements
+  ansible.builtin.template:
+    src: requirements.txt.j2
+    dest: "{{ aurora_app_dir }}/requirements.txt"
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "0644"
+
+- name: Install Python dependencies
+  ansible.builtin.pip:
+    requirements: "{{ aurora_app_dir }}/requirements.txt"
+    virtualenv: "{{ aurora_venv }}"
+  become_user: "{{ aurora_service_user }}"

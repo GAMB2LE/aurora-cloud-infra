@@ -1,0 +1,13 @@
+---
+- name: Configure Aurora cloud dashboard host
+  hosts: aurora_cloud
+  become: true
+  roles:
+    - base
+    - security
+    - storage
+    - tailscale
+    - dashboard_app
+    - dashboard_services
+    - nginx
+    - gws_sync

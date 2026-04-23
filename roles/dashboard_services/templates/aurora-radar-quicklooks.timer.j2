@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Aurora cloud radar quicklooks every 10 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=10min
+Persistent=true
+Unit=aurora-radar-quicklooks.service
+
+[Install]
+WantedBy=timers.target

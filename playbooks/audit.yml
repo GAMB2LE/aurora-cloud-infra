@@ -1,0 +1,23 @@
+---
+- name: Read-only Aurora cloud host audit
+  hosts: aurora_cloud
+  become: false
+  gather_facts: true
+  tasks:
+    - name: Show host summary
+      ansible.builtin.debug:
+        msg:
+          hostname: "{{ ansible_facts.hostname }}"
+          os: "{{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }}"
+          vcpus: "{{ ansible_facts.processor_vcpus }}"
+          memory_mb: "{{ ansible_facts.memtotal_mb }}"
+          default_ipv4: "{{ ansible_facts.default_ipv4.address | default('unknown') }}"
+
+    - name: Inspect mounts
+      ansible.builtin.command: findmnt -rno TARGET,SOURCE,FSTYPE,SIZE,USED,AVAIL,OPTIONS
+      changed_when: false
+      register: mounts
+
+    - name: Print mounts
+      ansible.builtin.debug:
+        var: mounts.stdout_lines

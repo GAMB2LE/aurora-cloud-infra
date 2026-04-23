@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Aurora HATPRO radiometer append every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=aurora-hatpro-append.service
+
+[Install]
+WantedBy=timers.target

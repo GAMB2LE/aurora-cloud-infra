@@ -1,0 +1,10 @@
+---
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart dashboard
+  ansible.builtin.systemd:
+    name: aurora-dashboard.service
+    state: restarted
+  when: ansible_service_mgr == "systemd"

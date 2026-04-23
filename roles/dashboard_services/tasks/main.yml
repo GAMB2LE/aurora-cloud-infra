@@ -1,0 +1,52 @@
+---
+- name: Install dashboard environment file
+  ansible.builtin.template:
+    src: aurora-dashboard.env.j2
+    dest: /etc/aurora-dashboard.env
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart dashboard
+
+- name: Install systemd service and timer units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - aurora-dashboard.service
+    - aurora-ceilometer-append.service
+    - aurora-ceilometer-append.timer
+    - aurora-ceilometer-quicklooks.service
+    - aurora-ceilometer-quicklooks.timer
+    - aurora-radar-append.service
+    - aurora-radar-append.timer
+    - aurora-radar-quicklooks.service
+    - aurora-radar-quicklooks.timer
+    - aurora-hatpro-append.service
+    - aurora-hatpro-append.timer
+  notify:
+    - Reload systemd
+    - Restart dashboard
+
+- name: Enable dashboard service
+  ansible.builtin.systemd:
+    name: aurora-dashboard.service
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Enable data processing timers
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - aurora-ceilometer-append.timer
+    - aurora-ceilometer-quicklooks.timer
+    - aurora-radar-append.timer
+    - aurora-radar-quicklooks.timer
+    - aurora-hatpro-append.timer

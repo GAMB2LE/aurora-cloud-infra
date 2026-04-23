@@ -1,0 +1,14 @@
+[Unit]
+Description=Optional SSHFS mount for JASMIN GWS gamb2le
+After=network-online.target
+Wants=network-online.target
+
+[Mount]
+What={{ gws_username }}@{{ gws_transfer_host }}:{{ gws_path }}
+Where={{ gws_sshfs_mountpoint }}
+Type=fuse.sshfs
+Options=_netdev,IdentityFile={{ gws_ssh_private_key }},IdentitiesOnly=yes,BatchMode=yes,reconnect,ServerAliveInterval=30,ServerAliveCountMax=3,allow_other,default_permissions
+TimeoutSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Aurora cloud radar append every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=aurora-radar-append.service
+
+[Install]
+WantedBy=timers.target

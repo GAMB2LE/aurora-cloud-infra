@@ -1,0 +1,15 @@
+[Unit]
+Description=Aurora sync {{ item.name }} data to JASMIN GWS
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+ExecStart=/usr/bin/rsync -aH --partial --delete-delay --delay-updates \
+  -e "ssh -i {{ gws_ssh_private_key }} -o BatchMode=yes -o IdentitiesOnly=yes" \
+  {{ item.source }} {{ gws_username }}@{{ gws_transfer_host }}:{{ item.destination }}
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6

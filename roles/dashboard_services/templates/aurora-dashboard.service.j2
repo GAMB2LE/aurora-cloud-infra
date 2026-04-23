@@ -1,0 +1,25 @@
+[Unit]
+Description=Aurora Cloud Panel Dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+WorkingDirectory={{ aurora_app_dir }}
+EnvironmentFile=/etc/aurora-dashboard.env
+ExecStart={{ aurora_venv }}/bin/panel serve app.py \
+  --address={{ aurora_panel_host }} \
+  --port={{ aurora_panel_port }} \
+{% for origin in aurora_dashboard_allowed_origins %}
+  --allow-websocket-origin={{ origin }} \
+{% endfor %}
+  --num-procs=1
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

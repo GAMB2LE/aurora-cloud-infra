@@ -1,0 +1,6 @@
+*.retry
+.ansible/
+.venv/
+vault.yml
+*.vault.yml
+__pycache__/

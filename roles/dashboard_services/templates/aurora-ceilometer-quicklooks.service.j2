@@ -1,0 +1,12 @@
+[Unit]
+Description=Aurora generate ceilometer quicklooks
+After=aurora-ceilometer-append.service
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+WorkingDirectory={{ aurora_app_dir }}
+EnvironmentFile=/etc/aurora-dashboard.env
+ExecStart={{ aurora_venv }}/bin/python generate_daily_quicklooks.py
+Nice=10

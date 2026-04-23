@@ -1,0 +1,47 @@
+---
+- name: Ensure optional SSHFS mountpoint exists
+  ansible.builtin.file:
+    path: "{{ gws_sshfs_mountpoint }}"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "0755"
+  when: gws_sshfs_enabled | bool
+
+- name: Install optional SSHFS mount unit
+  ansible.builtin.template:
+    src: mnt-gws-gamb2le.mount.j2
+    dest: /etc/systemd/system/mnt-gws-gamb2le.mount
+    owner: root
+    group: root
+    mode: "0644"
+  when: gws_sshfs_enabled | bool
+
+- name: Install GWS rsync service units
+  ansible.builtin.template:
+    src: aurora-gws-rsync.service.j2
+    dest: "/etc/systemd/system/aurora-gws-rsync-{{ item.name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ gws_sync_jobs }}"
+  when: gws_sync_enabled | bool
+
+- name: Install GWS rsync timer units
+  ansible.builtin.template:
+    src: aurora-gws-rsync.timer.j2
+    dest: "/etc/systemd/system/aurora-gws-rsync-{{ item.name }}.timer"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ gws_sync_jobs }}"
+  when: gws_sync_enabled | bool
+
+- name: Enable GWS rsync timers
+  ansible.builtin.systemd:
+    name: "aurora-gws-rsync-{{ item.name }}.timer"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop: "{{ gws_sync_jobs }}"
+  when: gws_sync_enabled | bool

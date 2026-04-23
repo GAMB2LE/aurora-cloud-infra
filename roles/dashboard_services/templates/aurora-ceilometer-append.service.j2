@@ -1,0 +1,13 @@
+[Unit]
+Description=Aurora append new ceilometer NetCDF files into Zarr
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+WorkingDirectory={{ aurora_app_dir }}
+EnvironmentFile=/etc/aurora-dashboard.env
+ExecStart={{ aurora_venv }}/bin/python append_new_netcdf_to_zarr.py
+Nice=10

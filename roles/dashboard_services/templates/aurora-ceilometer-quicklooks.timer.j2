@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Aurora ceilometer quicklooks daily
+
+[Timer]
+OnCalendar=*-*-* 00:10:00
+Persistent=true
+Unit=aurora-ceilometer-quicklooks.service
+
+[Install]
+WantedBy=timers.target

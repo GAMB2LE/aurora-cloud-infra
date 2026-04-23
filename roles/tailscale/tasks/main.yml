@@ -1,0 +1,36 @@
+---
+- name: Install Tailscale apt key
+  ansible.builtin.get_url:
+    url: https://pkgs.tailscale.com/stable/ubuntu/jammy.noarmor.gpg
+    dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+    mode: "0644"
+  when: tailscale_enabled | bool
+
+- name: Configure Tailscale apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/ubuntu jammy main"
+    filename: tailscale
+    state: present
+  when: tailscale_enabled | bool
+
+- name: Install Tailscale
+  ansible.builtin.apt:
+    name: tailscale
+    state: present
+    update_cache: true
+  when: tailscale_enabled | bool
+
+- name: Enable Tailscale service
+  ansible.builtin.systemd:
+    name: tailscaled
+    enabled: true
+    state: started
+  when: tailscale_enabled | bool
+
+- name: Authenticate Tailscale when auth key is provided
+  ansible.builtin.command: tailscale up --authkey={{ tailscale_authkey }} --ssh
+  changed_when: true
+  no_log: true
+  when:
+    - tailscale_enabled | bool
+    - tailscale_authkey | length > 0

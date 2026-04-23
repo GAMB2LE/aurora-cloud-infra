@@ -1,0 +1,11 @@
+[Unit]
+Description=Schedule Aurora GWS {{ item.name }} sync
+
+[Timer]
+OnCalendar={{ item.schedule }}
+Persistent=true
+RandomizedDelaySec=300
+Unit=aurora-gws-rsync-{{ item.name }}.service
+
+[Install]
+WantedBy=timers.target
