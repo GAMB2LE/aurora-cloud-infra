@@ -15,9 +15,9 @@ Ansible configuration for rebuilding the Aurora cloud dashboard host on the exis
 ## Safe First Steps
 
 ```bash
-ansible-galaxy collection install -r requirements.yml
-ansible-playbook playbooks/audit.yml
-ansible-playbook playbooks/site.yml --check --diff
+uv run ansible-galaxy collection install -r requirements.yml
+uv run ansible-playbook playbooks/audit.yml
+uv run ansible-playbook playbooks/site.yml --check --diff
 ```
 
 Do not run `playbooks/site.yml` without `--check` until the old production Git changes have been preserved and transfer/Tailscale secrets have been put in Ansible Vault.

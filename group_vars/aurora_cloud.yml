@@ -9,6 +9,8 @@ aurora_app_repo: https://github.com/rrniii/aurora_cloud_dashboard.git
 aurora_app_version: main
 aurora_python: /usr/bin/python3
 aurora_venv: "{{ aurora_app_dir }}/venv"
+aurora_uv_bin: /usr/local/bin/uv
+aurora_uv_cache_dir: "{{ aurora_data_root }}/uv-cache"
 aurora_panel_host: 127.0.0.1
 aurora_panel_port: 5006
 
@@ -46,7 +48,6 @@ aurora_apt_packages:
   - git
   - nginx
   - python3-certbot-nginx
-  - python3-pip
   - python3-venv
   - rsync
   - sshfs

@@ -44,6 +44,7 @@ Optional `sshfs` can be added as a convenience mount at `/mnt/gws/gamb2le`, but 
 
 ```bash
 cd /gws/ssde/j25a/ncas_radar/jasmin_cloud_backup_20260409/aurora-cloud-infra
-ansible-playbook playbooks/audit.yml
-ansible-playbook playbooks/site.yml --check --diff
+uv run ansible-galaxy collection install -r requirements.yml
+uv run ansible-playbook playbooks/audit.yml
+uv run ansible-playbook playbooks/site.yml --check --diff
 ```

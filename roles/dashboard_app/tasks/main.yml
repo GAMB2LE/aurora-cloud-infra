@@ -15,10 +15,20 @@
     group: "{{ aurora_service_group }}"
     recurse: true
 
-- name: Create Python virtual environment
-  ansible.builtin.command: "{{ aurora_python }} -m venv {{ aurora_venv }}"
+- name: Ensure uv cache directory exists
+  ansible.builtin.file:
+    path: "{{ aurora_uv_cache_dir }}"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "0755"
+
+- name: Create Python virtual environment with uv
+  ansible.builtin.command: "{{ aurora_uv_bin }} venv {{ aurora_venv }} --python {{ aurora_python }}"
   args:
     creates: "{{ aurora_venv }}/bin/python"
+  environment:
+    UV_CACHE_DIR: "{{ aurora_uv_cache_dir }}"
   become_user: "{{ aurora_service_user }}"
 
 - name: Write pinned requirements
@@ -29,8 +39,8 @@
     group: "{{ aurora_service_group }}"
     mode: "0644"
 
-- name: Install Python dependencies
-  ansible.builtin.pip:
-    requirements: "{{ aurora_app_dir }}/requirements.txt"
-    virtualenv: "{{ aurora_venv }}"
+- name: Sync Python dependencies with uv
+  ansible.builtin.command: "{{ aurora_uv_bin }} pip sync {{ aurora_app_dir }}/requirements.txt --python {{ aurora_venv }}/bin/python"
+  environment:
+    UV_CACHE_DIR: "{{ aurora_uv_cache_dir }}"
   become_user: "{{ aurora_service_user }}"

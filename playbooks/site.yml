@@ -4,6 +4,7 @@
   become: true
   roles:
     - base
+    - uv
     - security
     - storage
     - tailscale

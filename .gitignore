@@ -1,6 +1,7 @@
 *.retry
 .ansible/
 .venv/
+.uv-bin/
 vault.yml
 *.vault.yml
 __pycache__/
