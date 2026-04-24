@@ -5,7 +5,7 @@ aurora_public_ip: 130.246.212.116
 aurora_service_user: aurora
 aurora_service_group: aurora
 aurora_app_dir: /opt/aurora-cloud-dashboard
-aurora_app_repo: https://github.com/rrniii/aurora_cloud_dashboard.git
+aurora_app_repo: https://github.com/GAMB2LE/aurora_cloud_dashboard.git
 aurora_app_version: main
 aurora_python: /usr/bin/python3
 aurora_venv: "{{ aurora_app_dir }}/venv"
