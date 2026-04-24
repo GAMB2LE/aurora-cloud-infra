@@ -1,4 +1,13 @@
 ---
+- name: Check whether TLS certificate exists
+  ansible.builtin.stat:
+    path: /etc/letsencrypt/live/{{ aurora_domain }}/fullchain.pem
+  register: aurora_tls_cert
+
+- name: Set TLS availability before nginx template
+  ansible.builtin.set_fact:
+    aurora_tls_available: "{{ aurora_tls_cert.stat.exists }}"
+
 - name: Install nginx site
   ansible.builtin.template:
     src: aurora-dashboard.nginx.j2
@@ -30,8 +39,26 @@
   when: not ansible_check_mode
 
 - name: Obtain or renew certificate with certbot nginx plugin
-  ansible.builtin.command: certbot --nginx -d {{ aurora_domain }} --non-interactive --agree-tos --register-unsafely-without-email --redirect
+  ansible.builtin.command: certbot certonly --nginx -d {{ aurora_domain }} --non-interactive --agree-tos --register-unsafely-without-email
   args:
     creates: /etc/letsencrypt/live/{{ aurora_domain }}/fullchain.pem
   notify: Reload nginx
   when: not ansible_check_mode
+
+- name: Recheck whether TLS certificate exists
+  ansible.builtin.stat:
+    path: /etc/letsencrypt/live/{{ aurora_domain }}/fullchain.pem
+  register: aurora_tls_cert_after
+
+- name: Set TLS availability after certbot
+  ansible.builtin.set_fact:
+    aurora_tls_available: "{{ aurora_tls_cert_after.stat.exists }}"
+
+- name: Install final nginx site after TLS availability is known
+  ansible.builtin.template:
+    src: aurora-dashboard.nginx.j2
+    dest: /etc/nginx/sites-available/{{ aurora_domain }}
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload nginx
