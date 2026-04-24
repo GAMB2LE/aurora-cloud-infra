@@ -58,3 +58,4 @@
     UV_CACHE_DIR: "{{ aurora_uv_cache_dir }}"
   become_user: "{{ aurora_service_user }}"
   when: not ansible_check_mode
+  notify: Restart dashboard

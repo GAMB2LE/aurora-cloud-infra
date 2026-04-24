@@ -1,0 +1,8 @@
+---
+- name: Restart dashboard
+  ansible.builtin.systemd:
+    name: aurora-dashboard.service
+    state: restarted
+  when:
+    - not ansible_check_mode
+    - ansible_facts.service_mgr == "systemd"
