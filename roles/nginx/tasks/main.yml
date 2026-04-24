@@ -13,6 +13,7 @@
     src: /etc/nginx/sites-available/{{ aurora_domain }}
     dest: /etc/nginx/sites-enabled/{{ aurora_domain }}
     state: link
+    force: true
   notify: Reload nginx
 
 - name: Disable default nginx site
