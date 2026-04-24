@@ -12,6 +12,7 @@
 - `/project`: 4T Ceph mount, currently empty from the VM view.
 - Current public web state: no `nginx`, no `certbot`, no listeners on `80`, `443`, or `5006`.
 - UFW package exists but firewall is inactive.
+- Existing listeners to preserve by request: VNC `5901`, node exporter `9100`, rpcbind `111`, and cups. CUPS currently listens on localhost only.
 
 ## Desired Layout
 
@@ -22,6 +23,7 @@
 - Public endpoint: `https://data.gamb2le.co.uk`.
 - Panel listens only on `127.0.0.1:5006`.
 - `nginx` is the only public entrypoint for the dashboard.
+- Existing VNC, node exporter, rpcbind, and cups services are left installed and running.
 
 ## GWS Sync Position
 
@@ -37,8 +39,9 @@ Optional `sshfs` can be added as a convenience mount at `/mnt/gws/gamb2le`, but 
 - Commit or otherwise preserve dirty production changes in the old dashboard repo.
 - Commit or preserve dirty user systemd service changes, including HATPRO/radiometer timers.
 - Decide how the target VM will authenticate to JASMIN transfer servers for GWS sync.
+- The target currently has no private key in `/home/azimuth/.ssh`; only `authorized_keys` is present. Automated GWS sync therefore needs a dedicated key installed for the `aurora` service user, or another non-interactive credential arrangement.
 - Put any Tailscale auth key and SSH transfer key material in Ansible Vault, not plain Git.
-- Confirm whether to keep existing `azimuth` desktop/VNC services or disable non-dashboard listeners.
+- The user provided a Tailscale key in the chat, but it is intentionally not stored in this repository.
 
 ## First Safe Commands
 

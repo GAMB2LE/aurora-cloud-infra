@@ -21,3 +21,14 @@ uv run ansible-playbook playbooks/site.yml --check --diff
 ```
 
 Do not run `playbooks/site.yml` without `--check` until the old production Git changes have been preserved and transfer/Tailscale secrets have been put in Ansible Vault.
+
+## Secrets
+
+Do not commit secrets. For a first Tailscale registration, pass the auth key from the environment:
+
+```bash
+export TAILSCALE_AUTHKEY=...
+uv run ansible-playbook playbooks/site.yml --check --diff
+```
+
+For unattended GWS sync, create or install a dedicated private key at `/home/aurora/.ssh/id_rsa_jasmin` and authorize it for `rrniii` on the relevant JASMIN transfer service. A forwarded SSH agent from an interactive admin session is not enough for systemd timers.

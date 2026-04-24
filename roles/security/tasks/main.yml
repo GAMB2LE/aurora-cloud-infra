@@ -4,30 +4,44 @@
     rule: allow
     port: "22"
     proto: tcp
+  when: aurora_enable_ufw | bool
 
 - name: Allow HTTP through UFW
   community.general.ufw:
     rule: allow
     port: "80"
     proto: tcp
+  when: aurora_enable_ufw | bool
 
 - name: Allow HTTPS through UFW
   community.general.ufw:
     rule: allow
     port: "443"
     proto: tcp
+  when: aurora_enable_ufw | bool
+
+- name: Preserve existing listener ports requested by user
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.port }}"
+    proto: "{{ item.proto }}"
+    comment: "{{ item.comment }}"
+  loop: "{{ aurora_preserve_existing_listener_ports }}"
+  when: aurora_enable_ufw | bool
 
 - name: Explicitly deny direct public Panel port
   community.general.ufw:
     rule: deny
     port: "{{ aurora_panel_port }}"
     proto: tcp
+  when: aurora_enable_ufw | bool
 
 - name: Enable UFW with default deny incoming
   community.general.ufw:
     state: enabled
     policy: deny
     direction: incoming
+  when: aurora_enable_ufw | bool
 
 - name: Ensure fail2ban is enabled
   ansible.builtin.systemd:

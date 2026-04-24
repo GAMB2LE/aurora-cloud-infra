@@ -39,6 +39,14 @@ aurora_dashboard_allowed_origins:
   - "{{ aurora_domain }}"
   - "{{ aurora_domain }}:443"
 
+aurora_enable_ufw: true
+aurora_preserve_existing_listener_ports:
+  # Existing target services the user asked to leave in place.
+  - { port: "5901", proto: tcp, comment: "existing VNC" }
+  - { port: "9100", proto: tcp, comment: "existing node_exporter" }
+  - { port: "111", proto: tcp, comment: "existing rpcbind" }
+  - { port: "111", proto: udp, comment: "existing rpcbind" }
+
 aurora_apt_packages:
   - ca-certificates
   - certbot
@@ -75,13 +83,17 @@ aurora_python_requirements:
   - zarr==2.18.3
 
 tailscale_enabled: true
-tailscale_authkey: ""  # Set via ansible-vault before enabling first login.
+# Do not commit the auth key. Export TAILSCALE_AUTHKEY before running site.yml,
+# or override this variable from an Ansible Vault file.
+tailscale_authkey: "{{ lookup('env', 'TAILSCALE_AUTHKEY') | default('', true) }}"
 
 # Prefer rsync via JASMIN transfer servers for reliable GWS sync.
 gws_sync_enabled: false
 gws_transfer_host: xfer-vm-01.jasmin.ac.uk
 gws_username: rrniii
 gws_path: /gws/ssde/j25b/gamb2le
+# Automated timers need a real private key on the VM. Agent forwarding from the
+# admin SSH session is not sufficient for unattended systemd jobs.
 gws_ssh_private_key: /home/aurora/.ssh/id_rsa_jasmin
 gws_sync_jobs:
   - name: raw
