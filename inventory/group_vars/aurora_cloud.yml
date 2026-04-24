@@ -39,6 +39,9 @@ aurora_dashboard_allowed_origins:
   - "{{ aurora_domain }}"
   - "{{ aurora_domain }}:443"
 
+# Enable after raw files and initial Zarr stores have been migrated/generated.
+aurora_enable_processing_timers: false
+
 aurora_enable_ufw: true
 aurora_preserve_existing_listener_ports:
   # Existing target services the user asked to leave in place.

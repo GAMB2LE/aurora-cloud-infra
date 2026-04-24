@@ -39,11 +39,11 @@
     daemon_reload: true
   when: not ansible_check_mode
 
-- name: Enable data processing timers
+- name: Manage data processing timers
   ansible.builtin.systemd:
     name: "{{ item }}"
-    enabled: true
-    state: started
+    enabled: "{{ aurora_enable_processing_timers | bool }}"
+    state: "{{ 'started' if aurora_enable_processing_timers | bool else 'stopped' }}"
     daemon_reload: true
   loop:
     - aurora-ceilometer-append.timer
@@ -52,3 +52,16 @@
     - aurora-radar-quicklooks.timer
     - aurora-hatpro-append.timer
   when: not ansible_check_mode
+
+- name: Reset failed data processing service state when timers are disabled
+  ansible.builtin.command: systemctl reset-failed {{ item }}
+  changed_when: false
+  loop:
+    - aurora-ceilometer-append.service
+    - aurora-ceilometer-quicklooks.service
+    - aurora-radar-append.service
+    - aurora-radar-quicklooks.service
+    - aurora-hatpro-append.service
+  when:
+    - not ansible_check_mode
+    - not aurora_enable_processing_timers | bool
