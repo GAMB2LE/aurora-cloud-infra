@@ -18,7 +18,9 @@
     name: tailscale
     state: present
     update_cache: true
-  when: tailscale_enabled | bool
+  when:
+    - tailscale_enabled | bool
+    - not ansible_check_mode
 
 - name: Enable Tailscale service
   ansible.builtin.systemd:

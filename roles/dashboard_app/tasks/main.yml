@@ -42,6 +42,7 @@
     owner: "{{ aurora_service_user }}"
     group: "{{ aurora_service_group }}"
     mode: "0644"
+  when: not ansible_check_mode
 
 - name: Sync Python dependencies with uv
   ansible.builtin.command: "{{ aurora_uv_bin }} pip sync {{ aurora_app_dir }}/requirements.txt --python {{ aurora_venv }}/bin/python"
