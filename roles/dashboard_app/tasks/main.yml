@@ -1,4 +1,12 @@
 ---
+- name: Ensure application directory exists
+  ansible.builtin.file:
+    path: "{{ aurora_app_dir }}"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "0755"
+
 - name: Check out dashboard application
   ansible.builtin.git:
     repo: "{{ aurora_app_repo }}"
