@@ -26,9 +26,11 @@
     name: nginx
     enabled: true
     state: started
+  when: not ansible_check_mode
 
 - name: Obtain or renew certificate with certbot nginx plugin
   ansible.builtin.command: certbot --nginx -d {{ aurora_domain }} --non-interactive --agree-tos --register-unsafely-without-email --redirect
   args:
     creates: /etc/letsencrypt/live/{{ aurora_domain }}/fullchain.pem
   notify: Reload nginx
+  when: not ansible_check_mode

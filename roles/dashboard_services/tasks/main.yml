@@ -37,6 +37,7 @@
     enabled: true
     state: started
     daemon_reload: true
+  when: not ansible_check_mode
 
 - name: Enable data processing timers
   ansible.builtin.systemd:
@@ -50,3 +51,4 @@
     - aurora-radar-append.timer
     - aurora-radar-quicklooks.timer
     - aurora-hatpro-append.timer
+  when: not ansible_check_mode

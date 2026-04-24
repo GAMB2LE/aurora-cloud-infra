@@ -25,7 +25,9 @@
     name: tailscaled
     enabled: true
     state: started
-  when: tailscale_enabled | bool
+  when:
+    - tailscale_enabled | bool
+    - not ansible_check_mode
 
 - name: Authenticate Tailscale when auth key is provided
   ansible.builtin.command: tailscale up --authkey={{ tailscale_authkey }} --ssh
@@ -34,3 +36,4 @@
   when:
     - tailscale_enabled | bool
     - tailscale_authkey | length > 0
+    - not ansible_check_mode

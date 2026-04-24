@@ -6,6 +6,7 @@
     version: "{{ aurora_app_version }}"
     update: true
   become_user: "{{ aurora_service_user }}"
+  when: not ansible_check_mode
 
 - name: Ensure app ownership
   ansible.builtin.file:
@@ -14,6 +15,7 @@
     owner: "{{ aurora_service_user }}"
     group: "{{ aurora_service_group }}"
     recurse: true
+  when: not ansible_check_mode
 
 - name: Ensure uv cache directory exists
   ansible.builtin.file:
@@ -22,6 +24,7 @@
     owner: "{{ aurora_service_user }}"
     group: "{{ aurora_service_group }}"
     mode: "0755"
+  when: not ansible_check_mode
 
 - name: Create Python virtual environment with uv
   ansible.builtin.command: "{{ aurora_uv_bin }} venv {{ aurora_venv }} --python {{ aurora_python }}"
@@ -30,6 +33,7 @@
   environment:
     UV_CACHE_DIR: "{{ aurora_uv_cache_dir }}"
   become_user: "{{ aurora_service_user }}"
+  when: not ansible_check_mode
 
 - name: Write pinned requirements
   ansible.builtin.template:
@@ -44,3 +48,4 @@
   environment:
     UV_CACHE_DIR: "{{ aurora_uv_cache_dir }}"
   become_user: "{{ aurora_service_user }}"
+  when: not ansible_check_mode
