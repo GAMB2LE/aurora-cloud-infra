@@ -43,6 +43,10 @@
     - aurora-power-append.timer
     - aurora-power-quicklooks.service
     - aurora-power-quicklooks.timer
+    - aurora-wxcam-catalog.service
+    - aurora-wxcam-catalog.timer
+    - aurora-wxcam-append.service
+    - aurora-wxcam-append.timer
   notify:
     - Reload systemd
     - Restart dashboard
@@ -75,6 +79,8 @@
     - { unit: aurora-asfs-fast-sonic-append.timer, key: asfs_fast_sonic_append }
     - { unit: aurora-power-append.timer, key: power_append }
     - { unit: aurora-power-quicklooks.timer, key: power_quicklooks }
+    - { unit: aurora-wxcam-catalog.timer, key: wxcam_catalog }
+    - { unit: aurora-wxcam-append.timer, key: wxcam_append }
   when: not ansible_check_mode
 
 - name: Reset failed data processing service state when timers are disabled
@@ -95,6 +101,8 @@
     - aurora-asfs-fast-sonic-append.service
     - aurora-power-append.service
     - aurora-power-quicklooks.service
+    - aurora-wxcam-catalog.service
+    - aurora-wxcam-append.service
   when:
     - not ansible_check_mode
     - not aurora_enable_processing_timers | bool

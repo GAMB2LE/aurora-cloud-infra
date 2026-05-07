@@ -28,6 +28,7 @@ aurora_paths:
   raw_vaisalamet: "{{ aurora_raw_root }}/vaisalamet"
   raw_asfs_logger: "{{ aurora_raw_root }}/asfs/loggernet"
   raw_power: "{{ aurora_raw_root }}/power/level1"
+  raw_wxcam: "{{ aurora_raw_root }}/wxcam"
   products_cl61: "{{ aurora_product_root }}/cl61"
   products_radar: "{{ aurora_product_root }}/rpgfmcw94"
   products_hatpro: "{{ aurora_product_root }}/hatprog5"
@@ -35,6 +36,7 @@ aurora_paths:
   products_asfs_logger: "{{ aurora_product_root }}/asfs_logger"
   products_asfs_fast_sonic: "{{ aurora_product_root }}/asfs_fast_sonic"
   products_power: "{{ aurora_product_root }}/power"
+  products_wxcam: "{{ aurora_product_root }}/wxcam"
   quicklooks: "{{ aurora_product_root }}/quicklooks"
 
 aurora_zarr:
@@ -45,6 +47,10 @@ aurora_zarr:
   asfs_logger: "{{ aurora_product_root }}/asfs_logger/asfs_logger.zarr"
   asfs_fast_sonic: "{{ aurora_product_root }}/asfs_fast_sonic/asfs_fast_sonic.zarr"
   power: "{{ aurora_product_root }}/power/power.zarr"
+  wxcam: "{{ aurora_product_root }}/wxcam/wxcam.zarr"
+
+aurora_catalogs:
+  wxcam: "{{ aurora_paths.products_wxcam }}/wxcam_catalog.sqlite"
 
 aurora_quicklook_dirs:
   ceilometer: "{{ aurora_paths.quicklooks }}/ceilometer"
@@ -84,6 +90,8 @@ aurora_processing_timers:
   asfs_fast_sonic_append: true
   power_append: true
   power_quicklooks: true
+  wxcam_catalog: true
+  wxcam_append: true
 
 cl61_source_sync_enabled: true
 cl61_source_sync_timer_enabled: true
@@ -164,6 +172,24 @@ power_source_sync_interval: 2min
 power_source_sync_randomized_delay: 30
 # False means the first timer run pulls all existing matching source files.
 power_source_start_fresh: false
+
+wxcam_source_sync_enabled: true
+wxcam_source_sync_timer_enabled: true
+wxcam_source_user: aurora
+wxcam_source_host: 100.124.55.22
+wxcam_source_path: /home/aurora/data/wxcam
+wxcam_source_fish_pattern: "HDR_*.jpg"
+wxcam_source_pano_pattern: "HDR_*_PANO.jpg"
+wxcam_source_destination: "{{ aurora_paths.raw_wxcam }}"
+wxcam_source_state_file: "{{ aurora_state_root }}/wxcam-sync.last"
+wxcam_source_sync_interval: 2min
+wxcam_source_sync_randomized_delay: 30
+# False means the first timer run pulls all existing HDR source images so the
+# catalog can include history, while the pixel Zarr starts at the later catalog
+# frontier tracked by its own state file.
+wxcam_source_start_fresh: false
+
+wxcam_zarr_state_file: "{{ aurora_state_root }}/wxcam-zarr-state.json"
 
 aurora_enable_ufw: true
 aurora_preserve_existing_listener_ports:

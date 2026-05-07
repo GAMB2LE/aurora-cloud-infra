@@ -13,6 +13,7 @@
     - "{{ aurora_paths.raw_vaisalamet }}"
     - "{{ aurora_paths.raw_asfs_logger }}"
     - "{{ aurora_paths.raw_power }}"
+    - "{{ aurora_paths.raw_wxcam }}"
 
 - name: Ensure dashboard product directories exist under /data
   ansible.builtin.file:
@@ -30,6 +31,7 @@
     - "{{ aurora_paths.products_asfs_logger }}"
     - "{{ aurora_paths.products_asfs_fast_sonic }}"
     - "{{ aurora_paths.products_power }}"
+    - "{{ aurora_paths.products_wxcam }}"
     - "{{ aurora_paths.quicklooks }}"
     - "{{ aurora_quicklook_dirs.ceilometer }}"
     - "{{ aurora_quicklook_dirs.cloud_radar }}"

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Aurora wxcam pixel-Zarr append every 5 minutes
+
+[Timer]
+OnCalendar=*:09/5
+RandomizedDelaySec=0
+Persistent=true
+Unit=aurora-wxcam-append.service
+
+[Install]
+WantedBy=timers.target

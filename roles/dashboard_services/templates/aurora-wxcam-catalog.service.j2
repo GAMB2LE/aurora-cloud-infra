@@ -1,0 +1,14 @@
+[Unit]
+Description=Aurora wxcam catalog index
+After=network-online.target aurora-wxcam-source-sync.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+WorkingDirectory={{ aurora_app_dir }}
+EnvironmentFile=/etc/aurora-dashboard.env
+ExecCondition=/usr/bin/test -d {{ aurora_paths.raw_wxcam }}
+ExecStart={{ aurora_venv }}/bin/python index_wxcam_catalog.py --root {{ aurora_paths.raw_wxcam }} --catalog {{ aurora_catalogs.wxcam }}
+Nice=10

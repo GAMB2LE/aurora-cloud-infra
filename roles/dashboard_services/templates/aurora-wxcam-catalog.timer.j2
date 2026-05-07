@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Aurora wxcam catalog index every 5 minutes
+
+[Timer]
+OnCalendar=*:07/5
+RandomizedDelaySec=0
+Persistent=true
+Unit=aurora-wxcam-catalog.service
+
+[Install]
+WantedBy=timers.target

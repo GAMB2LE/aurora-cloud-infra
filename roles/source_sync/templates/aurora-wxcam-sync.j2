@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source_user={{ wxcam_source_user | quote }}
+source_host={{ wxcam_source_host | quote }}
+source_path={{ wxcam_source_path | quote }}
+fish_pattern={{ wxcam_source_fish_pattern | quote }}
+pano_pattern={{ wxcam_source_pano_pattern | quote }}
+destination={{ wxcam_source_destination | quote }}
+state_file={{ wxcam_source_state_file | quote }}
+start_fresh={{ '1' if wxcam_source_start_fresh | bool else '0' }}
+known_hosts=/home/{{ aurora_service_user }}/.ssh/known_hosts
+
+mkdir -p "$destination" "$(dirname "$state_file")" "$(dirname "$known_hosts")"
+
+if [[ ! -f "$state_file" ]]; then
+  if [[ "$start_fresh" == "1" ]]; then
+    date +%s > "$state_file"
+    echo "Initialized fresh wxcam sync state at $(cat "$state_file"); no historical files pulled."
+    exit 0
+  fi
+  echo 0 > "$state_file"
+fi
+
+last_epoch="$(cat "$state_file")"
+now_epoch="$(date +%s)"
+files_from="$(mktemp)"
+trap 'rm -f "$files_from"' EXIT
+
+ssh_opts=(
+  -o BatchMode=yes
+  -o IdentitiesOnly=yes
+  -o IdentityFile=none
+  -o PubkeyAuthentication=no
+  -o StrictHostKeyChecking=accept-new
+  -o UserKnownHostsFile="$known_hosts"
+)
+
+ssh "${ssh_opts[@]}" "${source_user}@${source_host}" bash -s -- "$source_path" "$last_epoch" "$now_epoch" "$fish_pattern" "$pano_pattern" > "$files_from" <<'REMOTE_FIND'
+set -euo pipefail
+source_path="$1"
+last_epoch="$2"
+now_epoch="$3"
+fish_pattern="$4"
+pano_pattern="$5"
+cd "$source_path"
+find FISH -type f -name "$fish_pattern" -newermt "@${last_epoch}" ! -newermt "@${now_epoch}" -printf '%p\0'
+find PANO -type f -name "$pano_pattern" -newermt "@${last_epoch}" ! -newermt "@${now_epoch}" -printf '%p\0'
+REMOTE_FIND
+
+if [[ ! -s "$files_from" ]]; then
+  echo "$now_epoch" > "$state_file"
+  echo "No new wxcam HDR files found."
+  exit 0
+fi
+
+export RSYNC_RSH="ssh -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityFile=none -o PubkeyAuthentication=no -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$known_hosts"
+rsync -a --partial --from0 --files-from="$files_from" "${source_user}@${source_host}:${source_path%/}/" "${destination%/}/"
+echo "$now_epoch" > "$state_file"
