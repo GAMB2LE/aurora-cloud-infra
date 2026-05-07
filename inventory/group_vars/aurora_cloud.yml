@@ -64,12 +64,11 @@ aurora_processing_timers:
   hatpro_append: false
 
 cl61_source_sync_enabled: true
-cl61_source_sync_timer_enabled: false
+cl61_source_sync_timer_enabled: true
 cl61_source_generate_ssh_key: true
 cl61_source_user: aurora
 cl61_source_host: 100.117.101.84
-# Confirm this once SSH to the source host is available for audit.
-cl61_source_path: /mnt/data/cl61
+cl61_source_path: /home/aurora/data/cl61
 cl61_source_pattern: "gamb2le_depolarisation_lidar_ceilometer_aurora_*.nc"
 cl61_source_destination: "{{ aurora_paths.raw_cl61 }}"
 cl61_source_ssh_key_path: /home/aurora/.ssh/id_ed25519_celine

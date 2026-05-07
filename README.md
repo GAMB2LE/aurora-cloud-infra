@@ -10,7 +10,7 @@ Ansible configuration for rebuilding the Aurora cloud dashboard host on the exis
 - Dashboard app: `/opt/aurora-cloud-dashboard`.
 - Public access: `nginx` on `80/443`.
 - Private Panel backend: `127.0.0.1:5006` only.
-- Fresh CL61 raw source: `aurora@100.117.101.84:/mnt/data/cl61` pulled into `/project/aurora/raw/cl61`.
+- Fresh CL61 raw source: `aurora@100.117.101.84:/home/aurora/data/cl61` pulled into `/project/aurora/raw/cl61`.
 - GWS backup/sync: rsync via a JASMIN transfer host to `/gws/ssde/j25b/gamb2le`.
 
 ## Safe First Steps
@@ -37,11 +37,14 @@ sudo -u aurora ssh -i /home/aurora/.ssh/id_ed25519_celine aurora@100.117.101.84 
 ```
 
 The current audit found Tailscale reachability to `100.117.101.84`
-(`celine-edge-1`) but SSH authentication was rejected for both `azimuth` and
-the `aurora` service user. Install a dedicated key via Ansible Vault or add the
-target service user's generated public key to the source host. The sync timer is
-gated by `cl61_source_sync_timer_enabled` and should be switched to `true` only
-after this SSH test passes.
+(`celine-edge-1`) and passwordless SSH now works from the `aurora` service user
+on `azimuth` using `/home/aurora/.ssh/id_ed25519_celine`. The source contains
+fresh files in `/home/aurora/data/cl61`.
+
+The legacy source-side `cl61sync.timer` on `celine-edge-1` pushes to the old
+`aurora-cloud:/mnt/data/cl61` location and prunes local files older than 21 days
+after a successful verification. Leave that timer disabled for this fresh-start
+pull model.
 
 ## Secrets
 

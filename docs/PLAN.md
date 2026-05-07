@@ -59,13 +59,15 @@ Optional `sshfs` can be added as a convenience mount at `/mnt/gws/gamb2le`, but 
 
 ## Fresh CL61 Source Plan
 
-- Pull fresh CL61 files from `aurora@100.117.101.84:/mnt/data/cl61` into
+- Pull fresh CL61 files from `aurora@100.117.101.84:/home/aurora/data/cl61` into
   `/project/aurora/raw/cl61`.
-- Install the source sync service now, but keep its timer gated until SSH from
-  the `aurora` service user on `azimuth` is authorized.
+- Install and enable the Ansible-managed source sync timer now that SSH from the
+  `aurora` service user on `azimuth` is authorized.
 - Do not pull historical files. The source sync maintains
   `/var/lib/aurora-cloud/cl61-sync.last`; the first run initializes it to
   "now" and exits.
+- Keep the legacy source-side `cl61sync.timer` disabled. It pushes to the old
+  `/mnt/data/cl61` destination and prunes source files after verification.
 - The CL61 append service bootstraps
   `/data/aurora/products/cl61/gamb2le_depolarisation_lidar_ceilometer_aurora.zarr`
   from recent raw files when the Zarr store is absent.
