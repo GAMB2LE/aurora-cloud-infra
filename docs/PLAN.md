@@ -25,6 +25,20 @@
 - `nginx` is the only public entrypoint for the dashboard.
 - Existing VNC, node exporter, rpcbind, and cups services are left installed and running.
 
+## Current Remote Audit: 2026-05-07
+
+- `azimuth@130.246.212.116` is already in the Ansible layout:
+  `/opt/aurora-cloud-dashboard`, `/project/aurora/raw`, and
+  `/data/aurora/products`.
+- `aurora-dashboard.service`, `nginx`, `tailscaled`, `fail2ban`, and `ufw` are
+  active.
+- Processing product directories exist but are empty. The dashboard serves a
+  Panel shell, but the app logs show missing Zarr data because no fresh source
+  data has been pulled yet.
+- `100.117.101.84` is visible from `azimuth` over Tailscale as
+  `celine-edge-1`, but SSH as `aurora` currently fails with
+  `Permission denied (publickey,password)`.
+
 ## GWS Sync Position
 
 JASMIN cloud tenant documentation says cloud VMs do not have native filesystem-level access to JASMIN storage, including Group Workspaces. GWS paths are available on transfer and analysis servers, not directly on cloud VMs. For that reason the primary supported sync mechanism should be `rsync` over SSH via a JASMIN transfer server such as `xfer-vm-01.jasmin.ac.uk`.
@@ -42,6 +56,24 @@ Optional `sshfs` can be added as a convenience mount at `/mnt/gws/gamb2le`, but 
 - The target currently has no private key in `/home/azimuth/.ssh`; only `authorized_keys` is present. Automated GWS sync therefore needs a dedicated key installed for the `aurora` service user, or another non-interactive credential arrangement.
 - Put any Tailscale auth key and SSH transfer key material in Ansible Vault, not plain Git.
 - The user provided a Tailscale key in the chat, but it is intentionally not stored in this repository.
+
+## Fresh CL61 Source Plan
+
+- Pull fresh CL61 files from `aurora@100.117.101.84:/mnt/data/cl61` into
+  `/project/aurora/raw/cl61`.
+- Install the source sync service now, but keep its timer gated until SSH from
+  the `aurora` service user on `azimuth` is authorized.
+- Do not pull historical files. The source sync maintains
+  `/var/lib/aurora-cloud/cl61-sync.last`; the first run initializes it to
+  "now" and exits.
+- The CL61 append service bootstraps
+  `/data/aurora/products/cl61/gamb2le_depolarisation_lidar_ceilometer_aurora.zarr`
+  from recent raw files when the Zarr store is absent.
+- CL61 append, latest quicklook, and daily quicklook timers are enabled.
+  Radar and HATPRO timers remain disabled until their fresh raw sources are
+  configured.
+- The dashboard code should be deployed from a GitHub commit that includes
+  environment-driven quicklook paths and missing-Zarr tolerance.
 
 ## First Safe Commands
 

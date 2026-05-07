@@ -1,5 +1,5 @@
 [Unit]
-Description=Aurora generate ceilometer quicklooks
+Description=Aurora generate latest CL61 ceilometer quicklook
 After=aurora-ceilometer-append.service
 
 [Service]
@@ -9,5 +9,5 @@ Group={{ aurora_service_group }}
 WorkingDirectory={{ aurora_app_dir }}
 EnvironmentFile=/etc/aurora-dashboard.env
 ExecCondition=/usr/bin/test -d {{ aurora_zarr.ceilometer }}
-ExecStart={{ aurora_venv }}/bin/python generate_daily_quicklooks.py
+ExecStart={{ aurora_venv }}/bin/python plot_ceilometer_zarr_last24h.py {{ aurora_zarr.ceilometer }} {{ aurora_quicklook_latest.ceilometer }}
 Nice=10

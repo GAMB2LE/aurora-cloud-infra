@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule Aurora CL61 source sync
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec={{ cl61_source_sync_interval }}
+Persistent=true
+RandomizedDelaySec={{ cl61_source_sync_randomized_delay }}
+Unit=aurora-cl61-source-sync.service
+
+[Install]
+WantedBy=timers.target

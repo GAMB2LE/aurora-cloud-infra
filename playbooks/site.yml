@@ -8,6 +8,7 @@
     - security
     - storage
     - tailscale
+    - source_sync
     - dashboard_app
     - dashboard_services
     - nginx

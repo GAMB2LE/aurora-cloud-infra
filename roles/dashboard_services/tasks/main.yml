@@ -19,6 +19,8 @@
     - aurora-dashboard.service
     - aurora-ceilometer-append.service
     - aurora-ceilometer-append.timer
+    - aurora-ceilometer-last24h.service
+    - aurora-ceilometer-last24h.timer
     - aurora-ceilometer-quicklooks.service
     - aurora-ceilometer-quicklooks.timer
     - aurora-radar-append.service
@@ -41,16 +43,17 @@
 
 - name: Manage data processing timers
   ansible.builtin.systemd:
-    name: "{{ item }}"
-    enabled: "{{ aurora_enable_processing_timers | bool }}"
-    state: "{{ 'started' if aurora_enable_processing_timers | bool else 'stopped' }}"
+    name: "{{ item.unit }}"
+    enabled: "{{ aurora_processing_timers[item.key] | default(aurora_enable_processing_timers) | bool }}"
+    state: "{{ 'started' if aurora_processing_timers[item.key] | default(aurora_enable_processing_timers) | bool else 'stopped' }}"
     daemon_reload: true
   loop:
-    - aurora-ceilometer-append.timer
-    - aurora-ceilometer-quicklooks.timer
-    - aurora-radar-append.timer
-    - aurora-radar-quicklooks.timer
-    - aurora-hatpro-append.timer
+    - { unit: aurora-ceilometer-append.timer, key: ceilometer_append }
+    - { unit: aurora-ceilometer-last24h.timer, key: ceilometer_last24h }
+    - { unit: aurora-ceilometer-quicklooks.timer, key: ceilometer_quicklooks }
+    - { unit: aurora-radar-append.timer, key: radar_append }
+    - { unit: aurora-radar-quicklooks.timer, key: radar_quicklooks }
+    - { unit: aurora-hatpro-append.timer, key: hatpro_append }
   when: not ansible_check_mode
 
 - name: Reset failed data processing service state when timers are disabled
@@ -59,6 +62,7 @@
   failed_when: false
   loop:
     - aurora-ceilometer-append.service
+    - aurora-ceilometer-last24h.service
     - aurora-ceilometer-quicklooks.service
     - aurora-radar-append.service
     - aurora-radar-quicklooks.service

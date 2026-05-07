@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Aurora latest CL61 ceilometer quicklook every 5 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=aurora-ceilometer-last24h.service
+
+[Install]
+WantedBy=timers.target

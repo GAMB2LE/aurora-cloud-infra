@@ -25,4 +25,8 @@
     - "{{ aurora_paths.products_radar }}"
     - "{{ aurora_paths.products_hatpro }}"
     - "{{ aurora_paths.quicklooks }}"
+    - "{{ aurora_quicklook_dirs.ceilometer }}"
+    - "{{ aurora_quicklook_dirs.cloud_radar }}"
+    - "{{ aurora_quicklook_dirs.hatpro }}"
     - "{{ aurora_log_root }}"
+    - "{{ aurora_state_root }}"

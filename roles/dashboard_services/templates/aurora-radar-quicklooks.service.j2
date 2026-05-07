@@ -8,5 +8,5 @@ User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
 WorkingDirectory={{ aurora_app_dir }}
 EnvironmentFile=/etc/aurora-dashboard.env
-ExecStart=/bin/bash -lc 'source {{ aurora_venv }}/bin/activate && ./plot_cloud_radar_last24h.py {{ aurora_zarr.cloud_radar }} {{ aurora_paths.quicklooks }}/last24h_cloudradar.png && ./generate_cloud_radar_quicklooks.py'
+ExecStart=/bin/bash -lc 'source {{ aurora_venv }}/bin/activate && ./plot_cloud_radar_last24h.py {{ aurora_zarr.cloud_radar }} {{ aurora_quicklook_latest.cloud_radar }} && ./generate_cloud_radar_quicklooks.py'
 Nice=10

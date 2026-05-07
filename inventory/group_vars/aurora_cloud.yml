@@ -19,6 +19,7 @@ aurora_data_root: /data/aurora
 aurora_product_root: "{{ aurora_data_root }}/products"
 aurora_raw_root: /project/aurora/raw
 aurora_log_root: /var/log/aurora-cloud
+aurora_state_root: /var/lib/aurora-cloud
 
 aurora_paths:
   raw_cl61: "{{ aurora_raw_root }}/cl61"
@@ -35,12 +36,48 @@ aurora_zarr:
   cloud_radar: "{{ aurora_product_root }}/rpgfmcw94/cloud_radar.zarr"
   hatpro: "{{ aurora_product_root }}/hatprog5/hatpro.zarr"
 
+aurora_quicklook_dirs:
+  ceilometer: "{{ aurora_paths.quicklooks }}/ceilometer"
+  cloud_radar: "{{ aurora_paths.quicklooks }}/cloud_radar"
+  hatpro: "{{ aurora_paths.quicklooks }}/hatpro"
+
+aurora_quicklook_latest:
+  ceilometer: "{{ aurora_quicklook_dirs.ceilometer }}/latest.png"
+  cloud_radar: "{{ aurora_quicklook_dirs.cloud_radar }}/latest.png"
+  hatpro: "{{ aurora_quicklook_dirs.hatpro }}/latest.png"
+
 aurora_dashboard_allowed_origins:
   - "{{ aurora_domain }}"
   - "{{ aurora_domain }}:443"
 
-# Enable after raw files and initial Zarr stores have been migrated/generated.
+# Backward-compatible global default for any timer not listed below.
 aurora_enable_processing_timers: false
+aurora_processing_timers:
+  # CL61 is the first fresh pipeline to enable. The append script now
+  # bootstraps the Zarr from recent raw files when the store is absent.
+  ceilometer_append: true
+  ceilometer_last24h: true
+  ceilometer_quicklooks: true
+  # Keep other instruments disabled until their fresh raw sources are plumbed.
+  radar_append: false
+  radar_quicklooks: false
+  hatpro_append: false
+
+cl61_source_sync_enabled: true
+cl61_source_sync_timer_enabled: false
+cl61_source_generate_ssh_key: true
+cl61_source_user: aurora
+cl61_source_host: 100.117.101.84
+# Confirm this once SSH to the source host is available for audit.
+cl61_source_path: /mnt/data/cl61
+cl61_source_pattern: "gamb2le_depolarisation_lidar_ceilometer_aurora_*.nc"
+cl61_source_destination: "{{ aurora_paths.raw_cl61 }}"
+cl61_source_ssh_key_path: /home/aurora/.ssh/id_ed25519_celine
+cl61_source_state_file: "{{ aurora_state_root }}/cl61-sync.last"
+cl61_source_sync_interval: 2min
+cl61_source_sync_randomized_delay: 30
+# True means the first timer run records "now" and does not pull historical data.
+cl61_source_start_fresh: true
 
 aurora_enable_ufw: true
 aurora_preserve_existing_listener_ports:

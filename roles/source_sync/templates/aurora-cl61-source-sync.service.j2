@@ -1,0 +1,13 @@
+[Unit]
+Description=Aurora pull fresh CL61 raw NetCDF files from source host
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+ExecStart=/usr/local/bin/aurora-cl61-sync
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6

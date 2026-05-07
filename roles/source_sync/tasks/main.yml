@@ -1,0 +1,114 @@
+---
+- name: Ensure Aurora state directory exists
+  ansible.builtin.file:
+    path: "{{ aurora_state_root }}"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "0755"
+  when: cl61_source_sync_enabled | bool
+
+- name: Ensure Aurora SSH directory exists
+  ansible.builtin.file:
+    path: "/home/{{ aurora_service_user }}/.ssh"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "0700"
+  when: cl61_source_sync_enabled | bool
+
+- name: Install CL61 source SSH private key when provided by vault
+  ansible.builtin.copy:
+    content: "{{ cl61_source_ssh_private_key_content }}"
+    dest: "{{ cl61_source_ssh_key_path }}"
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "0600"
+  no_log: true
+  when:
+    - cl61_source_sync_enabled | bool
+    - cl61_source_ssh_private_key_content is defined
+    - cl61_source_ssh_private_key_content | length > 0
+
+- name: Generate CL61 source SSH key when no vault key is provided
+  ansible.builtin.command: "ssh-keygen -t ed25519 -N '' -f {{ cl61_source_ssh_key_path }} -C aurora-cl61-source-sync@{{ inventory_hostname }}"
+  args:
+    creates: "{{ cl61_source_ssh_key_path }}"
+  become_user: "{{ aurora_service_user }}"
+  when:
+    - cl61_source_sync_enabled | bool
+    - cl61_source_generate_ssh_key | bool
+    - cl61_source_ssh_private_key_content is not defined or cl61_source_ssh_private_key_content | length == 0
+    - not ansible_check_mode
+
+- name: Scan CL61 source SSH host key
+  ansible.builtin.command: "ssh-keyscan -T 10 {{ cl61_source_host }}"
+  changed_when: false
+  register: cl61_source_keyscan
+  when:
+    - cl61_source_sync_enabled | bool
+    - not ansible_check_mode
+
+- name: Trust CL61 source SSH host key for Aurora service user
+  ansible.builtin.known_hosts:
+    path: "/home/{{ aurora_service_user }}/.ssh/known_hosts"
+    name: "{{ cl61_source_host }}"
+    key: "{{ item }}"
+    state: present
+  loop: "{{ cl61_source_keyscan.stdout_lines | default([]) }}"
+  when:
+    - cl61_source_sync_enabled | bool
+    - not ansible_check_mode
+
+- name: Ensure CL61 source known_hosts ownership
+  ansible.builtin.file:
+    path: "/home/{{ aurora_service_user }}/.ssh/known_hosts"
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "0644"
+  when:
+    - cl61_source_sync_enabled | bool
+    - not ansible_check_mode
+    - cl61_source_keyscan.stdout_lines | default([]) | length > 0
+
+- name: Install CL61 source sync script
+  ansible.builtin.template:
+    src: aurora-cl61-sync.j2
+    dest: /usr/local/bin/aurora-cl61-sync
+    owner: root
+    group: root
+    mode: "0755"
+  when: cl61_source_sync_enabled | bool
+
+- name: Install CL61 source sync systemd units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - aurora-cl61-source-sync.service
+    - aurora-cl61-source-sync.timer
+  when: cl61_source_sync_enabled | bool
+
+- name: Enable CL61 source sync timer
+  ansible.builtin.systemd:
+    name: aurora-cl61-source-sync.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - cl61_source_sync_enabled | bool
+    - cl61_source_sync_timer_enabled | bool
+    - not ansible_check_mode
+
+- name: Disable CL61 source sync timer when requested
+  ansible.builtin.systemd:
+    name: aurora-cl61-source-sync.timer
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  when:
+    - not cl61_source_sync_enabled | bool or not cl61_source_sync_timer_enabled | bool
+    - not ansible_check_mode
