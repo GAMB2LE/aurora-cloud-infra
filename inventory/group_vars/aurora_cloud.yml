@@ -5,7 +5,7 @@ aurora_public_ip: 130.246.212.116
 aurora_service_user: aurora
 aurora_service_group: aurora
 aurora_app_dir: /opt/aurora-cloud-dashboard
-aurora_app_repo: https://github.com/GAMB2LE/aurora_cloud_dashboard.git
+aurora_app_repo: git@github-dashboard:GAMB2LE/aurora_cloud_dashboard.git
 aurora_app_version: main
 aurora_python: /usr/bin/python3
 aurora_venv: "{{ aurora_app_dir }}/venv"
@@ -184,9 +184,10 @@ wxcam_source_destination: "{{ aurora_paths.raw_wxcam }}"
 wxcam_source_state_file: "{{ aurora_state_root }}/wxcam-sync.last"
 wxcam_source_sync_interval: 2min
 wxcam_source_sync_randomized_delay: 30
-# True means the timer handles only new wxcam images going forward. Historical
-# image discovery comes from the remote metadata bootstrap in the catalog job.
-wxcam_source_start_fresh: true
+# False means the first timer run can pull the full HDR archive locally. The
+# remote metadata bootstrap still makes the dashboard immediately usable while
+# the raw-image backfill catches up.
+wxcam_source_start_fresh: false
 
 wxcam_zarr_state_file: "{{ aurora_state_root }}/wxcam-zarr-state.json"
 
