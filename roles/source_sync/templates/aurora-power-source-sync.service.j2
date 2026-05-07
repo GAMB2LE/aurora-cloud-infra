@@ -1,0 +1,13 @@
+[Unit]
+Description=Aurora pull fresh power level1 CSV files over Tailscale SSH
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+ExecStart=/usr/local/bin/aurora-power-sync
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6

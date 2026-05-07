@@ -39,6 +39,10 @@
     - aurora-asfs-logger-quicklooks.timer
     - aurora-asfs-fast-sonic-append.service
     - aurora-asfs-fast-sonic-append.timer
+    - aurora-power-append.service
+    - aurora-power-append.timer
+    - aurora-power-quicklooks.service
+    - aurora-power-quicklooks.timer
   notify:
     - Reload systemd
     - Restart dashboard
@@ -69,6 +73,8 @@
     - { unit: aurora-asfs-logger-append.timer, key: asfs_logger_append }
     - { unit: aurora-asfs-logger-quicklooks.timer, key: asfs_logger_quicklooks }
     - { unit: aurora-asfs-fast-sonic-append.timer, key: asfs_fast_sonic_append }
+    - { unit: aurora-power-append.timer, key: power_append }
+    - { unit: aurora-power-quicklooks.timer, key: power_quicklooks }
   when: not ansible_check_mode
 
 - name: Reset failed data processing service state when timers are disabled
@@ -87,6 +93,8 @@
     - aurora-asfs-logger-append.service
     - aurora-asfs-logger-quicklooks.service
     - aurora-asfs-fast-sonic-append.service
+    - aurora-power-append.service
+    - aurora-power-quicklooks.service
   when:
     - not ansible_check_mode
     - not aurora_enable_processing_timers | bool

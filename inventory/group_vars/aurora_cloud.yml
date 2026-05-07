@@ -27,12 +27,14 @@ aurora_paths:
   raw_hatpro: "{{ aurora_raw_root }}/hatprog5"
   raw_vaisalamet: "{{ aurora_raw_root }}/vaisalamet"
   raw_asfs_logger: "{{ aurora_raw_root }}/asfs/loggernet"
+  raw_power: "{{ aurora_raw_root }}/power/level1"
   products_cl61: "{{ aurora_product_root }}/cl61"
   products_radar: "{{ aurora_product_root }}/rpgfmcw94"
   products_hatpro: "{{ aurora_product_root }}/hatprog5"
   products_vaisalamet: "{{ aurora_product_root }}/vaisalamet"
   products_asfs_logger: "{{ aurora_product_root }}/asfs_logger"
   products_asfs_fast_sonic: "{{ aurora_product_root }}/asfs_fast_sonic"
+  products_power: "{{ aurora_product_root }}/power"
   quicklooks: "{{ aurora_product_root }}/quicklooks"
 
 aurora_zarr:
@@ -42,6 +44,7 @@ aurora_zarr:
   vaisalamet: "{{ aurora_product_root }}/vaisalamet/vaisalamet.zarr"
   asfs_logger: "{{ aurora_product_root }}/asfs_logger/asfs_logger.zarr"
   asfs_fast_sonic: "{{ aurora_product_root }}/asfs_fast_sonic/asfs_fast_sonic.zarr"
+  power: "{{ aurora_product_root }}/power/power.zarr"
 
 aurora_quicklook_dirs:
   ceilometer: "{{ aurora_paths.quicklooks }}/ceilometer"
@@ -49,6 +52,7 @@ aurora_quicklook_dirs:
   hatpro: "{{ aurora_paths.quicklooks }}/hatpro"
   vaisalamet: "{{ aurora_paths.quicklooks }}/vaisalamet"
   asfs_logger: "{{ aurora_paths.quicklooks }}/asfs_logger"
+  power: "{{ aurora_paths.quicklooks }}/power"
 
 aurora_quicklook_latest:
   ceilometer: "{{ aurora_quicklook_dirs.ceilometer }}/latest.png"
@@ -56,6 +60,7 @@ aurora_quicklook_latest:
   hatpro: "{{ aurora_quicklook_dirs.hatpro }}/latest.png"
   vaisalamet: "{{ aurora_quicklook_dirs.vaisalamet }}/latest.png"
   asfs_logger: "{{ aurora_quicklook_dirs.asfs_logger }}/latest.png"
+  power: "{{ aurora_quicklook_dirs.power }}/latest.png"
 
 aurora_dashboard_allowed_origins:
   - "{{ aurora_domain }}"
@@ -77,6 +82,8 @@ aurora_processing_timers:
   asfs_logger_append: true
   asfs_logger_quicklooks: true
   asfs_fast_sonic_append: true
+  power_append: true
+  power_quicklooks: true
 
 cl61_source_sync_enabled: true
 cl61_source_sync_timer_enabled: true
@@ -144,6 +151,19 @@ asfs_fast_sonic_source_sync_interval: 2min
 asfs_fast_sonic_source_sync_randomized_delay: 30
 # False means the first timer run pulls all existing matching source files.
 asfs_fast_sonic_source_start_fresh: false
+
+power_source_sync_enabled: true
+power_source_sync_timer_enabled: true
+power_source_user: aurora
+power_source_host: 100.81.226.30
+power_source_path: /data/power/level1
+power_source_pattern: "power_data_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].csv"
+power_source_destination: "{{ aurora_paths.raw_power }}"
+power_source_state_file: "{{ aurora_state_root }}/power-sync.last"
+power_source_sync_interval: 2min
+power_source_sync_randomized_delay: 30
+# False means the first timer run pulls all existing matching source files.
+power_source_start_fresh: false
 
 aurora_enable_ufw: true
 aurora_preserve_existing_listener_ports:

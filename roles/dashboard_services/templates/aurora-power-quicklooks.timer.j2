@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Aurora power quicklooks every 10 minutes
+
+[Timer]
+OnCalendar=*:13/10
+RandomizedDelaySec=0
+Persistent=true
+Unit=aurora-power-quicklooks.service
+
+[Install]
+WantedBy=timers.target

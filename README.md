@@ -15,6 +15,7 @@ Ansible configuration for rebuilding the Aurora cloud dashboard host on the exis
 - Fresh Vaisala met raw source: `aurora@100.124.55.22:/home/aurora/data/vaisalamet` pulled into `/project/aurora/raw/vaisalamet`.
 - Fresh ASFS LoggerNet raw source: `aurora@100.124.55.22:/home/aurora/data/asfs/raw/loggernet` pulled into `/project/aurora/raw/asfs/loggernet`.
 - Fresh ASFS fast-sonic raw source: `aurora@100.124.55.22:/home/aurora/data/asfs/raw/loggernet` pulled into `/project/aurora/raw/asfs/loggernet`.
+- Fresh power raw source: `aurora@100.81.226.30:/data/power/level1` pulled into `/project/aurora/raw/power/level1`.
 - GWS backup/sync: rsync via a JASMIN transfer host to `/gws/ssde/j25b/gamb2le`.
 
 ## Safe First Steps
@@ -41,6 +42,8 @@ The ASFS LoggerNet source sync does the same, restricted to files matching
 The ASFS fast-sonic source sync is separate and restricted to files matching
 `asfs-logger_fast_sonic_DD_MM_YYYY.dat`; it only builds a Zarr product and is
 not exposed in the dashboard.
+The power source sync is restricted to files matching `power_data_YYYYMMDD.csv`
+and excludes wind-named variables before writing the Zarr product.
 
 Before enabling this live, confirm SSH from the target works:
 
@@ -61,6 +64,7 @@ The ASFS LoggerNet source stores flat `asfs-logger_sci_*.dat` files in
 `/home/aurora/data/asfs/raw/loggernet`; only the dated science files are synced.
 The ASFS fast-sonic source uses the same source directory but syncs only the
 dated `asfs-logger_fast_sonic_*.dat` files.
+The power source stores flat `power_data_*.csv` files in `/data/power/level1`.
 
 The legacy source-side `cl61sync.timer` on `celine-edge-1` pushes to the old
 `aurora-cloud:/mnt/data/cl61` location and prunes local files older than 21 days
@@ -89,3 +93,4 @@ managed by this playbook.
 Vaisala met source sync uses the same Tailscale/no-key SSH pattern.
 ASFS LoggerNet source sync also uses the same Tailscale/no-key SSH pattern.
 ASFS fast-sonic source sync also uses the same Tailscale/no-key SSH pattern.
+Power source sync also uses the same Tailscale/no-key SSH pattern.

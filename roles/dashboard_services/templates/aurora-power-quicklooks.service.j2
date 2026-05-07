@@ -1,0 +1,12 @@
+[Unit]
+Description=Aurora power quicklooks
+After=aurora-power-append.service
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+WorkingDirectory={{ aurora_app_dir }}
+EnvironmentFile=/etc/aurora-dashboard.env
+ExecStart=/bin/bash -lc 'source {{ aurora_venv }}/bin/activate && ./plot_power_last24h.py {{ aurora_zarr.power }} {{ aurora_quicklook_latest.power }} && ./generate_power_quicklooks.py'
+Nice=10

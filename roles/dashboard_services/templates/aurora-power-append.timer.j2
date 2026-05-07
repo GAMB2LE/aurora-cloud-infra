@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Aurora power append every 5 minutes
+
+[Timer]
+OnCalendar=*:06/5
+RandomizedDelaySec=0
+Persistent=true
+Unit=aurora-power-append.service
+
+[Install]
+WantedBy=timers.target
