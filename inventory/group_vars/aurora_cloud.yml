@@ -184,10 +184,9 @@ wxcam_source_destination: "{{ aurora_paths.raw_wxcam }}"
 wxcam_source_state_file: "{{ aurora_state_root }}/wxcam-sync.last"
 wxcam_source_sync_interval: 2min
 wxcam_source_sync_randomized_delay: 30
-# False means the first timer run pulls all existing HDR source images so the
-# catalog can include history, while the pixel Zarr starts at the later catalog
-# frontier tracked by its own state file.
-wxcam_source_start_fresh: false
+# True means the timer handles only new wxcam images going forward. Historical
+# image discovery comes from the remote metadata bootstrap in the catalog job.
+wxcam_source_start_fresh: true
 
 wxcam_zarr_state_file: "{{ aurora_state_root }}/wxcam-zarr-state.json"
 

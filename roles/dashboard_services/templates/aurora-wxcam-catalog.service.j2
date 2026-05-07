@@ -10,5 +10,5 @@ Group={{ aurora_service_group }}
 WorkingDirectory={{ aurora_app_dir }}
 EnvironmentFile=/etc/aurora-dashboard.env
 ExecCondition=/usr/bin/test -d {{ aurora_paths.raw_wxcam }}
-ExecStart={{ aurora_venv }}/bin/python index_wxcam_catalog.py --root {{ aurora_paths.raw_wxcam }} --catalog {{ aurora_catalogs.wxcam }}
+ExecStart={{ aurora_venv }}/bin/python index_wxcam_catalog.py --root {{ aurora_paths.raw_wxcam }} --catalog {{ aurora_catalogs.wxcam }} --bootstrap-source-user {{ wxcam_source_user }} --bootstrap-source-host {{ wxcam_source_host }} --bootstrap-source-path {{ wxcam_source_path }} --bootstrap-fish-pattern {{ wxcam_source_fish_pattern | quote }} --bootstrap-pano-pattern {{ wxcam_source_pano_pattern | quote }}
 Nice=10
