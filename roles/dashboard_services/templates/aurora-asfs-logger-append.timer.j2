@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Aurora ASFS LoggerNet append every 5 minutes
+
+[Timer]
+OnCalendar=*:03/5
+RandomizedDelaySec=0
+Persistent=true
+Unit=aurora-asfs-logger-append.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,12 @@
+[Unit]
+Description=Aurora Vaisala met quicklooks
+After=aurora-vaisalamet-append.service
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+WorkingDirectory={{ aurora_app_dir }}
+EnvironmentFile=/etc/aurora-dashboard.env
+ExecStart=/bin/bash -lc 'source {{ aurora_venv }}/bin/activate && ./plot_vaisalamet_last24h.py {{ aurora_zarr.vaisalamet }} {{ aurora_quicklook_latest.vaisalamet }} && ./generate_vaisalamet_quicklooks.py'
+Nice=10

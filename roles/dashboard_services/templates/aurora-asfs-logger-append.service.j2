@@ -1,0 +1,13 @@
+[Unit]
+Description=Aurora ASFS LoggerNet Zarr append
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+WorkingDirectory={{ aurora_app_dir }}
+EnvironmentFile=/etc/aurora-dashboard.env
+ExecStart={{ aurora_venv }}/bin/python append_new_asfs_logger_to_zarr.py --root {{ aurora_paths.raw_asfs_logger }} --zarr {{ aurora_zarr.asfs_logger }} --chunk-time 1200
+Nice=10

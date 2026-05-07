@@ -1,0 +1,12 @@
+[Unit]
+Description=Aurora ASFS LoggerNet quicklooks
+After=aurora-asfs-logger-append.service
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+WorkingDirectory={{ aurora_app_dir }}
+EnvironmentFile=/etc/aurora-dashboard.env
+ExecStart=/bin/bash -lc 'source {{ aurora_venv }}/bin/activate && ./plot_asfs_logger_last24h.py {{ aurora_zarr.asfs_logger }} {{ aurora_quicklook_latest.asfs_logger }} && ./generate_asfs_logger_quicklooks.py'
+Nice=10

@@ -1,11 +1,11 @@
 [Unit]
-Description=Run Aurora cloud radar append every 5 minutes
+Description=Run Aurora ASFS fast-sonic append every 5 minutes
 
 [Timer]
 OnCalendar=*:04/5
 RandomizedDelaySec=0
 Persistent=true
-Unit=aurora-radar-append.service
+Unit=aurora-asfs-fast-sonic-append.service
 
 [Install]
 WantedBy=timers.target

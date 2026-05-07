@@ -26,25 +26,36 @@ aurora_paths:
   raw_radar: "{{ aurora_raw_root }}/rpgfmcw94"
   raw_hatpro: "{{ aurora_raw_root }}/hatprog5"
   raw_vaisalamet: "{{ aurora_raw_root }}/vaisalamet"
+  raw_asfs_logger: "{{ aurora_raw_root }}/asfs/loggernet"
   products_cl61: "{{ aurora_product_root }}/cl61"
   products_radar: "{{ aurora_product_root }}/rpgfmcw94"
   products_hatpro: "{{ aurora_product_root }}/hatprog5"
+  products_vaisalamet: "{{ aurora_product_root }}/vaisalamet"
+  products_asfs_logger: "{{ aurora_product_root }}/asfs_logger"
+  products_asfs_fast_sonic: "{{ aurora_product_root }}/asfs_fast_sonic"
   quicklooks: "{{ aurora_product_root }}/quicklooks"
 
 aurora_zarr:
   ceilometer: "{{ aurora_product_root }}/cl61/gamb2le_depolarisation_lidar_ceilometer_aurora.zarr"
   cloud_radar: "{{ aurora_product_root }}/rpgfmcw94/cloud_radar.zarr"
   hatpro: "{{ aurora_product_root }}/hatprog5/hatpro.zarr"
+  vaisalamet: "{{ aurora_product_root }}/vaisalamet/vaisalamet.zarr"
+  asfs_logger: "{{ aurora_product_root }}/asfs_logger/asfs_logger.zarr"
+  asfs_fast_sonic: "{{ aurora_product_root }}/asfs_fast_sonic/asfs_fast_sonic.zarr"
 
 aurora_quicklook_dirs:
   ceilometer: "{{ aurora_paths.quicklooks }}/ceilometer"
   cloud_radar: "{{ aurora_paths.quicklooks }}/cloud_radar"
   hatpro: "{{ aurora_paths.quicklooks }}/hatpro"
+  vaisalamet: "{{ aurora_paths.quicklooks }}/vaisalamet"
+  asfs_logger: "{{ aurora_paths.quicklooks }}/asfs_logger"
 
 aurora_quicklook_latest:
   ceilometer: "{{ aurora_quicklook_dirs.ceilometer }}/latest.png"
   cloud_radar: "{{ aurora_quicklook_dirs.cloud_radar }}/latest.png"
   hatpro: "{{ aurora_quicklook_dirs.hatpro }}/latest.png"
+  vaisalamet: "{{ aurora_quicklook_dirs.vaisalamet }}/latest.png"
+  asfs_logger: "{{ aurora_quicklook_dirs.asfs_logger }}/latest.png"
 
 aurora_dashboard_allowed_origins:
   - "{{ aurora_domain }}"
@@ -58,10 +69,14 @@ aurora_processing_timers:
   ceilometer_append: true
   ceilometer_last24h: true
   ceilometer_quicklooks: true
-  # Keep other instruments disabled until their fresh raw sources are plumbed.
-  radar_append: false
-  radar_quicklooks: false
+  radar_append: true
+  radar_quicklooks: true
   hatpro_append: false
+  vaisalamet_append: true
+  vaisalamet_quicklooks: true
+  asfs_logger_append: true
+  asfs_logger_quicklooks: true
+  asfs_fast_sonic_append: true
 
 cl61_source_sync_enabled: true
 cl61_source_sync_timer_enabled: true
@@ -77,6 +92,58 @@ cl61_source_sync_interval: 2min
 cl61_source_sync_randomized_delay: 30
 # True means the first timer run records "now" and does not pull historical data.
 cl61_source_start_fresh: true
+
+radar_source_sync_enabled: true
+radar_source_sync_timer_enabled: true
+radar_source_user: aurora
+radar_source_host: 100.124.55.22
+radar_source_path: /home/aurora/data/rpgfmcw94
+radar_source_pattern: "*LV1.NC"
+radar_source_destination: "{{ aurora_paths.raw_radar }}"
+radar_source_state_file: "{{ aurora_state_root }}/radar-sync.last"
+radar_source_sync_interval: 2min
+radar_source_sync_randomized_delay: 30
+# True means the first timer run records "now" and does not pull historical data.
+radar_source_start_fresh: true
+
+vaisalamet_source_sync_enabled: true
+vaisalamet_source_sync_timer_enabled: true
+vaisalamet_source_user: aurora
+vaisalamet_source_host: 100.124.55.22
+vaisalamet_source_path: /home/aurora/data/vaisalamet
+vaisalamet_source_pattern: "vaisala_met_level0_*.dat"
+vaisalamet_source_destination: "{{ aurora_paths.raw_vaisalamet }}"
+vaisalamet_source_state_file: "{{ aurora_state_root }}/vaisalamet-sync.last"
+vaisalamet_source_sync_interval: 2min
+vaisalamet_source_sync_randomized_delay: 30
+# False means the first timer run pulls all existing data files.
+vaisalamet_source_start_fresh: false
+
+asfs_logger_source_sync_enabled: true
+asfs_logger_source_sync_timer_enabled: true
+asfs_logger_source_user: aurora
+asfs_logger_source_host: 100.124.55.22
+asfs_logger_source_path: /home/aurora/data/asfs/raw/loggernet
+asfs_logger_source_pattern: "asfs-logger_sci_[0-9][0-9]_[0-9][0-9]_[0-9][0-9][0-9][0-9].dat"
+asfs_logger_source_destination: "{{ aurora_paths.raw_asfs_logger }}"
+asfs_logger_source_state_file: "{{ aurora_state_root }}/asfs-logger-sync.last"
+asfs_logger_source_sync_interval: 2min
+asfs_logger_source_sync_randomized_delay: 30
+# False means the first timer run pulls all existing matching source files.
+asfs_logger_source_start_fresh: false
+
+asfs_fast_sonic_source_sync_enabled: true
+asfs_fast_sonic_source_sync_timer_enabled: true
+asfs_fast_sonic_source_user: aurora
+asfs_fast_sonic_source_host: 100.124.55.22
+asfs_fast_sonic_source_path: /home/aurora/data/asfs/raw/loggernet
+asfs_fast_sonic_source_pattern: "asfs-logger_fast_sonic_[0-9][0-9]_[0-9][0-9]_[0-9][0-9][0-9][0-9].dat"
+asfs_fast_sonic_source_destination: "{{ aurora_paths.raw_asfs_logger }}"
+asfs_fast_sonic_source_state_file: "{{ aurora_state_root }}/asfs-fast-sonic-sync.last"
+asfs_fast_sonic_source_sync_interval: 2min
+asfs_fast_sonic_source_sync_randomized_delay: 30
+# False means the first timer run pulls all existing matching source files.
+asfs_fast_sonic_source_start_fresh: false
 
 aurora_enable_ufw: true
 aurora_preserve_existing_listener_ports:

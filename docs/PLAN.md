@@ -57,7 +57,7 @@ Optional `sshfs` can be added as a convenience mount at `/mnt/gws/gamb2le`, but 
 - Put any Tailscale auth key and SSH transfer key material in Ansible Vault, not plain Git.
 - The user provided a Tailscale key in the chat, but it is intentionally not stored in this repository.
 
-## Fresh CL61 Source Plan
+## Fresh Source Plan
 
 - Pull fresh CL61 files from `aurora@100.117.101.84:/home/aurora/data/cl61` into
   `/project/aurora/raw/cl61`.
@@ -72,8 +72,18 @@ Optional `sshfs` can be added as a convenience mount at `/mnt/gws/gamb2le`, but 
   `/data/aurora/products/cl61/gamb2le_depolarisation_lidar_ceilometer_aurora.zarr`
   from recent raw files when the Zarr store is absent.
 - CL61 append, latest quicklook, and daily quicklook timers are enabled.
-  Radar and HATPRO timers remain disabled until their fresh raw sources are
-  configured.
+- Pull fresh cloud radar files from
+  `aurora@100.124.55.22:/home/aurora/data/rpgfmcw94` into
+  `/project/aurora/raw/rpgfmcw94`, preserving the recursive
+  `Yyyyy/Mmm/Ddd/` source tree.
+- Do not pull historical radar files. The source sync maintains
+  `/var/lib/aurora-cloud/radar-sync.last`; the first run initializes it to
+  "now" and exits.
+- Radar source sync uses Tailscale SSH over the tailnet IP with private-key
+  authentication disabled.
+- Radar append and radar quicklook timers are enabled now that the fresh raw
+  source is configured.
+  HATPRO timers remain disabled until its fresh raw source is configured.
 - The dashboard code should be deployed from a GitHub commit that includes
   environment-driven quicklook paths and missing-Zarr tolerance.
 

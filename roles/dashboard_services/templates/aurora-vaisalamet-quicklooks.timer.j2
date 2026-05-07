@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Aurora Vaisala met quicklooks every 10 minutes
+
+[Timer]
+OnCalendar=*:09/10
+RandomizedDelaySec=0
+Persistent=true
+Unit=aurora-vaisalamet-quicklooks.service
+
+[Install]
+WantedBy=timers.target

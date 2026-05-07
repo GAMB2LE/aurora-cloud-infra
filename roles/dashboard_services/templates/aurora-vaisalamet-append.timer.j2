@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Aurora Vaisala met append every 5 minutes
+
+[Timer]
+OnCalendar=*:02/5
+RandomizedDelaySec=0
+Persistent=true
+Unit=aurora-vaisalamet-append.service
+
+[Install]
+WantedBy=timers.target

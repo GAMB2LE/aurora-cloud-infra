@@ -6,7 +6,7 @@
     owner: "{{ aurora_service_user }}"
     group: "{{ aurora_service_group }}"
     mode: "0755"
-  when: cl61_source_sync_enabled | bool
+  when: cl61_source_sync_enabled | bool or radar_source_sync_enabled | bool or vaisalamet_source_sync_enabled | bool or asfs_logger_source_sync_enabled | bool or asfs_fast_sonic_source_sync_enabled | bool
 
 - name: Ensure Aurora SSH directory exists
   ansible.builtin.file:
@@ -15,7 +15,7 @@
     owner: "{{ aurora_service_user }}"
     group: "{{ aurora_service_group }}"
     mode: "0700"
-  when: cl61_source_sync_enabled | bool
+  when: cl61_source_sync_enabled | bool or radar_source_sync_enabled | bool or vaisalamet_source_sync_enabled | bool or asfs_logger_source_sync_enabled | bool or asfs_fast_sonic_source_sync_enabled | bool
 
 - name: Install CL61 source SSH private key when provided by vault
   ansible.builtin.copy:
@@ -111,4 +111,172 @@
     daemon_reload: true
   when:
     - not cl61_source_sync_enabled | bool or not cl61_source_sync_timer_enabled | bool
+    - not ansible_check_mode
+
+- name: Install radar source sync script
+  ansible.builtin.template:
+    src: aurora-radar-sync.j2
+    dest: /usr/local/bin/aurora-radar-sync
+    owner: root
+    group: root
+    mode: "0755"
+  when: radar_source_sync_enabled | bool
+
+- name: Install radar source sync systemd units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - aurora-radar-source-sync.service
+    - aurora-radar-source-sync.timer
+  when: radar_source_sync_enabled | bool
+
+- name: Enable radar source sync timer
+  ansible.builtin.systemd:
+    name: aurora-radar-source-sync.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - radar_source_sync_enabled | bool
+    - radar_source_sync_timer_enabled | bool
+    - not ansible_check_mode
+
+- name: Disable radar source sync timer when requested
+  ansible.builtin.systemd:
+    name: aurora-radar-source-sync.timer
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  when:
+    - not radar_source_sync_enabled | bool or not radar_source_sync_timer_enabled | bool
+    - not ansible_check_mode
+
+- name: Install Vaisala met source sync script
+  ansible.builtin.template:
+    src: aurora-vaisalamet-sync.j2
+    dest: /usr/local/bin/aurora-vaisalamet-sync
+    owner: root
+    group: root
+    mode: "0755"
+  when: vaisalamet_source_sync_enabled | bool
+
+- name: Install Vaisala met source sync systemd units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - aurora-vaisalamet-source-sync.service
+    - aurora-vaisalamet-source-sync.timer
+  when: vaisalamet_source_sync_enabled | bool
+
+- name: Enable Vaisala met source sync timer
+  ansible.builtin.systemd:
+    name: aurora-vaisalamet-source-sync.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - vaisalamet_source_sync_enabled | bool
+    - vaisalamet_source_sync_timer_enabled | bool
+    - not ansible_check_mode
+
+- name: Disable Vaisala met source sync timer when requested
+  ansible.builtin.systemd:
+    name: aurora-vaisalamet-source-sync.timer
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  when:
+    - not vaisalamet_source_sync_enabled | bool or not vaisalamet_source_sync_timer_enabled | bool
+    - not ansible_check_mode
+
+- name: Install ASFS LoggerNet source sync script
+  ansible.builtin.template:
+    src: aurora-asfs-logger-sync.j2
+    dest: /usr/local/bin/aurora-asfs-logger-sync
+    owner: root
+    group: root
+    mode: "0755"
+  when: asfs_logger_source_sync_enabled | bool
+
+- name: Install ASFS LoggerNet source sync systemd units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - aurora-asfs-logger-source-sync.service
+    - aurora-asfs-logger-source-sync.timer
+  when: asfs_logger_source_sync_enabled | bool
+
+- name: Enable ASFS LoggerNet source sync timer
+  ansible.builtin.systemd:
+    name: aurora-asfs-logger-source-sync.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - asfs_logger_source_sync_enabled | bool
+    - asfs_logger_source_sync_timer_enabled | bool
+    - not ansible_check_mode
+
+- name: Disable ASFS LoggerNet source sync timer when requested
+  ansible.builtin.systemd:
+    name: aurora-asfs-logger-source-sync.timer
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  when:
+    - not asfs_logger_source_sync_enabled | bool or not asfs_logger_source_sync_timer_enabled | bool
+    - not ansible_check_mode
+
+- name: Install ASFS fast-sonic source sync script
+  ansible.builtin.template:
+    src: aurora-asfs-fast-sonic-sync.j2
+    dest: /usr/local/bin/aurora-asfs-fast-sonic-sync
+    owner: root
+    group: root
+    mode: "0755"
+  when: asfs_fast_sonic_source_sync_enabled | bool
+
+- name: Install ASFS fast-sonic source sync systemd units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - aurora-asfs-fast-sonic-source-sync.service
+    - aurora-asfs-fast-sonic-source-sync.timer
+  when: asfs_fast_sonic_source_sync_enabled | bool
+
+- name: Enable ASFS fast-sonic source sync timer
+  ansible.builtin.systemd:
+    name: aurora-asfs-fast-sonic-source-sync.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - asfs_fast_sonic_source_sync_enabled | bool
+    - asfs_fast_sonic_source_sync_timer_enabled | bool
+    - not ansible_check_mode
+
+- name: Disable ASFS fast-sonic source sync timer when requested
+  ansible.builtin.systemd:
+    name: aurora-asfs-fast-sonic-source-sync.timer
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  when:
+    - not asfs_fast_sonic_source_sync_enabled | bool or not asfs_fast_sonic_source_sync_timer_enabled | bool
     - not ansible_check_mode

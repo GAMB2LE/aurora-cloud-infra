@@ -11,6 +11,7 @@
     - "{{ aurora_paths.raw_radar }}"
     - "{{ aurora_paths.raw_hatpro }}"
     - "{{ aurora_paths.raw_vaisalamet }}"
+    - "{{ aurora_paths.raw_asfs_logger }}"
 
 - name: Ensure dashboard product directories exist under /data
   ansible.builtin.file:
@@ -24,9 +25,14 @@
     - "{{ aurora_paths.products_cl61 }}"
     - "{{ aurora_paths.products_radar }}"
     - "{{ aurora_paths.products_hatpro }}"
+    - "{{ aurora_paths.products_vaisalamet }}"
+    - "{{ aurora_paths.products_asfs_logger }}"
+    - "{{ aurora_paths.products_asfs_fast_sonic }}"
     - "{{ aurora_paths.quicklooks }}"
     - "{{ aurora_quicklook_dirs.ceilometer }}"
     - "{{ aurora_quicklook_dirs.cloud_radar }}"
     - "{{ aurora_quicklook_dirs.hatpro }}"
+    - "{{ aurora_quicklook_dirs.vaisalamet }}"
+    - "{{ aurora_quicklook_dirs.asfs_logger }}"
     - "{{ aurora_log_root }}"
     - "{{ aurora_state_root }}"

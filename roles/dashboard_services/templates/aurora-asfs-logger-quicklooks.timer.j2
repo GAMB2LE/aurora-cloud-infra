@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Aurora ASFS LoggerNet quicklooks every 10 minutes
+
+[Timer]
+OnCalendar=*:11/10
+RandomizedDelaySec=0
+Persistent=true
+Unit=aurora-asfs-logger-quicklooks.service
+
+[Install]
+WantedBy=timers.target

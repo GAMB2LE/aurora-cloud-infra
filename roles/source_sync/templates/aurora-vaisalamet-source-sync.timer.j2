@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule Aurora Vaisala met source sync
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec={{ vaisalamet_source_sync_interval }}
+Persistent=true
+RandomizedDelaySec={{ vaisalamet_source_sync_randomized_delay }}
+Unit=aurora-vaisalamet-source-sync.service
+
+[Install]
+WantedBy=timers.target
