@@ -45,6 +45,8 @@
     - aurora-power-quicklooks.timer
     - aurora-wxcam-catalog.service
     - aurora-wxcam-catalog.timer
+    - aurora-wxcam-daily-videos.service
+    - aurora-wxcam-daily-videos.timer
     - aurora-wxcam-append.service
     - aurora-wxcam-append.timer
   notify:
@@ -80,6 +82,7 @@
     - { unit: aurora-power-append.timer, key: power_append }
     - { unit: aurora-power-quicklooks.timer, key: power_quicklooks }
     - { unit: aurora-wxcam-catalog.timer, key: wxcam_catalog }
+    - { unit: aurora-wxcam-daily-videos.timer, key: wxcam_daily_videos }
     - { unit: aurora-wxcam-append.timer, key: wxcam_append }
   when: not ansible_check_mode
 
@@ -102,6 +105,7 @@
     - aurora-power-append.service
     - aurora-power-quicklooks.service
     - aurora-wxcam-catalog.service
+    - aurora-wxcam-daily-videos.service
     - aurora-wxcam-append.service
   when:
     - not ansible_check_mode

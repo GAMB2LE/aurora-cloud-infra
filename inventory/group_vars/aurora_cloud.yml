@@ -37,6 +37,7 @@ aurora_paths:
   products_asfs_fast_sonic: "{{ aurora_product_root }}/asfs_fast_sonic"
   products_power: "{{ aurora_product_root }}/power"
   products_wxcam: "{{ aurora_product_root }}/wxcam"
+  products_wxcam_daily_videos: "{{ aurora_product_root }}/wxcam/daily_videos"
   quicklooks: "{{ aurora_product_root }}/quicklooks"
 
 aurora_zarr:
@@ -91,7 +92,8 @@ aurora_processing_timers:
   power_append: true
   power_quicklooks: true
   wxcam_catalog: true
-  wxcam_append: true
+  wxcam_append: false
+  wxcam_daily_videos: true
 
 cl61_source_sync_enabled: true
 cl61_source_sync_timer_enabled: true
@@ -204,6 +206,7 @@ aurora_apt_packages:
   - certbot
   - curl
   - fail2ban
+  - ffmpeg
   - fuse3
   - git
   - nginx
