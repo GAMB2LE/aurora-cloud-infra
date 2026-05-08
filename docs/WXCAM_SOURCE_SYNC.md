@@ -4,6 +4,7 @@
 - Target raw directory: `/project/aurora/raw/wxcam`
 - Catalog: `/data/aurora/products/wxcam/wxcam_catalog.sqlite`
 - Daily videos: `/data/aurora/products/wxcam/daily_videos`
+- Hourly thumbnails: `/data/aurora/products/wxcam/hourly_thumbnails`
 - Pixel Zarr path: `/data/aurora/products/wxcam/wxcam.zarr` (service installed, timer currently disabled)
 
 The wxcam source contains nested `FISH/` and `PANO/` trees. The deployed sync
@@ -14,10 +15,10 @@ keeps JPG frames and MP4 clips together.
 
 - Dashboard instrument name: `wxcam`
 - Interactive tab: primary wxcam browser and player
-- Calendar tab: intentionally blank for wxcam
+- Calendar tab: current-day daily MP4 plus past-day hourly thumbnail grid
 
-The dashboard uses the SQLite catalog plus daily MP4 products for browsing. It
-does not currently rely on the wxcam pixel Zarr path.
+The dashboard uses the SQLite catalog plus daily MP4 and hourly thumbnail
+products for browsing. It does not currently rely on the wxcam pixel Zarr path.
 
 ## Authentication
 

@@ -47,8 +47,9 @@ The power source sync is restricted to files matching `power_data_YYYYMMDD.csv`
 and excludes wind-named variables before writing the Zarr product.
 The wxcam source sync pulls the full `FISH` and `PANO` raw tree so both HDR
 images and HDR hourly videos are available locally. Wxcam indexing builds a
-SQLite catalog and daily MP4 products for dashboard browsing. The wxcam pixel
-Zarr append service is installed but intentionally disabled for now.
+SQLite catalog, daily MP4 products, and hourly thumbnail products for dashboard
+browsing. The wxcam pixel Zarr append service is installed but intentionally
+disabled for now.
 
 Before enabling this live, confirm SSH from the target works:
 
