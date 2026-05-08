@@ -16,6 +16,7 @@ Ansible configuration for rebuilding the Aurora cloud dashboard host on the exis
 - Fresh ASFS LoggerNet raw source: `aurora@100.124.55.22:/home/aurora/data/asfs/raw/loggernet` pulled into `/project/aurora/raw/asfs/loggernet`.
 - Fresh ASFS fast-sonic raw source: `aurora@100.124.55.22:/home/aurora/data/asfs/raw/loggernet` pulled into `/project/aurora/raw/asfs/loggernet`.
 - Fresh power raw source: `aurora@100.81.226.30:/data/power/level1` pulled into `/project/aurora/raw/power/level1`.
+- Fresh wxcam raw source: `aurora@100.124.55.22:/home/aurora/data/wxcam` pulled into `/project/aurora/raw/wxcam`.
 - GWS backup/sync: rsync via a JASMIN transfer host to `/gws/ssde/j25b/gamb2le`.
 
 ## Safe First Steps
@@ -44,6 +45,10 @@ The ASFS fast-sonic source sync is separate and restricted to files matching
 not exposed in the dashboard.
 The power source sync is restricted to files matching `power_data_YYYYMMDD.csv`
 and excludes wind-named variables before writing the Zarr product.
+The wxcam source sync pulls the full `FISH` and `PANO` raw tree so both HDR
+images and HDR hourly videos are available locally. Wxcam indexing builds a
+SQLite catalog and daily MP4 products for dashboard browsing. The wxcam pixel
+Zarr append service is installed but intentionally disabled for now.
 
 Before enabling this live, confirm SSH from the target works:
 
@@ -65,6 +70,9 @@ The ASFS LoggerNet source stores flat `asfs-logger_sci_*.dat` files in
 The ASFS fast-sonic source uses the same source directory but syncs only the
 dated `asfs-logger_fast_sonic_*.dat` files.
 The power source stores flat `power_data_*.csv` files in `/data/power/level1`.
+The wxcam source stores nested `FISH/` and `PANO/` trees under
+`/home/aurora/data/wxcam`; the deployed sync copies the full tree rather than
+filtering by extension so JPG and MP4 products stay together on disk.
 
 The legacy source-side `cl61sync.timer` on `celine-edge-1` pushes to the old
 `aurora-cloud:/mnt/data/cl61` location and prunes local files older than 21 days
@@ -94,3 +102,4 @@ Vaisala met source sync uses the same Tailscale/no-key SSH pattern.
 ASFS LoggerNet source sync also uses the same Tailscale/no-key SSH pattern.
 ASFS fast-sonic source sync also uses the same Tailscale/no-key SSH pattern.
 Power source sync also uses the same Tailscale/no-key SSH pattern.
+Wxcam source sync also uses the same Tailscale/no-key SSH pattern.

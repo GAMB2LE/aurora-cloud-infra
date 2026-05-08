@@ -180,6 +180,8 @@ wxcam_source_sync_timer_enabled: true
 wxcam_source_user: aurora
 wxcam_source_host: 100.124.55.22
 wxcam_source_path: /home/aurora/data/wxcam
+# These patterns are only used for the initial remote catalog bootstrap. The
+# raw sync itself copies the full wxcam tree so JPG and MP4 assets stay aligned.
 wxcam_source_fish_pattern: "HDR_*.jpg"
 wxcam_source_pano_pattern: "HDR_*_PANO.jpg"
 wxcam_source_destination: "{{ aurora_paths.raw_wxcam }}"

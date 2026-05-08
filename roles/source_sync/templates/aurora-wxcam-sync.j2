@@ -6,8 +6,17 @@ source_host={{ wxcam_source_host | quote }}
 source_path={{ wxcam_source_path | quote }}
 destination={{ wxcam_source_destination | quote }}
 known_hosts=/home/{{ aurora_service_user }}/.ssh/known_hosts
+lock_file={{ aurora_state_root | quote }}/wxcam-sync.lock
 
-mkdir -p "$destination" "$(dirname "$known_hosts")"
+mkdir -p "$destination" "$(dirname "$known_hosts")" "$(dirname "$lock_file")"
+
+# The wxcam tree is large enough that overlapping rsync runs are more trouble
+# than help. Exit cleanly if a previous timer run is still working.
+exec 9>"$lock_file"
+if ! flock -n 9; then
+  echo "wxcam sync already running; exiting."
+  exit 0
+fi
 
 export RSYNC_RSH="ssh -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityFile=none -o PubkeyAuthentication=no -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$known_hosts"
 rsync -a --partial "${source_user}@${source_host}:${source_path%/}/" "${destination%/}/"
