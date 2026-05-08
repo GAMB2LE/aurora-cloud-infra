@@ -6,6 +6,8 @@ source_host={{ wxcam_source_host | quote }}
 source_path={{ wxcam_source_path | quote }}
 fish_pattern={{ wxcam_source_fish_pattern | quote }}
 pano_pattern={{ wxcam_source_pano_pattern | quote }}
+fish_video_pattern="${fish_pattern%.jpg}.mp4"
+pano_video_pattern="${pano_pattern%.jpg}.mp4"
 destination={{ wxcam_source_destination | quote }}
 state_file={{ wxcam_source_state_file | quote }}
 start_fresh={{ '1' if wxcam_source_start_fresh | bool else '0' }}
@@ -36,21 +38,23 @@ ssh_opts=(
   -o UserKnownHostsFile="$known_hosts"
 )
 
-ssh "${ssh_opts[@]}" "${source_user}@${source_host}" bash -s -- "$source_path" "$last_epoch" "$now_epoch" "$fish_pattern" "$pano_pattern" > "$files_from" <<'REMOTE_FIND'
+ssh "${ssh_opts[@]}" "${source_user}@${source_host}" bash -s -- "$source_path" "$last_epoch" "$now_epoch" "$fish_pattern" "$pano_pattern" "$fish_video_pattern" "$pano_video_pattern" > "$files_from" <<'REMOTE_FIND'
 set -euo pipefail
 source_path="$1"
 last_epoch="$2"
 now_epoch="$3"
 fish_pattern="$4"
 pano_pattern="$5"
+fish_video_pattern="$6"
+pano_video_pattern="$7"
 cd "$source_path"
-find FISH -type f -name "$fish_pattern" -newermt "@${last_epoch}" ! -newermt "@${now_epoch}" -printf '%p\0'
-find PANO -type f -name "$pano_pattern" -newermt "@${last_epoch}" ! -newermt "@${now_epoch}" -printf '%p\0'
+find FISH -type f \( -name "$fish_pattern" -o -name "$fish_video_pattern" \) -newermt "@${last_epoch}" ! -newermt "@${now_epoch}" -printf '%p\0'
+find PANO -type f \( -name "$pano_pattern" -o -name "$pano_video_pattern" \) -newermt "@${last_epoch}" ! -newermt "@${now_epoch}" -printf '%p\0'
 REMOTE_FIND
 
 if [[ ! -s "$files_from" ]]; then
   echo "$now_epoch" > "$state_file"
-  echo "No new wxcam HDR files found."
+  echo "No new wxcam HDR media files found."
   exit 0
 fi
 
