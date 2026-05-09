@@ -1,0 +1,39 @@
+site_name: Aurora Cloud Infrastructure
+site_description: Ansible configuration for rebuilding the Aurora cloud dashboard host
+repo_name: GAMB2LE/aurora-cloud-infra
+repo_url: https://github.com/GAMB2LE/aurora-cloud-infra
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+
+plugins:
+  - search
+  - include-markdown
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Rebuild Plan: PLAN.md
+  - Source Syncs:
+      - CL61: CL61_SOURCE_SYNC.md
+      - Cloud Radar: RADAR_SOURCE_SYNC.md
+      - Vaisala MET: VAISALAMET_SOURCE_SYNC.md
+      - ASFS Logger: ASFS_LOGGER_SOURCE_SYNC.md
+      - ASFS Fast Sonic: ASFS_FAST_SONIC_SOURCE_SYNC.md
+      - Power: POWER_SOURCE_SYNC.md
+      - WXcam: WXCAM_SOURCE_SYNC.md
