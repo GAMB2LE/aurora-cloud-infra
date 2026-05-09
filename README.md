@@ -45,11 +45,10 @@ The ASFS fast-sonic source sync is separate and restricted to files matching
 not exposed in the dashboard.
 The power source sync is restricted to files matching `power_data_YYYYMMDD.csv`
 and excludes wind-named variables before writing the Zarr product.
-The wxcam source sync pulls the full `FISH` and `PANO` raw tree so both HDR
-images and HDR hourly videos are available locally. Wxcam indexing builds a
-SQLite catalog, daily MP4 products, and hourly thumbnail products for dashboard
-browsing. The wxcam pixel Zarr append service is installed but intentionally
-disabled for now.
+The wxcam source sync keeps only HDR JPGs and HDR hourly MP4s locally while
+leaving the broader source archive untouched upstream. Wxcam indexing builds a
+SQLite catalog from the local HDR mirror, daily MP4 products, hourly JPG-based
+thumbnail products, and a pixel Zarr that appends from the HDR JPG archive.
 
 Before enabling this live, confirm SSH from the target works:
 

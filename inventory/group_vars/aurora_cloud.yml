@@ -92,7 +92,7 @@ aurora_processing_timers:
   power_append: true
   power_quicklooks: true
   wxcam_catalog: true
-  wxcam_append: false
+  wxcam_append: true
   wxcam_daily_videos: true
 
 cl61_source_sync_enabled: true
@@ -188,6 +188,7 @@ wxcam_source_destination: "{{ aurora_paths.raw_wxcam }}"
 wxcam_source_state_file: "{{ aurora_state_root }}/wxcam-sync.last"
 wxcam_source_sync_interval: 2min
 wxcam_source_sync_randomized_delay: 30
+wxcam_retention_floor: "20260502"
 # False means the first timer run can pull the full HDR archive locally. The
 # remote metadata bootstrap still makes the dashboard immediately usable while
 # the raw-image backfill catches up.

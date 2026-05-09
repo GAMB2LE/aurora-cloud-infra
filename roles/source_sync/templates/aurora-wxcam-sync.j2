@@ -7,6 +7,7 @@ source_path={{ wxcam_source_path | quote }}
 destination={{ wxcam_source_destination | quote }}
 known_hosts=/home/{{ aurora_service_user }}/.ssh/known_hosts
 lock_file={{ aurora_state_root | quote }}/wxcam-sync.lock
+retention_floor={{ wxcam_retention_floor | quote }}
 
 mkdir -p "$destination" "$(dirname "$known_hosts")" "$(dirname "$lock_file")"
 
@@ -18,5 +19,41 @@ if ! flock -n 9; then
   exit 0
 fi
 
+prune_local_tree() {
+  python3 - "$destination" "$retention_floor" <<'PY'
+from pathlib import Path
+import shutil
+import sys
+
+root = Path(sys.argv[1])
+floor = sys.argv[2]
+
+for stream in ("FISH", "PANO"):
+    stream_root = root / stream
+    if not stream_root.exists():
+        continue
+    for child in stream_root.iterdir():
+        if not child.is_dir():
+            continue
+        name = child.name
+        if name == "LOGS":
+            shutil.rmtree(child, ignore_errors=True)
+            continue
+        if len(name) == 8 and name.isdigit() and name < floor:
+            shutil.rmtree(child, ignore_errors=True)
+PY
+}
+
+prune_local_tree
+
 export RSYNC_RSH="ssh -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityFile=none -o PubkeyAuthentication=no -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$known_hosts"
-rsync -a --partial "${source_user}@${source_host}:${source_path%/}/" "${destination%/}/"
+rsync -a --partial --prune-empty-dirs --delete-excluded \
+  --include='*/' \
+  --include='HDR_*.jpg' \
+  --include='HDR_*.mp4' \
+  --include='HDR_*_PANO.jpg' \
+  --include='HDR_*_PANO.mp4' \
+  --exclude='*' \
+  "${source_user}@${source_host}:${source_path%/}/" "${destination%/}/"
+prune_local_tree
+find "${destination%/}" -depth -type d -empty -delete

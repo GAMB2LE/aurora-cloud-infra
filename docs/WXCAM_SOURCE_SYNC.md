@@ -5,20 +5,22 @@
 - Catalog: `/data/aurora/products/wxcam/wxcam_catalog.sqlite`
 - Daily videos: `/data/aurora/products/wxcam/daily_videos`
 - Hourly thumbnails: `/data/aurora/products/wxcam/hourly_thumbnails`
-- Pixel Zarr path: `/data/aurora/products/wxcam/wxcam.zarr` (service installed, timer currently disabled)
+- Pixel Zarr path: `/data/aurora/products/wxcam/wxcam.zarr`
 
 The wxcam source contains nested `FISH/` and `PANO/` trees. The deployed sync
-copies the full raw tree instead of filtering by extension so the local archive
-keeps JPG frames and MP4 clips together.
+keeps only HDR JPGs and HDR hourly MP4 clips in the local mirror, while
+leaving the broader remote source archive untouched.
 
 ## Dashboard behavior
 
-- Dashboard instrument name: `wxcam`
-- Interactive tab: primary wxcam browser and player
-- Calendar tab: current-day daily MP4 plus past-day hourly thumbnail grid
+- Dashboard instrument name: `WXcam`
+- Interactive tab: primary wxcam browser and player using stitched MP4 products
+- Calendar tab: hourly JPG thumbnail grid
 
 The dashboard uses the SQLite catalog plus daily MP4 and hourly thumbnail
-products for browsing. It does not currently rely on the wxcam pixel Zarr path.
+products for browsing. The calendar grid is driven by HDR JPG selections,
+while the interactive browser uses stitched MP4 products. The wxcam pixel Zarr
+path is built from the HDR JPG archive.
 
 ## Authentication
 
@@ -37,9 +39,7 @@ No private key is installed for this source.
 - `aurora-wxcam-source-sync.timer`
 - `aurora-wxcam-catalog.timer`
 - `aurora-wxcam-daily-videos.timer`
-
-`aurora-wxcam-append.timer` is installed but intentionally disabled while the
-pixel-Zarr design is still under review.
+- `aurora-wxcam-append.timer`
 
 The sync script uses `/var/lib/aurora-cloud/wxcam-sync.lock` so a long-running
 full-tree rsync cannot overlap with the next timer tick.
