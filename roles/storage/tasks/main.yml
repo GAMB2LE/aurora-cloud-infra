@@ -13,6 +13,7 @@
     - "{{ aurora_paths.raw_vaisalamet }}"
     - "{{ aurora_paths.raw_asfs_logger }}"
     - "{{ aurora_paths.raw_power }}"
+    - "{{ aurora_paths.raw_ops_monitor }}"
     - "{{ aurora_paths.raw_wxcam }}"
 
 - name: Ensure dashboard product directories exist under /data
@@ -31,6 +32,7 @@
     - "{{ aurora_paths.products_asfs_logger }}"
     - "{{ aurora_paths.products_asfs_fast_sonic }}"
     - "{{ aurora_paths.products_power }}"
+    - "{{ aurora_paths.products_ops_monitor }}"
     - "{{ aurora_paths.products_wxcam }}"
     - "{{ aurora_paths.quicklooks }}"
     - "{{ aurora_quicklook_dirs.ceilometer }}"
@@ -40,5 +42,6 @@
     - "{{ aurora_quicklook_dirs.asfs_logger }}"
     - "{{ aurora_quicklook_dirs.asfs_fast_sonic }}"
     - "{{ aurora_quicklook_dirs.power }}"
+    - "{{ aurora_quicklook_dirs.ops_monitor }}"
     - "{{ aurora_log_root }}"
     - "{{ aurora_state_root }}"

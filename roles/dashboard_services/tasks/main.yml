@@ -45,6 +45,12 @@
     - aurora-power-append.timer
     - aurora-power-quicklooks.service
     - aurora-power-quicklooks.timer
+    - aurora-ops-monitor-collect.service
+    - aurora-ops-monitor-collect.timer
+    - aurora-ops-monitor-append.service
+    - aurora-ops-monitor-append.timer
+    - aurora-ops-monitor-quicklooks.service
+    - aurora-ops-monitor-quicklooks.timer
     - aurora-wxcam-catalog.service
     - aurora-wxcam-catalog.timer
     - aurora-wxcam-daily-videos.service
@@ -84,6 +90,9 @@
     - { unit: aurora-asfs-fast-sonic-quicklooks.timer, key: asfs_fast_sonic_quicklooks }
     - { unit: aurora-power-append.timer, key: power_append }
     - { unit: aurora-power-quicklooks.timer, key: power_quicklooks }
+    - { unit: aurora-ops-monitor-collect.timer, key: ops_monitor_collect }
+    - { unit: aurora-ops-monitor-append.timer, key: ops_monitor_append }
+    - { unit: aurora-ops-monitor-quicklooks.timer, key: ops_monitor_quicklooks }
     - { unit: aurora-wxcam-catalog.timer, key: wxcam_catalog }
     - { unit: aurora-wxcam-daily-videos.timer, key: wxcam_daily_videos }
     - { unit: aurora-wxcam-append.timer, key: wxcam_append }
@@ -108,6 +117,9 @@
     - aurora-asfs-fast-sonic-quicklooks.service
     - aurora-power-append.service
     - aurora-power-quicklooks.service
+    - aurora-ops-monitor-collect.service
+    - aurora-ops-monitor-append.service
+    - aurora-ops-monitor-quicklooks.service
     - aurora-wxcam-catalog.service
     - aurora-wxcam-daily-videos.service
     - aurora-wxcam-append.service

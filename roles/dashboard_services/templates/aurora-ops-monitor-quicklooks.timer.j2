@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Aurora operations quicklooks every 10 minutes
+
+[Timer]
+OnCalendar=*:04/10
+RandomizedDelaySec=0
+Persistent=true
+Unit=aurora-ops-monitor-quicklooks.service
+
+[Install]
+WantedBy=timers.target

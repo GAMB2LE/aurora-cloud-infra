@@ -1,0 +1,11 @@
+[Unit]
+Description=Collect Aurora operations metrics every 5 minutes
+
+[Timer]
+OnCalendar=*:01/5
+RandomizedDelaySec=0
+Persistent=true
+Unit=aurora-ops-monitor-collect.service
+
+[Install]
+WantedBy=timers.target

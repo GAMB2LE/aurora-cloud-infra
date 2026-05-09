@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Aurora operations append every 5 minutes
+
+[Timer]
+OnCalendar=*:02/5
+RandomizedDelaySec=0
+Persistent=true
+Unit=aurora-ops-monitor-append.service
+
+[Install]
+WantedBy=timers.target

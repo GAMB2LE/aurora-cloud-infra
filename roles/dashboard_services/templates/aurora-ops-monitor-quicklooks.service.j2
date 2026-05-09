@@ -1,0 +1,12 @@
+[Unit]
+Description=Aurora operations quicklooks
+After=aurora-ops-monitor-append.service
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+WorkingDirectory={{ aurora_app_dir }}
+EnvironmentFile=/etc/aurora-dashboard.env
+ExecStart=/bin/bash -lc 'source {{ aurora_venv }}/bin/activate && ./generate_ops_monitor_quicklooks.py'
+Nice=10

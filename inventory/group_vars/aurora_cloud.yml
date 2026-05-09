@@ -29,6 +29,7 @@ aurora_paths:
   raw_asfs_logger: "{{ aurora_raw_root }}/asfs/loggernet"
   raw_power: "{{ aurora_raw_root }}/power/level1"
   raw_wxcam: "{{ aurora_raw_root }}/wxcam"
+  raw_ops_monitor: "{{ aurora_raw_root }}/ops_monitor"
   products_cl61: "{{ aurora_product_root }}/cl61"
   products_radar: "{{ aurora_product_root }}/rpgfmcw94"
   products_hatpro: "{{ aurora_product_root }}/hatprog5"
@@ -36,6 +37,7 @@ aurora_paths:
   products_asfs_logger: "{{ aurora_product_root }}/asfs_logger"
   products_asfs_fast_sonic: "{{ aurora_product_root }}/asfs_fast_sonic"
   products_power: "{{ aurora_product_root }}/power"
+  products_ops_monitor: "{{ aurora_product_root }}/ops_monitor"
   products_wxcam: "{{ aurora_product_root }}/wxcam"
   products_wxcam_daily_videos: "{{ aurora_product_root }}/wxcam/daily_videos"
   quicklooks: "{{ aurora_product_root }}/quicklooks"
@@ -48,6 +50,7 @@ aurora_zarr:
   asfs_logger: "{{ aurora_product_root }}/asfs_logger/asfs_logger.zarr"
   asfs_fast_sonic: "{{ aurora_product_root }}/asfs_fast_sonic/asfs_fast_sonic.zarr"
   power: "{{ aurora_product_root }}/power/power.zarr"
+  ops_monitor: "{{ aurora_product_root }}/ops_monitor/ops_monitor.zarr"
   wxcam: "{{ aurora_product_root }}/wxcam/wxcam.zarr"
 
 aurora_catalogs:
@@ -61,6 +64,7 @@ aurora_quicklook_dirs:
   asfs_logger: "{{ aurora_paths.quicklooks }}/asfs_logger"
   asfs_fast_sonic: "{{ aurora_paths.quicklooks }}/asfs_fast_sonic"
   power: "{{ aurora_paths.quicklooks }}/power"
+  ops_monitor: "{{ aurora_paths.quicklooks }}/ops_monitor"
 
 aurora_quicklook_latest:
   ceilometer: "{{ aurora_quicklook_dirs.ceilometer }}/latest.png"
@@ -70,6 +74,7 @@ aurora_quicklook_latest:
   asfs_logger: "{{ aurora_quicklook_dirs.asfs_logger }}/latest.png"
   asfs_fast_sonic: "{{ aurora_quicklook_dirs.asfs_fast_sonic }}/latest.png"
   power: "{{ aurora_quicklook_dirs.power }}/latest.png"
+  ops_monitor: "{{ aurora_quicklook_dirs.ops_monitor }}/latest.png"
 
 aurora_dashboard_allowed_origins:
   - "{{ aurora_domain }}"
@@ -94,6 +99,9 @@ aurora_processing_timers:
   asfs_fast_sonic_quicklooks: true
   power_append: true
   power_quicklooks: true
+  ops_monitor_collect: true
+  ops_monitor_append: true
+  ops_monitor_quicklooks: true
   wxcam_catalog: true
   wxcam_append: true
   wxcam_daily_videos: true
@@ -261,8 +269,8 @@ gws_products_root: "{{ gws_path }}/data/output/aurora-cloud/products"
 gws_internal_root: "{{ gws_path }}/data/internal/aurora-cloud"
 # Automated timers need a real private key on the VM. Agent forwarding from the
 # admin SSH session is not sufficient for unattended systemd jobs.
-gws_generate_ssh_key: true
-gws_ssh_private_key: /home/aurora/.ssh/id_ed25519_jasmin_gws
+gws_generate_ssh_key: false
+gws_ssh_private_key: /home/aurora/.ssh/id_rsa_jasmin_20200514
 gws_manifest_root: /data/aurora/internal/mirror_manifests
 gws_manifest_history_keep: 48
 gws_manifest_checksum_mode: none

@@ -1,0 +1,13 @@
+[Unit]
+Description=Aurora operations Zarr append
+After=network-online.target aurora-ops-monitor-collect.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+WorkingDirectory={{ aurora_app_dir }}
+EnvironmentFile=/etc/aurora-dashboard.env
+ExecStart={{ aurora_venv }}/bin/python append_new_ops_monitor_to_zarr.py --root {{ aurora_paths.raw_ops_monitor }} --zarr {{ aurora_zarr.ops_monitor }} --chunk-time 720 --lookback-days 3
+Nice=10
