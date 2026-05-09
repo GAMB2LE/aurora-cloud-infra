@@ -20,6 +20,16 @@ ssh_opts=(
 )
 rsync_base=(rsync -a --partial --timeout=120)
 
+sync_target() {
+  local source_suffix="$1"
+  local destination_suffix="$2"
+  mkdir -p "$destination/$destination_suffix"
+  "${rsync_base[@]}" \
+    -e "ssh ${ssh_opts[*]}" \
+    "${source_user}@${source_host}:${source_path%/}/${source_suffix%/}/" \
+    "${destination%/}/${destination_suffix%/}/"
+}
+
 mkdir -p "$destination" "$(dirname "$known_hosts")" "$(dirname "$lock_file")"
 
 # The wxcam tree is large enough that overlapping rsync runs are more trouble
@@ -30,7 +40,22 @@ if ! flock -n 9; then
   exit 0
 fi
 
-"${rsync_base[@]}" \
-  -e "ssh ${ssh_opts[*]}" \
-  "${source_user}@${source_host}:${source_path%/}/" \
-  "${destination%/}/"
+mapfile -t priority_dirs < <(
+  ssh "${ssh_opts[@]}" "${source_user}@${source_host}" "bash -s" <<'EOF'
+set -euo pipefail
+source_path="{{ wxcam_source_path }}"
+for stream in FISH PANO; do
+  find "${source_path}/${stream}" -mindepth 1 -maxdepth 1 -type d -name '20*' -printf '%f\n' | sort | tail -n 2 | while IFS= read -r day_dir; do
+    [ -n "${day_dir}" ] || continue
+    printf '%s/%s\n' "${stream}" "${day_dir}"
+  done
+done
+EOF
+)
+
+for relative_dir in "${priority_dirs[@]}"; do
+  [ -n "$relative_dir" ] || continue
+  sync_target "$relative_dir" "$relative_dir"
+done
+
+sync_target "" ""

@@ -12,6 +12,11 @@ mirrors the full raw tree into `/project/aurora/raw/wxcam` so the local raw
 copy can become authoritative for retention and downstream archival checks.
 Dashboard products still use only the HDR JPG and HDR MP4 subsets.
 
+During a large historical backfill, the sync script first refreshes the newest
+day directories for both streams and then falls back to the full-tree rsync.
+That keeps current-day WXcam products closer to real time while the archive
+catch-up continues in the background.
+
 ## Dashboard behavior
 
 - Dashboard instrument name: `WXcam`
@@ -23,6 +28,11 @@ products for browsing. The science-quicklook grid is driven by HDR JPG
 selections, while the interactive browser uses stitched MP4 products. The
 wxcam pixel Zarr path is built from the HDR JPG archive, even though the raw
 mirror includes the full upstream tree.
+
+The catalog, daily-video, and pixel-Zarr timers are intentionally allowed to
+run while a long raw backfill is still in progress. Fresh in-flight media are
+deferred until they have settled, so current products can keep refreshing
+during large archive syncs instead of waiting for the full mirror to finish.
 
 ## Authentication
 
