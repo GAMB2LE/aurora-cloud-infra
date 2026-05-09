@@ -8,6 +8,27 @@ destination={{ wxcam_source_destination | quote }}
 known_hosts=/home/{{ aurora_service_user }}/.ssh/known_hosts
 lock_file={{ aurora_state_root | quote }}/wxcam-sync.lock
 retention_floor={{ wxcam_retention_floor | quote }}
+ssh_opts=(
+  -o BatchMode=yes
+  -o ConnectTimeout=15
+  -o IdentitiesOnly=yes
+  -o IdentityFile=none
+  -o PubkeyAuthentication=no
+  -o ServerAliveInterval=15
+  -o ServerAliveCountMax=4
+  -o StrictHostKeyChecking=accept-new
+  -o UserKnownHostsFile="$known_hosts"
+)
+rsync_base=(
+  rsync -a --partial --prune-empty-dirs --delete-excluded
+  --timeout=120
+  --include='*/'
+  --include='HDR_*.jpg'
+  --include='HDR_*.mp4'
+  --include='HDR_*_PANO.jpg'
+  --include='HDR_*_PANO.mp4'
+  --exclude='*'
+)
 
 mkdir -p "$destination" "$(dirname "$known_hosts")" "$(dirname "$lock_file")"
 
@@ -19,41 +40,72 @@ if ! flock -n 9; then
   exit 0
 fi
 
-prune_local_tree() {
-  python3 - "$destination" "$retention_floor" <<'PY'
+list_remote_days() {
+  local stream=$1
+  ssh "${ssh_opts[@]}" "${source_user}@${source_host}" \
+    "if [ -d '${source_path%/}/${stream}' ]; then find '${source_path%/}/${stream}' -mindepth 1 -maxdepth 1 -type d -printf '%f\n'; fi" \
+    | awk -v floor="$retention_floor" '/^[0-9]{8}$/ && $1 >= floor { print }' \
+    | sort -r
+}
+
+prune_local_stream() {
+  local stream=$1
+  shift
+  python3 - "$destination" "$retention_floor" "$stream" "$@" <<'PY'
 from pathlib import Path
 import shutil
 import sys
 
 root = Path(sys.argv[1])
 floor = sys.argv[2]
+stream = sys.argv[3]
+keep = set(sys.argv[4:])
 
-for stream in ("FISH", "PANO"):
-    stream_root = root / stream
-    if not stream_root.exists():
+stream_root = root / stream
+if not stream_root.exists():
+    raise SystemExit(0)
+
+for child in stream_root.iterdir():
+    if not child.is_dir():
         continue
-    for child in stream_root.iterdir():
-        if not child.is_dir():
-            continue
-        name = child.name
-        if name == "LOGS":
-            shutil.rmtree(child, ignore_errors=True)
-            continue
-        if len(name) == 8 and name.isdigit() and name < floor:
+    name = child.name
+    if name == "LOGS":
+        shutil.rmtree(child, ignore_errors=True)
+        continue
+    if len(name) == 8 and name.isdigit():
+        if name < floor or name not in keep:
             shutil.rmtree(child, ignore_errors=True)
 PY
 }
 
-prune_local_tree
+sync_stream_day() {
+  local stream=$1
+  local day=$2
+  mkdir -p "${destination%/}/${stream}/${day}"
+  "${rsync_base[@]}" \
+    -e "ssh ${ssh_opts[*]}" \
+    "${source_user}@${source_host}:${source_path%/}/${stream}/${day}/" \
+    "${destination%/}/${stream}/${day}/"
+}
 
-export RSYNC_RSH="ssh -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityFile=none -o PubkeyAuthentication=no -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$known_hosts"
-rsync -a --partial --prune-empty-dirs --delete-excluded \
-  --include='*/' \
-  --include='HDR_*.jpg' \
-  --include='HDR_*.mp4' \
-  --include='HDR_*_PANO.jpg' \
-  --include='HDR_*_PANO.mp4' \
-  --exclude='*' \
-  "${source_user}@${source_host}:${source_path%/}/" "${destination%/}/"
-prune_local_tree
+mapfile -t fish_days < <(list_remote_days FISH)
+mapfile -t pano_days < <(list_remote_days PANO)
+
+prune_local_stream FISH "${fish_days[@]}"
+prune_local_stream PANO "${pano_days[@]}"
+
+max_days=${#fish_days[@]}
+if (( ${#pano_days[@]} > max_days )); then
+  max_days=${#pano_days[@]}
+fi
+
+for (( idx=0; idx<max_days; idx++ )); do
+  if (( idx < ${#fish_days[@]} )); then
+    sync_stream_day FISH "${fish_days[idx]}"
+  fi
+  if (( idx < ${#pano_days[@]} )); then
+    sync_stream_day PANO "${pano_days[idx]}"
+  fi
+done
+
 find "${destination%/}" -depth -type d -empty -delete
