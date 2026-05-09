@@ -157,10 +157,14 @@ Per-job rsync wrappers try the transfer hosts in this order:
 
 The scheduled jobs are:
 
-- raw mirror push every `30` minutes at `*:05/30`
-- products push every `30` minutes at `*:15/30`
-- manifest push every `30` minutes at `*:27/30`
-- mirror verification every `30` minutes at `*:24/30`
+- raw mirror push every `5` minutes at `*:01/5`
+- products push every `10` minutes at `*:03/10`
+- manifest push every `10` minutes at `*:06/10`
+- mirror verification every `10` minutes at `*:08/10`
+
+The GWS timers also now use a smaller randomized delay (`60` seconds instead of
+`300`) so near-real-time streams like CL61 do not sit in an amber “slightly
+behind” state for most of each transfer cycle.
 
 The rsync timers are only enabled after the GWS auth probe succeeds. In the
 current deployment that probe uses the existing JASMIN RSA key at
@@ -226,7 +230,7 @@ The relevant timers are:
 - `aurora-ops-monitor-collect.timer` every 5 minutes
 - `aurora-ops-monitor-append.timer` every 5 minutes
 - `aurora-ops-monitor-quicklooks.timer` every 10 minutes
-- `aurora-mirror-verify.timer` every 30 minutes
+- `aurora-mirror-verify.timer` every 10 minutes
 
 ## Secrets
 

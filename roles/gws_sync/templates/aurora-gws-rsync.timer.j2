@@ -4,7 +4,7 @@ Description=Schedule Aurora GWS {{ item.name }} sync
 [Timer]
 OnCalendar={{ item.schedule }}
 Persistent=true
-RandomizedDelaySec=300
+RandomizedDelaySec={{ item.randomized_delay_sec | default(gws_sync_randomized_delay_sec | default(300)) }}
 Unit=aurora-gws-rsync-{{ item.name }}.service
 
 [Install]

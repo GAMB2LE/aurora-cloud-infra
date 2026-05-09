@@ -4,7 +4,7 @@ Description=Schedule Aurora mirror verification and prune-gate manifests
 [Timer]
 OnCalendar={{ gws_verification_schedule }}
 Persistent=true
-RandomizedDelaySec=300
+RandomizedDelaySec={{ gws_verification_randomized_delay_sec | default(300) }}
 Unit=aurora-mirror-verify.service
 
 [Install]
