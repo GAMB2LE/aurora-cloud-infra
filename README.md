@@ -162,9 +162,12 @@ The scheduled jobs are:
 - manifest push every `30` minutes at `*:27/30`
 - mirror verification every `30` minutes at `*:24/30`
 
-The rsync timers stay disabled until JASMIN SSH authentication succeeds. The
-mirror verification timer can still run before that and records that GWS is not
-yet available.
+The rsync timers are only enabled after the GWS auth probe succeeds. In the
+current deployment that probe uses the existing JASMIN RSA key at
+`/home/aurora/.ssh/id_rsa_jasmin_20200514`, and the timers then push to the
+transfer-host failover chain automatically. Before the first raw/products sync
+finishes, mirror verification will honestly report that the GWS raw tree is
+missing or incomplete.
 
 Verification writes rolling history under:
 
@@ -188,6 +191,36 @@ Each stream gets `source.tsv`, `local.tsv`, optional `gws.tsv`, and
 
 This is a prune gate and report, not an automatic deletion step.
 
+## Operations Monitoring
+
+The deployed stack now also collects infrastructure and transfer housekeeping
+into its own monitoring stream:
+
+- raw snapshots:
+  `/project/aurora/raw/ops_monitor/ops_monitor_YYYYMMDD.jsonl`
+- latest snapshot:
+  `/project/aurora/raw/ops_monitor/latest.json`
+- Zarr product:
+  `/data/aurora/products/ops_monitor/ops_monitor.zarr`
+- quicklooks:
+  `/data/aurora/products/quicklooks/ops_monitor/`
+
+The collector records:
+
+- source-host disk usage and probe reachability
+- local `/project`, `/data`, and `/` filesystem usage
+- GWS usage and reachability
+- per-stream local and GWS mirror coverage, lag, and mismatch counts
+- prune-gate and product-gate summaries
+- systemd health for source sync, processing, and transfer units
+
+The relevant timers are:
+
+- `aurora-ops-monitor-collect.timer` every 5 minutes
+- `aurora-ops-monitor-append.timer` every 5 minutes
+- `aurora-ops-monitor-quicklooks.timer` every 10 minutes
+- `aurora-mirror-verify.timer` every 30 minutes
+
 ## Secrets
 
 Do not commit secrets. For a first Tailscale registration, pass the auth key from the environment:
@@ -197,9 +230,10 @@ export TAILSCALE_AUTHKEY=...
 uv run ansible-playbook playbooks/site.yml --check --diff
 ```
 
-For unattended GWS sync, create or install a dedicated private key at
-`/home/aurora/.ssh/id_ed25519_jasmin_gws` and authorize its public key for
-`rrniii` on the relevant JASMIN transfer service. A forwarded SSH agent from an
+For unattended GWS sync, make sure the private key configured by
+`gws_ssh_private_key` is readable by the `aurora` service user and already
+authorized for `rrniii` on the JASMIN transfer hosts. The live deployment now
+uses `/home/aurora/.ssh/id_rsa_jasmin_20200514`. A forwarded SSH agent from an
 interactive admin session is not enough for systemd timers.
 
 For CL61 source sync, either let Ansible generate

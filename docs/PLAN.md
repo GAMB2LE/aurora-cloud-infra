@@ -61,9 +61,10 @@ Optional `sshfs` can be added as a convenience mount at `/mnt/gws/gamb2le`, but 
 
 - Commit or otherwise preserve dirty production changes in the old dashboard repo.
 - Commit or preserve dirty user systemd service changes, including HATPRO/radiometer timers.
-- Add the generated public key from
-  `/home/aurora/.ssh/id_ed25519_jasmin_gws.pub` to the JASMIN account used for
-  `rrniii`.
+- Make sure the unattended key used by `gws_ssh_private_key` is already
+  authorized for `rrniii` on the JASMIN transfer hosts. The live deployment now
+  uses `/home/aurora/.ssh/id_rsa_jasmin_20200514`, which successfully
+  authenticates to `xfer-vm-03.jasmin.ac.uk`.
 - Put any Tailscale auth key and SSH transfer key material in Ansible Vault, not plain Git.
 - The user provided a Tailscale key in the chat, but it is intentionally not stored in this repository.
 

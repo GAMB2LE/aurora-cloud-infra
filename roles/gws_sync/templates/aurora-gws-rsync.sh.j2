@@ -55,11 +55,19 @@ for host in "${hosts[@]}"; do
     echo "[$(date -u +%FT%TZ)] ssh preflight failed for ${host}"
     continue
   fi
-  if RSYNC_RSH="ssh ${ssh_opts[*]}" rsync "${rsync_opts[@]}" "${source_dir%/}/" "${gws_user}@${host}:${destination_dir%/}/"; then
+  set +e
+  RSYNC_RSH="ssh ${ssh_opts[*]}" rsync "${rsync_opts[@]}" "${source_dir%/}/" "${gws_user}@${host}:${destination_dir%/}/"
+  rc=$?
+  set -e
+  if [[ $rc -eq 0 ]]; then
     echo "[$(date -u +%FT%TZ)] sync succeeded via ${host}"
     exit 0
   fi
-  echo "[$(date -u +%FT%TZ)] rsync failed via ${host}"
+  if [[ $rc -eq 24 ]]; then
+    echo "[$(date -u +%FT%TZ)] sync completed with vanished-source warnings via ${host} (rsync exit 24)"
+    exit 0
+  fi
+  echo "[$(date -u +%FT%TZ)] rsync failed via ${host} (exit ${rc})"
 done
 
 echo "All configured JASMIN transfer hosts failed for ${job_name}" | tee -a "$log_file" >&2
