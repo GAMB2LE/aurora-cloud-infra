@@ -15,14 +15,14 @@ Dashboard products still use only the HDR JPG and HDR MP4 subsets.
 ## Dashboard behavior
 
 - Dashboard instrument name: `WXcam`
-- Interactive tab: primary wxcam browser and player using stitched MP4 products
-- Calendar tab: hourly JPG thumbnail grid
+- Interactive Data Browser: primary wxcam browser and player using stitched MP4 products
+- Science Quicklooks: hourly JPG thumbnail grid
 
 The dashboard uses the SQLite catalog plus daily MP4 and hourly thumbnail
-products for browsing. The calendar grid is driven by HDR JPG selections,
-while the interactive browser uses stitched MP4 products. The wxcam pixel Zarr
-path is built from the HDR JPG archive, even though the raw mirror includes the
-full upstream tree.
+products for browsing. The science-quicklook grid is driven by HDR JPG
+selections, while the interactive browser uses stitched MP4 products. The
+wxcam pixel Zarr path is built from the HDR JPG archive, even though the raw
+mirror includes the full upstream tree.
 
 ## Authentication
 

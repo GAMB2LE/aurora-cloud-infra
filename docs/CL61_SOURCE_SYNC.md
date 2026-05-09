@@ -72,7 +72,8 @@ The CL61 timers are enabled in Ansible:
 
 `aurora-cl61-source-sync.timer` is enabled once source SSH is authorized.
 
-Radar and HATPRO timers remain disabled until their fresh sources are configured.
+The radar timers are already enabled in the live deployment. HATPRO timers
+remain disabled until its raw source and product pipeline are configured.
 
 ## Legacy Source Push
 
