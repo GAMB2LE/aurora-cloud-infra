@@ -182,6 +182,13 @@ Each stream gets `source.tsv`, `local.tsv`, optional `gws.tsv`, and
 - mtime
 - optional checksum
 
+To avoid false alarms from files that are still actively being written, mirror
+verification uses settle windows:
+
+- local mirror comparisons ignore source files newer than `10` minutes
+- GWS comparisons ignore source files newer than `45` minutes
+- product-gate checks use the newest settled product source older than `15` minutes
+
 `prune_candidates.tsv` is only populated when all of these are true:
 
 - the source file is present

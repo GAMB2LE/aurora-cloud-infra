@@ -20,6 +20,9 @@ CONFIG = json.loads(
   "history_keep": {{ gws_manifest_history_keep | to_json }},
   "checksum_mode": {{ gws_manifest_checksum_mode | to_json }},
   "checksum_spot_modulus": {{ gws_manifest_spot_modulus | to_json }},
+  "local_settle_seconds": 600,
+  "gws_settle_seconds": 2700,
+  "product_settle_seconds": 900,
   "aurora_user": {{ aurora_service_user | to_json }},
   "gws_user": {{ gws_username | to_json }},
   "gws_hosts": {{ gws_transfer_hosts | to_json }},
@@ -323,6 +326,23 @@ def latest_product_timestamp(stream: dict, source_entries: dict[str, dict]) -> i
     return max(relevant) if relevant else None
 
 
+def settled_entries(source_entries: dict[str, dict], settle_seconds: int, now_ts: int) -> dict[str, dict]:
+    if settle_seconds <= 0:
+        return dict(source_entries)
+    cutoff = now_ts - settle_seconds
+    return {
+        relpath: entry
+        for relpath, entry in source_entries.items()
+        if int(entry["mtime"]) <= cutoff
+    }
+
+
+def latest_settled_product_timestamp(stream: dict, source_entries: dict[str, dict], settle_seconds: int, now_ts: int) -> int | None:
+    settled = settled_entries(source_entries, settle_seconds, now_ts)
+    relevant = [entry["mtime"] for entry in settled.values() if match_any(entry["relpath"], stream["product_patterns"])]
+    return max(relevant) if relevant else None
+
+
 def compare_entries(source_entries: dict[str, dict], other_entries: dict[str, dict]) -> tuple[list[str], list[str], list[str]]:
     mirrored: list[str] = []
     missing: list[str] = []
@@ -380,6 +400,7 @@ def main() -> int:
         summary["gws_host"] = gws_host
         summary["gws_available"] = True
     gws_target = f"{CONFIG['gws_user']}@{gws_host}" if gws_host else None
+    now_ts = int(utcnow().timestamp())
 
     hard_failures: list[str] = []
 
@@ -423,14 +444,22 @@ def main() -> int:
             if gws_target:
                 write_manifest(stream_dir / "gws.tsv", gws_entries)
 
-            local_mirrored, local_missing, local_mismatched = compare_entries(source_entries, local_entries)
+            local_source_entries = settled_entries(source_entries, int(CONFIG["local_settle_seconds"]), now_ts)
+            gws_source_entries = settled_entries(source_entries, int(CONFIG["gws_settle_seconds"]), now_ts)
+
+            local_mirrored, local_missing, local_mismatched = compare_entries(local_source_entries, local_entries)
             if gws_target:
-                gws_mirrored, gws_missing, gws_mismatched = compare_entries(source_entries, gws_entries)
+                gws_mirrored, gws_missing, gws_mismatched = compare_entries(gws_source_entries, gws_entries)
             else:
-                gws_mirrored, gws_missing, gws_mismatched = [], list(source_entries.keys()), []
+                gws_mirrored, gws_missing, gws_mismatched = [], list(gws_source_entries.keys()), []
 
             mirrored_all = sorted(set(local_mirrored).intersection(gws_mirrored)) if gws_target else []
-            latest_product_source = latest_product_timestamp(stream, source_entries)
+            latest_product_source = latest_settled_product_timestamp(
+                stream,
+                source_entries,
+                int(CONFIG["product_settle_seconds"]),
+                now_ts,
+            )
             service_states = [service_info(service_name) for service_name in stream["required_services"]]
             successful_exits = [state["exit_timestamp"] for state in service_states if state["result"] == "success" and state["exit_timestamp"]]
             product_ok = False
