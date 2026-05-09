@@ -1,5 +1,5 @@
 [Unit]
-Description=Aurora sync {{ item.name }} data to JASMIN GWS
+Description=Aurora mirror verification and prune-gate manifests
 After=network-online.target
 Wants=network-online.target
 
@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=oneshot
 User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
-ExecStart=/usr/local/bin/aurora-gws-rsync-{{ item.name }}
+ExecStart=/usr/local/bin/aurora-mirror-verify
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=6

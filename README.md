@@ -10,14 +10,14 @@ Ansible configuration for rebuilding the Aurora cloud dashboard host on the exis
 - Dashboard app: `/opt/aurora-cloud-dashboard`.
 - Public access: `nginx` on `80/443`.
 - Private Panel backend: `127.0.0.1:5006` only.
-- Fresh CL61 raw source: `aurora@100.117.101.84:/home/aurora/data/cl61` pulled into `/project/aurora/raw/cl61`.
-- Fresh cloud radar raw source: `aurora@100.124.55.22:/home/aurora/data/rpgfmcw94` pulled into `/project/aurora/raw/rpgfmcw94`.
-- Fresh Vaisala met raw source: `aurora@100.124.55.22:/home/aurora/data/vaisalamet` pulled into `/project/aurora/raw/vaisalamet`.
-- Fresh ASFS LoggerNet raw source: `aurora@100.124.55.22:/home/aurora/data/asfs/raw/loggernet` pulled into `/project/aurora/raw/asfs/loggernet`.
-- Fresh ASFS fast-sonic raw source: `aurora@100.124.55.22:/home/aurora/data/asfs/raw/loggernet` pulled into `/project/aurora/raw/asfs/loggernet`.
-- Fresh power raw source: `aurora@100.81.226.30:/data/power/level1` pulled into `/project/aurora/raw/power/level1`.
-- Fresh wxcam raw source: `aurora@100.124.55.22:/home/aurora/data/wxcam` pulled into `/project/aurora/raw/wxcam`.
-- GWS backup/sync: rsync via a JASMIN transfer host to `/gws/ssde/j25b/gamb2le`.
+- CL61 raw source: `aurora@100.117.101.84:/home/aurora/data/cl61` pulled into `/project/aurora/raw/cl61`.
+- Cloud radar raw source: `aurora@100.124.55.22:/home/aurora/data/rpgfmcw94` pulled into `/project/aurora/raw/rpgfmcw94`.
+- Vaisala met raw source: `aurora@100.124.55.22:/home/aurora/data/vaisalamet` pulled into `/project/aurora/raw/vaisalamet`.
+- ASFS LoggerNet raw source: `aurora@100.124.55.22:/home/aurora/data/asfs/raw/loggernet` pulled into `/project/aurora/raw/asfs/loggernet`.
+- ASFS fast-sonic raw source: `aurora@100.124.55.22:/home/aurora/data/asfs/raw/loggernet` pulled into `/project/aurora/raw/asfs/loggernet`.
+- Power raw source: `aurora@100.81.226.30:/data/power/level1` pulled into `/project/aurora/raw/power/level1`.
+- WXcam raw source: `aurora@100.124.55.22:/home/aurora/data/wxcam` pulled into `/project/aurora/raw/wxcam`.
+- GWS backup/sync: rsync via JASMIN transfer hosts to `/gws/ssde/j25b/gamb2le`.
 
 ## Storage layout
 
@@ -87,15 +87,18 @@ uv run ansible-playbook playbooks/site.yml --check --diff
 
 Do not run `playbooks/site.yml` without `--check` until the old production Git changes have been preserved and transfer/Tailscale secrets have been put in Ansible Vault.
 
-## Fresh Source Syncs
+## Source Syncs
 
-The CL61 and radar source syncs intentionally do not migrate historical data by
-default. The first successful source-sync service run creates its state file with
-the current epoch and exits. Later runs pull only source files newer than that
-marker.
+All configured source syncs now initialize from epoch `0` when their state file
+is absent, so the local raw mirror can become authoritative for any stream you
+plan to prune upstream.
 
-The Vaisala met source sync starts by pulling all existing matching `.dat` files
-so the Zarr can bootstrap from the full current source history.
+The CL61 source sync now pulls all currently available matching files and then
+advances `/var/lib/aurora-cloud/cl61-sync.last` on later runs.
+The radar source sync does the same while preserving the recursive
+`Yyyyy/Mmm/Ddd/` source tree.
+The Vaisala met source sync pulls all existing matching `.dat` files so the
+Zarr can bootstrap from the full current source history.
 The ASFS LoggerNet source sync does the same, restricted to files matching
 `asfs-logger_sci_DD_MM_YYYY.dat`.
 The ASFS fast-sonic source sync is separate and restricted to files matching
@@ -103,10 +106,10 @@ The ASFS fast-sonic source sync is separate and restricted to files matching
 not exposed in the dashboard.
 The power source sync is restricted to files matching `power_data_YYYYMMDD.csv`
 and excludes wind-named variables before writing the Zarr product.
-The wxcam source sync keeps only HDR JPGs and HDR hourly MP4s locally while
-leaving the broader source archive untouched upstream. Wxcam indexing builds a
-SQLite catalog from the local HDR mirror, daily MP4 products, hourly JPG-based
-thumbnail products, and a pixel Zarr that appends from the HDR JPG archive.
+The wxcam source sync now mirrors the full raw `FISH/` and `PANO/` tree into
+`/project/aurora/raw/wxcam`. Downstream wxcam products still only use the HDR
+JPG and HDR MP4 subsets for the catalog, daily videos, thumbnails, and pixel
+Zarr.
 
 Before enabling this live, confirm SSH from the target works:
 
@@ -134,8 +137,56 @@ filtering by extension so JPG and MP4 products stay together on disk.
 
 The legacy source-side `cl61sync.timer` on `celine-edge-1` pushes to the old
 `aurora-cloud:/mnt/data/cl61` location and prunes local files older than 21 days
-after a successful verification. Leave that timer disabled for this fresh-start
-pull model.
+after a successful verification. Leave that timer disabled for this pull model.
+
+## GWS Sync and Verification
+
+The deployed transfer model is push-based from this VM, scheduled with
+`systemd`, and aimed at the JASMIN GWS layout:
+
+- raw mirror: `/gws/ssde/j25b/gamb2le/data/incoming/aurora-cloud/raw/`
+- products: `/gws/ssde/j25b/gamb2le/data/output/aurora-cloud/products/`
+- manifests and logs:
+  `/gws/ssde/j25b/gamb2le/data/internal/aurora-cloud/manifests/`
+
+Per-job rsync wrappers try the transfer hosts in this order:
+
+1. `xfer-vm-03.jasmin.ac.uk`
+2. `xfer-vm-01.jasmin.ac.uk`
+3. `xfer-vm-02.jasmin.ac.uk`
+
+The scheduled jobs are:
+
+- raw mirror push every `30` minutes at `*:05/30`
+- products push every `30` minutes at `*:15/30`
+- manifest push every `30` minutes at `*:27/30`
+- mirror verification every `30` minutes at `*:24/30`
+
+The rsync timers stay disabled until JASMIN SSH authentication succeeds. The
+mirror verification timer can still run before that and records that GWS is not
+yet available.
+
+Verification writes rolling history under:
+
+- `/data/aurora/internal/mirror_manifests/history/<timestamp>/`
+- `/data/aurora/internal/mirror_manifests/latest/`
+
+Each stream gets `source.tsv`, `local.tsv`, optional `gws.tsv`, and
+`prune_candidates.tsv`. The manifests include:
+
+- relative path
+- size
+- mtime
+- optional checksum
+
+`prune_candidates.tsv` is only populated when all of these are true:
+
+- the source file is present
+- the local raw mirror matches it
+- the GWS raw mirror matches it
+- the required product append jobs succeeded through that time window
+
+This is a prune gate and report, not an automatic deletion step.
 
 ## Secrets
 
@@ -146,7 +197,10 @@ export TAILSCALE_AUTHKEY=...
 uv run ansible-playbook playbooks/site.yml --check --diff
 ```
 
-For unattended GWS sync, create or install a dedicated private key at `/home/aurora/.ssh/id_rsa_jasmin` and authorize it for `rrniii` on the relevant JASMIN transfer service. A forwarded SSH agent from an interactive admin session is not enough for systemd timers.
+For unattended GWS sync, create or install a dedicated private key at
+`/home/aurora/.ssh/id_ed25519_jasmin_gws` and authorize its public key for
+`rrniii` on the relevant JASMIN transfer service. A forwarded SSH agent from an
+interactive admin session is not enough for systemd timers.
 
 For CL61 source sync, either let Ansible generate
 `/home/aurora/.ssh/id_ed25519_celine` on the target and add its `.pub` file to

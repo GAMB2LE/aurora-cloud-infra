@@ -1,4 +1,76 @@
 ---
+- name: Ensure GWS manifest root exists
+  ansible.builtin.file:
+    path: "{{ gws_manifest_root }}"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "0755"
+  when: gws_sync_enabled | bool or gws_verification_enabled | bool
+
+- name: Ensure Aurora SSH directory exists for GWS sync
+  ansible.builtin.file:
+    path: "/home/{{ aurora_service_user }}/.ssh"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "0700"
+  when: gws_sync_enabled | bool or gws_verification_enabled | bool
+
+- name: Generate JASMIN GWS SSH key when requested
+  ansible.builtin.copy:
+    content: "{{ gws_ssh_private_key_content }}"
+    dest: "{{ gws_ssh_private_key }}"
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "0600"
+  no_log: true
+  when:
+    - gws_sync_enabled | bool or gws_verification_enabled | bool
+    - gws_ssh_private_key_content is defined
+    - gws_ssh_private_key_content | length > 0
+
+- name: Generate JASMIN GWS SSH key when requested
+  ansible.builtin.command: "ssh-keygen -t ed25519 -N '' -f {{ gws_ssh_private_key }} -C aurora-gws-sync@{{ inventory_hostname }}"
+  args:
+    creates: "{{ gws_ssh_private_key }}"
+  become_user: "{{ aurora_service_user }}"
+  when:
+    - gws_generate_ssh_key | bool
+    - gws_sync_enabled | bool or gws_verification_enabled | bool
+    - gws_ssh_private_key_content is not defined or gws_ssh_private_key_content | length == 0
+    - not ansible_check_mode
+
+- name: Scan JASMIN transfer host keys
+  ansible.builtin.command: "ssh-keyscan -T 10 {{ item }}"
+  changed_when: false
+  register: gws_transfer_keyscan
+  loop: "{{ gws_transfer_hosts }}"
+  when:
+    - gws_sync_enabled | bool or gws_verification_enabled | bool
+    - not ansible_check_mode
+
+- name: Trust JASMIN transfer host keys for Aurora service user
+  ansible.builtin.known_hosts:
+    path: "/home/{{ aurora_service_user }}/.ssh/known_hosts"
+    name: "{{ item.0.item }}"
+    key: "{{ item.1 }}"
+    state: present
+  loop: "{{ (gws_transfer_keyscan.results | default([])) | subelements('stdout_lines', skip_missing=True) }}"
+  when:
+    - gws_sync_enabled | bool or gws_verification_enabled | bool
+    - not ansible_check_mode
+
+- name: Ensure JASMIN known_hosts ownership
+  ansible.builtin.file:
+    path: "/home/{{ aurora_service_user }}/.ssh/known_hosts"
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "0644"
+  when:
+    - gws_sync_enabled | bool or gws_verification_enabled | bool
+    - not ansible_check_mode
+
 - name: Ensure optional SSHFS mountpoint exists
   ansible.builtin.file:
     path: "{{ gws_sshfs_mountpoint }}"
@@ -16,6 +88,16 @@
     group: root
     mode: "0644"
   when: gws_sshfs_enabled | bool
+
+- name: Install GWS rsync wrapper scripts
+  ansible.builtin.template:
+    src: aurora-gws-rsync.sh.j2
+    dest: "/usr/local/bin/aurora-gws-rsync-{{ item.name }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop: "{{ gws_sync_jobs }}"
+  when: gws_sync_enabled | bool
 
 - name: Install GWS rsync service units
   ansible.builtin.template:
@@ -37,6 +119,33 @@
   loop: "{{ gws_sync_jobs }}"
   when: gws_sync_enabled | bool
 
+- name: Probe JASMIN transfer host authentication
+  ansible.builtin.shell: |
+    set -euo pipefail
+    for host in {{ gws_transfer_hosts | join(' ') }}; do
+      if sudo -u {{ aurora_service_user }} ssh -i {{ gws_ssh_private_key }} -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/home/{{ aurora_service_user }}/.ssh/known_hosts {{ gws_username }}@"$host" true >/dev/null 2>&1; then
+        echo "$host"
+        exit 0
+      fi
+    done
+    exit 1
+  args:
+    executable: /bin/bash
+  register: gws_auth_probe
+  changed_when: false
+  failed_when: false
+  when:
+    - gws_sync_enabled | bool
+    - not ansible_check_mode
+
+- name: Set GWS sync readiness fact
+  ansible.builtin.set_fact:
+    gws_sync_ready: "{{ (gws_auth_probe.rc | default(1)) == 0 }}"
+    gws_active_transfer_host: "{{ gws_auth_probe.stdout | trim if (gws_auth_probe.rc | default(1)) == 0 else '' }}"
+  when:
+    - gws_sync_enabled | bool
+    - not ansible_check_mode
+
 - name: Enable GWS rsync timers
   ansible.builtin.systemd:
     name: "aurora-gws-rsync-{{ item.name }}.timer"
@@ -44,4 +153,63 @@
     state: started
     daemon_reload: true
   loop: "{{ gws_sync_jobs }}"
-  when: gws_sync_enabled | bool
+  when:
+    - gws_sync_enabled | bool
+    - gws_sync_timer_enabled | bool
+    - (gws_sync_ready | default(false)) | bool
+    - not ansible_check_mode
+
+- name: Disable GWS rsync timers when auth or scheduling is not ready
+  ansible.builtin.systemd:
+    name: "aurora-gws-rsync-{{ item.name }}.timer"
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  loop: "{{ gws_sync_jobs }}"
+  when:
+    - gws_sync_enabled | bool
+    - not ((gws_sync_timer_enabled | bool) and ((gws_sync_ready | default(false)) | bool))
+    - not ansible_check_mode
+
+- name: Install mirror verification script
+  ansible.builtin.template:
+    src: aurora-mirror-verify.py.j2
+    dest: /usr/local/bin/aurora-mirror-verify
+    owner: root
+    group: root
+    mode: "0755"
+  when: gws_verification_enabled | bool
+
+- name: Install mirror verification systemd units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - aurora-mirror-verify.service
+    - aurora-mirror-verify.timer
+  when: gws_verification_enabled | bool
+
+- name: Enable mirror verification timer
+  ansible.builtin.systemd:
+    name: aurora-mirror-verify.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - gws_verification_enabled | bool
+    - gws_verification_timer_enabled | bool
+    - not ansible_check_mode
+
+- name: Disable mirror verification timer when requested
+  ansible.builtin.systemd:
+    name: aurora-mirror-verify.timer
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  when:
+    - gws_verification_enabled | bool
+    - not gws_verification_timer_enabled | bool
+    - not ansible_check_mode

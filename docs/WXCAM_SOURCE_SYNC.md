@@ -8,8 +8,9 @@
 - Pixel Zarr path: `/data/aurora/products/wxcam/wxcam.zarr`
 
 The wxcam source contains nested `FISH/` and `PANO/` trees. The deployed sync
-keeps only HDR JPGs and HDR hourly MP4 clips in the local mirror, while
-leaving the broader remote source archive untouched.
+mirrors the full raw tree into `/project/aurora/raw/wxcam` so the local raw
+copy can become authoritative for retention and downstream archival checks.
+Dashboard products still use only the HDR JPG and HDR MP4 subsets.
 
 ## Dashboard behavior
 
@@ -20,7 +21,8 @@ leaving the broader remote source archive untouched.
 The dashboard uses the SQLite catalog plus daily MP4 and hourly thumbnail
 products for browsing. The calendar grid is driven by HDR JPG selections,
 while the interactive browser uses stitched MP4 products. The wxcam pixel Zarr
-path is built from the HDR JPG archive.
+path is built from the HDR JPG archive, even though the raw mirror includes the
+full upstream tree.
 
 ## Authentication
 

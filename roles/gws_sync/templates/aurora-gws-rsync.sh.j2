@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+job_name={{ item.name | quote }}
+source_dir={{ item.source | quote }}
+destination_dir={{ item.destination | quote }}
+gws_user={{ gws_username | quote }}
+ssh_key={{ gws_ssh_private_key | quote }}
+known_hosts=/home/{{ aurora_service_user }}/.ssh/known_hosts
+manifest_root={{ gws_manifest_root | quote }}
+
+hosts=(
+{% for host in gws_transfer_hosts %}
+  {{ host | quote }}
+{% endfor %}
+)
+
+if [[ ! -f "$ssh_key" ]]; then
+  echo "Missing JASMIN SSH key: $ssh_key" >&2
+  exit 2
+fi
+
+if [[ ! -d "$source_dir" ]]; then
+  echo "Missing source directory for ${job_name}: $source_dir" >&2
+  exit 3
+fi
+
+mkdir -p "$(dirname "$known_hosts")" "$manifest_root/logs"
+
+ssh_opts=(
+  -i "$ssh_key"
+  -o BatchMode=yes
+  -o IdentitiesOnly=yes
+  -o ConnectTimeout=15
+  -o ServerAliveInterval=15
+  -o ServerAliveCountMax=4
+  -o StrictHostKeyChecking=accept-new
+  -o UserKnownHostsFile="$known_hosts"
+)
+
+rsync_opts=(
+  -aH
+  --partial
+  --delete-delay
+  --delay-updates
+)
+
+timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+log_file="${manifest_root%/}/logs/gws-sync-${job_name}-${timestamp}.log"
+exec > >(tee -a "$log_file") 2>&1
+
+for host in "${hosts[@]}"; do
+  echo "[$(date -u +%FT%TZ)] trying ${host} for ${job_name}"
+  if ! ssh "${ssh_opts[@]}" "${gws_user}@${host}" "mkdir -p '$destination_dir'"; then
+    echo "[$(date -u +%FT%TZ)] ssh preflight failed for ${host}"
+    continue
+  fi
+  if RSYNC_RSH="ssh ${ssh_opts[*]}" rsync "${rsync_opts[@]}" "${source_dir%/}/" "${gws_user}@${host}:${destination_dir%/}/"; then
+    echo "[$(date -u +%FT%TZ)] sync succeeded via ${host}"
+    exit 0
+  fi
+  echo "[$(date -u +%FT%TZ)] rsync failed via ${host}"
+done
+
+echo "All configured JASMIN transfer hosts failed for ${job_name}" | tee -a "$log_file" >&2
+exit 1

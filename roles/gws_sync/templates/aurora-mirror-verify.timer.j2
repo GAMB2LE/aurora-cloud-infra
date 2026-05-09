@@ -1,0 +1,11 @@
+[Unit]
+Description=Schedule Aurora mirror verification and prune-gate manifests
+
+[Timer]
+OnCalendar={{ gws_verification_schedule }}
+Persistent=true
+RandomizedDelaySec=300
+Unit=aurora-mirror-verify.service
+
+[Install]
+WantedBy=timers.target

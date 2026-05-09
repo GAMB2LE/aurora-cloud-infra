@@ -20,13 +20,19 @@ public-key authentication disabled:
 sudo -u aurora ssh -o IdentityFile=none -o PubkeyAuthentication=no aurora@100.124.55.22 true
 ```
 
-## Fresh-Start Behavior
+## Current Deployed Behavior
 
 `aurora-radar-source-sync.service` runs `/usr/local/bin/aurora-radar-sync`.
-When `/var/lib/aurora-cloud/radar-sync.last` does not exist, the script writes
-the current epoch and exits. This prevents accidental historical backfill.
+With the current deployment variables, when
+`/var/lib/aurora-cloud/radar-sync.last` does not exist the script writes `0`,
+pulls the full current source history, and then advances the state marker on
+later runs.
 
-To deliberately reset the fresh-start point, stop the timer and edit or remove
+If you deliberately want the old fresh-start behavior again, set
+`radar_source_start_fresh: true` and redeploy. In that mode the script writes
+the current epoch and exits when the state file is absent.
+
+To deliberately reset the current sync point, stop the timer and edit or remove
 the state file:
 
 ```bash

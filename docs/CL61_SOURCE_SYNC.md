@@ -2,8 +2,8 @@
 
 ## Purpose
 
-CL61 raw NetCDF files should start fresh on the cloud host. Historical data from
-the restored filesystem backup is intentionally not copied.
+CL61 raw NetCDF files are mirrored onto the cloud host so the local raw tree
+can become authoritative for retention and downstream archival checks.
 
 ## Source And Destination
 
@@ -41,13 +41,19 @@ Preferred setup:
 Alternatively, store an existing source private key in Ansible Vault as
 `cl61_source_ssh_private_key_content`.
 
-## Fresh-Start Behavior
+## Current Deployed Behavior
 
 `aurora-cl61-source-sync.service` runs `/usr/local/bin/aurora-cl61-sync`.
-When `/var/lib/aurora-cloud/cl61-sync.last` does not exist, the script writes
-the current epoch and exits. This prevents accidental historical backfill.
+With the current deployment variables, when
+`/var/lib/aurora-cloud/cl61-sync.last` does not exist the script writes `0`,
+pulls the full current source history, and then advances the state marker on
+later runs.
 
-To deliberately reset the fresh-start point, stop the timer and edit or remove
+If you deliberately want the old fresh-start behavior again, set
+`cl61_source_start_fresh: true` and redeploy. In that mode the script writes
+the current epoch and exits when the state file is absent.
+
+To deliberately reset the current sync point, stop the timer and edit or remove
 the state file:
 
 ```bash
@@ -76,6 +82,6 @@ The source host has an existing user timer,
 `/home/aurora/data/cl61/` to `aurora@aurora-cloud:/mnt/data/cl61/` and then
 deletes local files older than 21 days after a successful verification.
 
-Do not repair that push script for this build. It targets the old path and works
-against the requested fresh-start pull model. It was stopped and disabled on
+Do not repair that push script for this build. It targets the old path and
+works against the current pull-and-verify model. It was stopped and disabled on
 2026-05-07.
