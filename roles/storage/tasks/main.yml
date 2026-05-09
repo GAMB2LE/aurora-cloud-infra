@@ -38,6 +38,7 @@
     - "{{ aurora_quicklook_dirs.hatpro }}"
     - "{{ aurora_quicklook_dirs.vaisalamet }}"
     - "{{ aurora_quicklook_dirs.asfs_logger }}"
+    - "{{ aurora_quicklook_dirs.asfs_fast_sonic }}"
     - "{{ aurora_quicklook_dirs.power }}"
     - "{{ aurora_log_root }}"
     - "{{ aurora_state_root }}"

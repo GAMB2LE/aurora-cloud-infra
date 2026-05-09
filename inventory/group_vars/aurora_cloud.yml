@@ -59,6 +59,7 @@ aurora_quicklook_dirs:
   hatpro: "{{ aurora_paths.quicklooks }}/hatpro"
   vaisalamet: "{{ aurora_paths.quicklooks }}/vaisalamet"
   asfs_logger: "{{ aurora_paths.quicklooks }}/asfs_logger"
+  asfs_fast_sonic: "{{ aurora_paths.quicklooks }}/asfs_fast_sonic"
   power: "{{ aurora_paths.quicklooks }}/power"
 
 aurora_quicklook_latest:
@@ -67,6 +68,7 @@ aurora_quicklook_latest:
   hatpro: "{{ aurora_quicklook_dirs.hatpro }}/latest.png"
   vaisalamet: "{{ aurora_quicklook_dirs.vaisalamet }}/latest.png"
   asfs_logger: "{{ aurora_quicklook_dirs.asfs_logger }}/latest.png"
+  asfs_fast_sonic: "{{ aurora_quicklook_dirs.asfs_fast_sonic }}/latest.png"
   power: "{{ aurora_quicklook_dirs.power }}/latest.png"
 
 aurora_dashboard_allowed_origins:
@@ -89,6 +91,7 @@ aurora_processing_timers:
   asfs_logger_append: true
   asfs_logger_quicklooks: true
   asfs_fast_sonic_append: true
+  asfs_fast_sonic_quicklooks: true
   power_append: true
   power_quicklooks: true
   wxcam_catalog: true

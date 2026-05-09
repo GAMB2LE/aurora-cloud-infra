@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Aurora ASFS fast-sonic quicklooks every 10 minutes
+
+[Timer]
+OnCalendar=*:12/10
+RandomizedDelaySec=0
+Persistent=true
+Unit=aurora-asfs-fast-sonic-quicklooks.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,12 @@
+[Unit]
+Description=Aurora ASFS fast-sonic quicklooks
+After=aurora-asfs-fast-sonic-append.service
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+WorkingDirectory={{ aurora_app_dir }}
+EnvironmentFile=/etc/aurora-dashboard.env
+ExecStart=/bin/bash -lc 'source {{ aurora_venv }}/bin/activate && ./plot_asfs_fast_sonic_last24h.py {{ aurora_zarr.asfs_fast_sonic }} {{ aurora_quicklook_latest.asfs_fast_sonic }} && ./generate_asfs_fast_sonic_quicklooks.py'
+Nice=10
