@@ -2,6 +2,7 @@ site_name: Aurora Cloud Infrastructure
 site_description: Ansible configuration for rebuilding the Aurora cloud dashboard host
 repo_name: GAMB2LE/aurora-cloud-infra
 repo_url: https://github.com/GAMB2LE/aurora-cloud-infra
+site_url: https://gamb2le.github.io/aurora-cloud-infra/
 docs_dir: docs
 site_dir: site
 
@@ -25,6 +26,15 @@ markdown_extensions:
   - tables
   - toc:
       permalink: true
+
+extra:
+  portal:
+    slug: aurora-cloud-infra
+    title: Aurora Cloud Infrastructure
+    docs_url: https://gamb2le.github.io/aurora-cloud-infra/
+    repo_url: https://github.com/GAMB2LE/aurora-cloud-infra
+    export_site_path: sites/aurora-cloud-infra
+    export_manifest_path: catalog/aurora-cloud-infra.json
 
 nav:
   - Home: index.md

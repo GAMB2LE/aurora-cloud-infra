@@ -249,3 +249,15 @@ ASFS LoggerNet source sync also uses the same Tailscale/no-key SSH pattern.
 ASFS fast-sonic source sync also uses the same Tailscale/no-key SSH pattern.
 Power source sync also uses the same Tailscale/no-key SSH pattern.
 Wxcam source sync also uses the same Tailscale/no-key SSH pattern.
+
+## Documentation publishing
+
+- This repo still builds a standalone MkDocs site through GitHub Pages.
+- It also publishes a machine-readable portal manifest at `docs/portal.json`,
+  which ends up at `/portal.json` in the built site.
+- The docs workflow includes an optional `portal-export` job that can push the
+  built site and `portal.json` into `GAMB2LE/mkdocs-portal` when the repository
+  secret `DOCS_PORTAL_SSH_KEY` is configured.
+- The current export target inside the portal repo is:
+  - site: `sites/aurora-cloud-infra`
+  - manifest: `catalog/aurora-cloud-infra.json`
