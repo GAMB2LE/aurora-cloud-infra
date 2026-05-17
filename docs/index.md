@@ -8,7 +8,7 @@ Aurora cloud dashboard host on the existing JASMIN Cloud VM.
 - source sync timers and services for the instrument hosts
 - deployment of the dashboard systemd services
 - GWS transfer and mirror-verification jobs
-- WXcam full raw mirroring policy and downstream processing support
+- WXcam FISH HDR mirroring policy and downstream processing support
 - host-level operational configuration for the Aurora stack
 
 ## Current deployment contract
@@ -44,8 +44,8 @@ The deployed syncs currently cover:
 - Power
 - WXcam
 
-WXcam is mirrored as a full raw tree locally, while downstream dashboard
-products still only use the HDR JPG and HDR MP4 subsets.
+WXcam is mirrored locally as FISH HDR JPG and MP4 files only; PANO and
+AUTO/LONG/SHORT assets remain on the source host.
 
 ## GWS transfer model
 

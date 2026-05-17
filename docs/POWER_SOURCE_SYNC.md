@@ -9,6 +9,10 @@ Only files matching `power_data_YYYYMMDD.csv` are synced. The parser writes all
 numeric variables into one time-indexed Zarr, excluding any column whose name
 contains `wind` case-insensitively.
 
+The source sync intentionally rescans a rolling ten-day window on each run.
+That catches in-place updates to recent daily CSV files instead of relying only
+on a single monotonic timestamp cursor.
+
 The dashboard exposes this as its own instrument selection, `power`, with
 stacked 1D time-series plots for every retained numeric variable.
 

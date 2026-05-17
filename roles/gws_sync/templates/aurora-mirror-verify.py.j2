@@ -76,8 +76,8 @@ CONFIG = json.loads(
       "source_auth": "tailscale",
       "source_pattern": {{ asfs_logger_source_pattern | to_json }},
       "recursive": false,
-      "local_root": {{ aurora_paths.raw_asfs_logger | to_json }},
-      "gws_relpath": "asfs/loggernet",
+      "local_root": {{ aurora_paths.raw_asfs_crd | to_json }},
+      "gws_relpath": "asfs/crd",
       "product_patterns": [{{ asfs_logger_source_pattern | to_json }}],
       "required_services": ["aurora-asfs-logger-append.service"]
     },
@@ -89,8 +89,8 @@ CONFIG = json.loads(
       "source_auth": "tailscale",
       "source_pattern": {{ asfs_fast_sonic_source_pattern | to_json }},
       "recursive": false,
-      "local_root": {{ aurora_paths.raw_asfs_logger | to_json }},
-      "gws_relpath": "asfs/loggernet",
+      "local_root": {{ aurora_paths.raw_asfs_crd | to_json }},
+      "gws_relpath": "asfs/crd",
       "product_patterns": [{{ asfs_fast_sonic_source_pattern | to_json }}],
       "required_services": ["aurora-asfs-fast-sonic-append.service"]
     },
@@ -111,13 +111,13 @@ CONFIG = json.loads(
       "name": "wxcam",
       "source_user": {{ wxcam_source_user | to_json }},
       "source_host": {{ wxcam_source_host | to_json }},
-      "source_root": {{ wxcam_source_path | to_json }},
+      "source_root": {{ (wxcam_source_path ~ "/FISH") | to_json }},
       "source_auth": "tailscale",
-      "source_pattern": "*",
+      "source_pattern": ["HDR_*.jpg", "HDR_*.mp4"],
       "recursive": true,
-      "local_root": {{ aurora_paths.raw_wxcam | to_json }},
-      "gws_relpath": "wxcam",
-      "product_patterns": ["HDR_*.jpg", "HDR_*.mp4", "HDR_*_PANO.jpg", "HDR_*_PANO.mp4"],
+      "local_root": {{ (aurora_paths.raw_wxcam ~ "/FISH") | to_json }},
+      "gws_relpath": "wxcam/FISH",
+      "product_patterns": ["HDR_*.jpg", "HDR_*.mp4"],
       "required_services": [
         "aurora-wxcam-catalog.service",
         "aurora-wxcam-daily-videos.service",
@@ -191,7 +191,9 @@ def ensure_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
 
-def match_entry(relpath: str, pattern: str) -> bool:
+def match_entry(relpath: str, pattern: str | list[str]) -> bool:
+    if isinstance(pattern, list):
+        return any(match_entry(relpath, item) for item in pattern)
     if pattern == "*" or not pattern:
         return True
     return fnmatch.fnmatch(Path(relpath).name, pattern)
@@ -231,12 +233,12 @@ def ssh_base(stream: dict) -> list[str]:
     return CL61_BASE if stream["source_auth"] == "cl61_key" else TAILSCALE_BASE
 
 
-def list_remote_entries(base_cmd: list[str], target: str, root: str, recursive: bool, pattern: str) -> dict[str, dict]:
+def list_remote_entries(base_cmd: list[str], target: str, root: str, recursive: bool, pattern: str | list[str]) -> dict[str, dict]:
     find_bits = ["find", "."]
     if not recursive:
         find_bits.extend(["-maxdepth", "1"])
     find_bits.extend(["-type", "f"])
-    if pattern != "*" and pattern:
+    if isinstance(pattern, str) and pattern != "*" and pattern:
         find_bits.extend(["-name", pattern])
     find_bits.extend(["-printf", r"%P\t%s\t%Ts\n"])
     remote = f"cd {json.dumps(root)} && " + " ".join(json.dumps(bit) for bit in find_bits)
@@ -246,6 +248,8 @@ def list_remote_entries(base_cmd: list[str], target: str, root: str, recursive: 
         if not line.strip():
             continue
         relpath, size, mtime = line.split("\t")
+        if not match_entry(relpath, pattern):
+            continue
         entries[relpath] = {
             "relpath": relpath,
             "size": int(size),

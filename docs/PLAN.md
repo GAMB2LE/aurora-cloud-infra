@@ -97,9 +97,9 @@ Optional `sshfs` can be added as a convenience mount at `/mnt/gws/gamb2le`, but 
   HATPRO timers remain disabled until its fresh raw source is configured.
 - The dashboard code should be deployed from a GitHub commit that includes
   environment-driven quicklook paths and missing-Zarr tolerance.
-- Mirror the full wxcam raw tree locally. Wxcam science and housekeeping
-  products still use the HDR subsets, but raw retention checks should use the
-  full local mirror plus the GWS mirror.
+- Mirror the WXcam FISH HDR JPG and MP4 assets locally. PANO and
+  AUTO/LONG/SHORT files remain on the source host, and retention checks should
+  use the retained local FISH HDR mirror plus the GWS mirror.
 
 ## First Safe Commands
 

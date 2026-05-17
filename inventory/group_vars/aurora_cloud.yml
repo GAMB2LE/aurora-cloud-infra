@@ -26,7 +26,9 @@ aurora_paths:
   raw_radar: "{{ aurora_raw_root }}/rpgfmcw94"
   raw_hatpro: "{{ aurora_raw_root }}/hatprog5"
   raw_vaisalamet: "{{ aurora_raw_root }}/vaisalamet"
+  raw_asfs: "{{ aurora_raw_root }}/asfs"
   raw_asfs_logger: "{{ aurora_raw_root }}/asfs/loggernet"
+  raw_asfs_crd: "{{ aurora_raw_root }}/asfs/crd"
   raw_power: "{{ aurora_raw_root }}/power/level1"
   raw_wxcam: "{{ aurora_raw_root }}/wxcam"
   raw_ops_monitor: "{{ aurora_raw_root }}/ops_monitor"
@@ -151,12 +153,14 @@ asfs_logger_source_sync_enabled: true
 asfs_logger_source_sync_timer_enabled: true
 asfs_logger_source_user: aurora
 asfs_logger_source_host: 100.124.55.22
-asfs_logger_source_path: /home/aurora/data/asfs/raw/loggernet
-asfs_logger_source_pattern: "asfs-logger_sci_[0-9][0-9]_[0-9][0-9]_[0-9][0-9][0-9][0-9].dat"
-asfs_logger_source_destination: "{{ aurora_paths.raw_asfs_logger }}"
+asfs_logger_source_path: /home/aurora/data/asfs/raw/crd
+asfs_logger_source_pattern: "aurora_asfs_data_sci_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].dat"
+asfs_logger_source_destination: "{{ aurora_paths.raw_asfs_crd }}"
+asfs_crd_min_stamp: "202605020000"
 asfs_logger_source_state_file: "{{ aurora_state_root }}/asfs-logger-sync.last"
 asfs_logger_source_sync_interval: 2min
 asfs_logger_source_sync_randomized_delay: 30
+asfs_logger_source_lookback_days: 10
 # False means the first timer run pulls all existing matching source files.
 asfs_logger_source_start_fresh: false
 
@@ -164,12 +168,13 @@ asfs_fast_sonic_source_sync_enabled: true
 asfs_fast_sonic_source_sync_timer_enabled: true
 asfs_fast_sonic_source_user: aurora
 asfs_fast_sonic_source_host: 100.124.55.22
-asfs_fast_sonic_source_path: /home/aurora/data/asfs/raw/loggernet
-asfs_fast_sonic_source_pattern: "asfs-logger_fast_sonic_[0-9][0-9]_[0-9][0-9]_[0-9][0-9][0-9][0-9].dat"
-asfs_fast_sonic_source_destination: "{{ aurora_paths.raw_asfs_logger }}"
+asfs_fast_sonic_source_path: /home/aurora/data/asfs/raw/crd
+asfs_fast_sonic_source_pattern: "aurora_asfs_data_fast_sonic_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].dat"
+asfs_fast_sonic_source_destination: "{{ aurora_paths.raw_asfs_crd }}"
 asfs_fast_sonic_source_state_file: "{{ aurora_state_root }}/asfs-fast-sonic-sync.last"
 asfs_fast_sonic_source_sync_interval: 2min
 asfs_fast_sonic_source_sync_randomized_delay: 30
+asfs_fast_sonic_source_lookback_days: 10
 # False means the first timer run pulls all existing matching source files.
 asfs_fast_sonic_source_start_fresh: false
 
@@ -183,6 +188,7 @@ power_source_destination: "{{ aurora_paths.raw_power }}"
 power_source_state_file: "{{ aurora_state_root }}/power-sync.last"
 power_source_sync_interval: 2min
 power_source_sync_randomized_delay: 30
+power_source_lookback_days: 10
 # False means the first timer run pulls all existing matching source files.
 power_source_start_fresh: false
 
@@ -191,16 +197,15 @@ wxcam_source_sync_timer_enabled: true
 wxcam_source_user: aurora
 wxcam_source_host: 100.124.55.22
 wxcam_source_path: /home/aurora/data/wxcam
-# These patterns are only used for the initial remote catalog bootstrap. The
-# raw sync itself copies the full wxcam tree so JPG and MP4 assets stay aligned.
+# The deployed raw sync retains only FISH HDR JPG and MP4 assets locally. PANO
+# and AUTO/LONG/SHORT files remain on the camera host.
 wxcam_source_fish_pattern: "HDR_*.jpg"
-wxcam_source_pano_pattern: "HDR_*_PANO.jpg"
 wxcam_source_destination: "{{ aurora_paths.raw_wxcam }}"
 wxcam_source_state_file: "{{ aurora_state_root }}/wxcam-sync.last"
 wxcam_source_sync_interval: 2min
 wxcam_source_sync_randomized_delay: 30
-wxcam_full_raw_mirror: true
-# False means the first timer run can pull the full source archive locally.
+wxcam_full_raw_mirror: false
+# False means the first timer run can pull the retained FISH HDR archive locally.
 wxcam_source_start_fresh: false
 
 wxcam_zarr_state_file: "{{ aurora_state_root }}/wxcam-zarr-state.json"
