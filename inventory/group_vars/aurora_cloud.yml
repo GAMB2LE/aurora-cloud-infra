@@ -283,6 +283,7 @@ gws_manifest_spot_modulus: 20
 gws_verification_enabled: true
 gws_verification_timer_enabled: true
 gws_sync_randomized_delay_sec: 60
+gws_sync_timeout_start_sec: 6h
 gws_verification_randomized_delay_sec: 60
 gws_verification_schedule: "*:08/10"
 gws_sync_jobs:
@@ -294,6 +295,13 @@ gws_sync_jobs:
     source: "{{ aurora_product_root }}/"
     destination: "{{ gws_products_root }}/"
     schedule: "*:03/10"
+    exclude:
+      - /wxcam/**
+  - name: products-wxcam
+    source: "{{ aurora_paths.products_wxcam }}/"
+    destination: "{{ gws_products_root }}/wxcam/"
+    schedule: "*:07/30"
+    timeout_start_sec: 12h
   - name: manifests
     source: "{{ gws_manifest_root }}/"
     destination: "{{ gws_internal_root }}/manifests/"

@@ -158,9 +158,15 @@ Per-job rsync wrappers try the transfer hosts in this order:
 The scheduled jobs are:
 
 - raw mirror push every `5` minutes at `*:01/5`
-- products push every `10` minutes at `*:03/10`
+- core products push every `10` minutes at `*:03/10`, excluding `wxcam/`
+- WXcam products push every `30` minutes at `*:07/30`
 - manifest push every `10` minutes at `*:06/10`
 - mirror verification every `10` minutes at `*:08/10`
+
+The product sync is split because WXcam media and image Zarr products are much
+larger than the numeric Zarr and quicklook products. Each wrapper logs its
+source, destination, rsync statistics, selected transfer host, and elapsed time
+under `/data/aurora/internal/mirror_manifests/logs/`.
 
 The GWS timers also now use a smaller randomized delay (`60` seconds instead of
 `300`) so near-real-time streams like CL61 do not sit in an amber “slightly
@@ -268,9 +274,11 @@ Wxcam source sync also uses the same Tailscale/no-key SSH pattern.
   - `mkdocs.yml`
   - `docs/index.md`
   - `.github/workflows/trigger-docs.yml`
-- The standalone `docs.yml` workflow still builds this repo's own MkDocs site.
 - The `trigger-docs.yml` workflow asks the central `GAMB2LE/mkdocs-portal`
   repo to rebuild the unified site at `https://gamb2le.pages.dev/`.
+- The repo-local GitHub Pages workflow has been removed; the central portal is
+  the only intended public documentation destination.
+- Local docs checks can be run with `python3 check_docs.py`.
 - That trigger workflow expects two GitHub Actions secrets in this repo:
   - `APP_ID = 2899200`
   - `APP_PRIVATE_KEY = <the GitHub App private key from the docs process>`

@@ -43,11 +43,19 @@ rsync_opts=(
   --partial
   --delete-delay
   --delay-updates
+  --stats
+  --human-readable
+{% for pattern in item.exclude | default([]) %}
+  --exclude={{ pattern | quote }}
+{% endfor %}
 )
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 log_file="${manifest_root%/}/logs/gws-sync-${job_name}-${timestamp}.log"
 exec > >(tee -a "$log_file") 2>&1
+
+start_epoch="$(date +%s)"
+echo "[$(date -u +%FT%TZ)] ${job_name} source=${source_dir} destination=${destination_dir}"
 
 for host in "${hosts[@]}"; do
   echo "[$(date -u +%FT%TZ)] trying ${host} for ${job_name}"
@@ -60,11 +68,13 @@ for host in "${hosts[@]}"; do
   rc=$?
   set -e
   if [[ $rc -eq 0 ]]; then
-    echo "[$(date -u +%FT%TZ)] sync succeeded via ${host}"
+    duration="$(( $(date +%s) - start_epoch ))"
+    echo "[$(date -u +%FT%TZ)] sync succeeded via ${host} in ${duration}s"
     exit 0
   fi
   if [[ $rc -eq 24 ]]; then
-    echo "[$(date -u +%FT%TZ)] sync completed with vanished-source warnings via ${host} (rsync exit 24)"
+    duration="$(( $(date +%s) - start_epoch ))"
+    echo "[$(date -u +%FT%TZ)] sync completed with vanished-source warnings via ${host} in ${duration}s (rsync exit 24)"
     exit 0
   fi
   echo "[$(date -u +%FT%TZ)] rsync failed via ${host} (exit ${rc})"

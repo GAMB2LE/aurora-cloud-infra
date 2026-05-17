@@ -8,6 +8,7 @@ Type=oneshot
 User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
 ExecStart=/usr/local/bin/aurora-gws-rsync-{{ item.name }}
+TimeoutStartSec={{ item.timeout_start_sec | default(gws_sync_timeout_start_sec | default('6h')) }}
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=6

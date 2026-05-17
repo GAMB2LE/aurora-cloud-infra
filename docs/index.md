@@ -61,6 +61,12 @@ It uses systemd timers plus rsync-over-SSH failover across:
 
 Verification manifests are generated for source, local raw, and GWS copies so
 upstream pruning decisions can be made against evidence rather than trust.
+Product sync is split into core products and WXcam products so the large WXcam
+media tree cannot delay the smaller product artifacts.
+
+Docs are published through the central `GAMB2LE/mkdocs-portal` build only. This
+repo keeps `trigger-docs.yml` for portal dispatch and no longer deploys a
+standalone repo-local Pages site.
 
 ## Key docs in this site
 

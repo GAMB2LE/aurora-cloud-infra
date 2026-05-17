@@ -1,7 +1,9 @@
 *.retry
 .ansible/
 .venv/
+.venv-docs/
 .uv-bin/
+site/
 vault.yml
 *.vault.yml
 __pycache__/
