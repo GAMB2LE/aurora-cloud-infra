@@ -19,6 +19,9 @@ Aurora cloud dashboard host on the existing JASMIN Cloud VM.
 - Dashboard app checkout: `/opt/aurora-cloud-dashboard`
 - Public frontend: `nginx` on `80/443`
 - Private Panel backend: `127.0.0.1:5006`
+- Dashboard sessions use a `15 s` websocket keepalive, `1 h` unused-session
+  lifetime, and `24 h` session-token expiration to improve recovery after
+  short mobile backgrounding events.
 
 ## Storage model
 
