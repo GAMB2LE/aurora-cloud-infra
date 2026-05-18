@@ -13,6 +13,9 @@ Ansible configuration for rebuilding the Aurora cloud dashboard host on the exis
 - Panel session policy: websocket keepalive every `15 s`, unused sessions kept
   for `1 h`, and session tokens valid for `24 h` to make short mobile
   backgrounding/reconnect events less disruptive.
+- Static dashboard media route:
+  `/wxcam-media` maps to `/data/aurora/products/wxcam` so WXcam MP4 playback
+  uses normal HTTP range requests rather than the Panel websocket.
 - CL61 raw source: `aurora@100.117.101.84:/home/aurora/data/cl61` pulled into `/project/aurora/raw/cl61`.
 - Cloud radar raw source: `aurora@100.124.55.22:/home/aurora/data/rpgfmcw94` pulled into `/project/aurora/raw/rpgfmcw94`.
 - Vaisala met raw source: `aurora@100.124.55.22:/home/aurora/data/vaisalamet` pulled into `/project/aurora/raw/vaisalamet`.

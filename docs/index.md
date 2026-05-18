@@ -22,6 +22,8 @@ Aurora cloud dashboard host on the existing JASMIN Cloud VM.
 - Dashboard sessions use a `15 s` websocket keepalive, `1 h` unused-session
   lifetime, and `24 h` session-token expiration to improve recovery after
   short mobile backgrounding events.
+- `/wxcam-media` is served from `/data/aurora/products/wxcam` so WXcam MP4s
+  stream over normal HTTP with byte-range support.
 
 ## Storage model
 
