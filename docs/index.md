@@ -35,7 +35,8 @@ Aurora cloud dashboard host on the existing JASMIN Cloud VM.
   lightweight outbound SMTP delivery layer.
   Configure `ops_alert_smtp_host` and related variables to install the Aurora
   service user's `.msmtprc`; without a relay, alert evaluation still works but
-  real email delivery cannot complete.
+  real email delivery cannot complete. The dashboard alert script treats the
+  msmtp-backed `mailx` path as ready only after an msmtp config is present.
 
 ## Storage model
 
