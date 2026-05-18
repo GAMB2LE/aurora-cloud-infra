@@ -1,0 +1,16 @@
+defaults
+auth {{ 'on' if ops_alert_smtp_user | default('') else 'off' }}
+tls {{ 'on' if ops_alert_smtp_starttls | bool or ops_alert_smtp_ssl | bool else 'off' }}
+tls_starttls {{ 'off' if ops_alert_smtp_ssl | bool else ('on' if ops_alert_smtp_starttls | bool else 'off') }}
+tls_trust_file /etc/ssl/certs/ca-certificates.crt
+
+account default
+host {{ ops_alert_smtp_host }}
+{% if ops_alert_smtp_port | default('') %}
+port {{ ops_alert_smtp_port }}
+{% endif %}
+from {{ ops_alert_from }}
+{% if ops_alert_smtp_user | default('') %}
+user {{ ops_alert_smtp_user }}
+password {{ ops_alert_smtp_password }}
+{% endif %}

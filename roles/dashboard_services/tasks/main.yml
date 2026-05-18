@@ -8,6 +8,15 @@
     mode: "0644"
   notify: Restart dashboard
 
+- name: Install Aurora service user msmtp config for ops alerts
+  ansible.builtin.template:
+    src: msmtprc.j2
+    dest: "/home/{{ aurora_service_user }}/.msmtprc"
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "0600"
+  when: ops_alert_smtp_host | default('') | length > 0
+
 - name: Install systemd service and timer units
   ansible.builtin.template:
     src: "{{ item }}.j2"
@@ -51,6 +60,8 @@
     - aurora-ops-monitor-collect.timer
     - aurora-ops-monitor-append.service
     - aurora-ops-monitor-append.timer
+    - aurora-ops-monitor-alerts.service
+    - aurora-ops-monitor-alerts.timer
     - aurora-ops-monitor-quicklooks.service
     - aurora-ops-monitor-quicklooks.timer
     - aurora-wxcam-catalog.service
@@ -95,6 +106,7 @@
     - { unit: aurora-power-quicklooks.timer, key: power_quicklooks }
     - { unit: aurora-ops-monitor-collect.timer, key: ops_monitor_collect }
     - { unit: aurora-ops-monitor-append.timer, key: ops_monitor_append }
+    - { unit: aurora-ops-monitor-alerts.timer, key: ops_monitor_alerts }
     - { unit: aurora-ops-monitor-quicklooks.timer, key: ops_monitor_quicklooks }
     - { unit: aurora-wxcam-catalog.timer, key: wxcam_catalog }
     - { unit: aurora-wxcam-daily-videos.timer, key: wxcam_daily_videos }
@@ -123,6 +135,7 @@
     - aurora-power-quicklooks.service
     - aurora-ops-monitor-collect.service
     - aurora-ops-monitor-append.service
+    - aurora-ops-monitor-alerts.service
     - aurora-ops-monitor-quicklooks.service
     - aurora-wxcam-catalog.service
     - aurora-wxcam-daily-videos.service

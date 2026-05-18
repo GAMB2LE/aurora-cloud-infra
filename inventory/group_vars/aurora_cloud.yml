@@ -106,10 +106,22 @@ aurora_processing_timers:
   power_quicklooks: true
   ops_monitor_collect: true
   ops_monitor_append: true
+  ops_monitor_alerts: true
   ops_monitor_quicklooks: true
   wxcam_catalog: true
   wxcam_append: true
   wxcam_daily_videos: true
+
+ops_alert_recipients:
+  - gamb2le@ncas.ac.uk
+ops_alert_transport: auto
+ops_alert_from: "aurora-ops@{{ ansible_hostname | default('aurora-cloud') }}"
+ops_alert_smtp_host: ""
+ops_alert_smtp_port: ""
+ops_alert_smtp_user: ""
+ops_alert_smtp_password: ""
+ops_alert_smtp_starttls: true
+ops_alert_smtp_ssl: false
 
 cl61_source_sync_enabled: true
 cl61_source_sync_timer_enabled: true
@@ -243,6 +255,9 @@ aurora_apt_packages:
   - ffmpeg
   - fuse3
   - git
+  - bsd-mailx
+  - msmtp
+  - msmtp-mta
   - nginx
   - python3-certbot-nginx
   - python3-venv

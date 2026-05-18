@@ -1,0 +1,11 @@
+[Unit]
+Description=Evaluate Aurora operations email alerts every 5 minutes
+
+[Timer]
+OnCalendar=*:02/5
+RandomizedDelaySec=0
+Persistent=true
+Unit=aurora-ops-monitor-alerts.service
+
+[Install]
+WantedBy=timers.target

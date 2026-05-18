@@ -1,0 +1,13 @@
+[Unit]
+Description=Aurora operations email alerts
+After=aurora-ops-monitor-collect.service
+Wants=aurora-ops-monitor-collect.service
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+WorkingDirectory={{ aurora_app_dir }}
+EnvironmentFile=/etc/aurora-dashboard.env
+ExecStart={{ aurora_venv }}/bin/python send_ops_alerts.py --snapshot {{ aurora_paths.raw_ops_monitor }}/latest.json --state {{ aurora_paths.products_ops_monitor }}/alerts/state.json --log {{ aurora_paths.products_ops_monitor }}/alerts/alerts.jsonl
+Nice=10

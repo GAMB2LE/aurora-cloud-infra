@@ -27,6 +27,15 @@ Aurora cloud dashboard host on the existing JASMIN Cloud VM.
   stream over normal HTTP with byte-range support.
 - Operations health reports are written under
   `/data/aurora/products/ops_monitor/health` by the observe-only collector.
+- Operations email alerts are evaluated by `aurora-ops-monitor-alerts.timer`
+  from `/project/aurora/raw/ops_monitor/latest.json`. The alert service uses
+  `mailx` backed by `msmtp`/`msmtp-mta` or another sendmail-compatible relay and
+  keeps alert state under `/data/aurora/products/ops_monitor/alerts`.
+  `mailx` is only the script-facing command line interface; `msmtp` is the
+  lightweight outbound SMTP delivery layer.
+  Configure `ops_alert_smtp_host` and related variables to install the Aurora
+  service user's `.msmtprc`; without a relay, alert evaluation still works but
+  real email delivery cannot complete.
 
 ## Storage model
 
