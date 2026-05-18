@@ -55,6 +55,9 @@ The deployed syncs currently cover:
 WXcam is mirrored locally as FISH HDR JPG and MP4 files only; PANO and
 AUTO/LONG/SHORT assets remain on the source host.
 
+ASFS science and fast-sonic syncs use the current CRD source directory
+(`/home/aurora/data/asfs/raw/crd`) and the May 2 onward retained data window.
+
 ## GWS transfer model
 
 The current backup and archive design is push-based from the Aurora VM to:

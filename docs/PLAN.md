@@ -1,6 +1,9 @@
 # Aurora Cloud Rebuild Plan
 
-## Audited Target
+This file keeps the initial rebuild plan and historical audit notes. For the
+current deployed contract, see the repo home page and the per-source sync docs.
+
+## Initial Audited Target
 
 - Host: `aurora-cloud-workstation-ssh`
 - Public IP: `130.246.212.116`
@@ -9,8 +12,9 @@
 - Compute: 16 vCPU, 58 GiB RAM.
 - Root: 400G ext4, lightly used.
 - `/data`: 999G ext4, currently mounted and bind-mounted to `/home/azimuth`.
-- `/project`: 4T Ceph mount, currently empty from the VM view.
-- Current public web state: no `nginx`, no `certbot`, no listeners on `80`, `443`, or `5006`.
+- `/project`: 4T Ceph mount, now used for `/project/aurora/raw`.
+- Initial public web state: no `nginx`, no `certbot`, no listeners on `80`,
+  `443`, or `5006`.
 - UFW package exists but firewall is inactive.
 - Existing listeners to preserve by request: VNC `5901`, node exporter `9100`, rpcbind `111`, and cups. CUPS currently listens on localhost only.
 
@@ -25,7 +29,7 @@
 - `nginx` is the only public entrypoint for the dashboard.
 - Existing VNC, node exporter, rpcbind, and cups services are left installed and running.
 
-## Current Remote Audit: 2026-05-07
+## Initial Remote Audit: 2026-05-07
 
 - `azimuth@130.246.212.116` is already in the Ansible layout:
   `/opt/aurora-cloud-dashboard`, `/project/aurora/raw`, and
@@ -100,6 +104,15 @@ Optional `sshfs` can be added as a convenience mount at `/mnt/gws/gamb2le`, but 
 - Mirror the WXcam FISH HDR JPG and MP4 assets locally. PANO and
   AUTO/LONG/SHORT files remain on the source host, and retention checks should
   use the retained local FISH HDR mirror plus the GWS mirror.
+
+## Current Operations Note: 2026-05-18
+
+- The Phase 1 operations sentinel is observe-only and writes health JSON plus
+  Markdown reports under `/data/aurora/products/ops_monitor/health`.
+- ASFS science and fast-sonic source syncs now use the CRD source directory
+  `/home/aurora/data/asfs/raw/crd` with the May 2 onward retention window.
+- WXcam local retention is FISH HDR JPG/MP4 only; PANO and AUTO/LONG/SHORT
+  assets stay on the camera host.
 
 ## First Safe Commands
 

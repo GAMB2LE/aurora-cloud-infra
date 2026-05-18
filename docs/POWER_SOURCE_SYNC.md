@@ -13,8 +13,9 @@ The source sync intentionally rescans a rolling ten-day window on each run.
 That catches in-place updates to recent daily CSV files instead of relying only
 on a single monotonic timestamp cursor.
 
-The dashboard exposes this as its own instrument selection, `power`, with
-stacked 1D time-series plots for every retained numeric variable.
+The dashboard exposes this as **Aurora Power Supply**, with curated science and
+housekeeping plots rather than a freeform plot of every retained numeric
+variable.
 
 ## Authentication
 

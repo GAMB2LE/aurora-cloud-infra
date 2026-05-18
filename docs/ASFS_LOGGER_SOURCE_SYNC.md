@@ -19,8 +19,9 @@ The source sync intentionally rescans a rolling ten-day window on each run.
 That catches in-place updates to recent CRD chunks instead of relying only on a
 single monotonic timestamp cursor.
 
-The dashboard exposes this as its own instrument selection, `asfs-logger`, with
-stacked 1D time-series plots for every numeric variable.
+The dashboard presents this store through the curated **Radiation** instrument
+and through `HK_ASFS` housekeeping quicklooks. The raw `asfs-logger` variable
+picker is not the normal deployed user-facing view.
 
 ## Authentication
 

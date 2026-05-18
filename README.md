@@ -21,8 +21,8 @@ Ansible configuration for rebuilding the Aurora cloud dashboard host on the exis
 - CL61 raw source: `aurora@100.117.101.84:/home/aurora/data/cl61` pulled into `/project/aurora/raw/cl61`.
 - Cloud radar raw source: `aurora@100.124.55.22:/home/aurora/data/rpgfmcw94` pulled into `/project/aurora/raw/rpgfmcw94`.
 - Vaisala met raw source: `aurora@100.124.55.22:/home/aurora/data/vaisalamet` pulled into `/project/aurora/raw/vaisalamet`.
-- ASFS LoggerNet raw source: `aurora@100.124.55.22:/home/aurora/data/asfs/raw/loggernet` pulled into `/project/aurora/raw/asfs/loggernet`.
-- ASFS fast-sonic raw source: `aurora@100.124.55.22:/home/aurora/data/asfs/raw/loggernet` pulled into `/project/aurora/raw/asfs/loggernet`.
+- ASFS Logger CRD raw source: `aurora@100.124.55.22:/home/aurora/data/asfs/raw/crd` pulled into `/project/aurora/raw/asfs/crd`.
+- ASFS fast-sonic CRD raw source: `aurora@100.124.55.22:/home/aurora/data/asfs/raw/crd` pulled into `/project/aurora/raw/asfs/crd`.
 - Power raw source: `aurora@100.81.226.30:/data/power/level1` pulled into `/project/aurora/raw/power/level1`.
 - WXcam raw source: `aurora@100.124.55.22:/home/aurora/data/wxcam` pulled into `/project/aurora/raw/wxcam`.
 - GWS backup/sync: rsync via JASMIN transfer hosts to `/gws/ssde/j25b/gamb2le`.
@@ -40,13 +40,13 @@ The deployed host separates raw mirrored inputs from processed products.
   - `/project/aurora/raw/cl61`
   - `/project/aurora/raw/rpgfmcw94`
   - `/project/aurora/raw/vaisalamet`
-  - `/project/aurora/raw/asfs/loggernet`
+  - `/project/aurora/raw/asfs/crd`
   - `/project/aurora/raw/power/level1`
   - `/project/aurora/raw/wxcam`
 - Storage type: shared Ceph network filesystem
-- Current filesystem size on `2026-05-09`: `4.0T`
-- Current used on `2026-05-09`: `36G`
-- Current available on `2026-05-09`: `3.9T`
+- Current filesystem size on `2026-05-18`: `4.0T`
+- Current used on `2026-05-18`: `41G`
+- Current available on `2026-05-18`: `3.9T`
 
 So `/project/aurora` is the raw landing and mirror area.
 
@@ -65,9 +65,9 @@ So `/project/aurora` is the raw landing and mirror area.
   - `/data/aurora/products/quicklooks/...`
   - `/data/aurora/products/wxcam/...`
 - Storage type: local disk on `/dev/vdb`
-- Current filesystem size on `2026-05-09`: `983G`
-- Current used on `2026-05-09`: `117G`
-- Current available on `2026-05-09`: `816G`
+- Current filesystem size on `2026-05-18`: `983G`
+- Current used on `2026-05-18`: `197G`
+- Current available on `2026-05-18`: `736G`
 
 So `/data/aurora` is the product, work, and output area.
 
@@ -107,17 +107,18 @@ The radar source sync does the same while preserving the recursive
 `Yyyyy/Mmm/Ddd/` source tree.
 The Vaisala met source sync pulls all existing matching `.dat` files so the
 Zarr can bootstrap from the full current source history.
-The ASFS LoggerNet source sync does the same, restricted to files matching
-`asfs-logger_sci_DD_MM_YYYY.dat`.
-The ASFS fast-sonic source sync is separate and restricted to files matching
-`asfs-logger_fast_sonic_DD_MM_YYYY.dat`; it only builds a Zarr product and is
-not exposed in the dashboard.
+The ASFS Logger source sync rescans a rolling ten-day CRD window, restricted to
+files matching `aurora_asfs_data_sci_YYYYMMDDHHMM.dat` at or after
+`202605020000`.
+The ASFS fast-sonic source sync is separate, uses the same CRD source directory,
+and is restricted to files matching
+`aurora_asfs_data_fast_sonic_YYYYMMDDHHMM.dat` at or after `202605020000`; it
+only builds a Zarr product and is not exposed in the dashboard selectors.
 The power source sync is restricted to files matching `power_data_YYYYMMDD.csv`
 and excludes wind-named variables before writing the Zarr product.
-The wxcam source sync now mirrors the full raw `FISH/` and `PANO/` tree into
-`/project/aurora/raw/wxcam`. Downstream wxcam products still only use the HDR
-JPG and HDR MP4 subsets for the catalog, daily videos, thumbnails, and pixel
-Zarr.
+The wxcam source sync retains only FISH HDR JPG and MP4 files under
+`/project/aurora/raw/wxcam`. PANO and AUTO/LONG/SHORT files stay on the camera
+host and are not cataloged, Zarr-appended, or archived from this VM.
 
 Before enabling this live, confirm SSH from the target works:
 
@@ -134,14 +135,15 @@ uses Tailscale SSH without private keys and stores `*LV1.NC` files under a
 recursive `/home/aurora/data/rpgfmcw94/Yyyyy/Mmm/Ddd/` tree.
 The Vaisala met source at the same tailnet IP stores flat
 `vaisala_met_level0_*.dat` files in `/home/aurora/data/vaisalamet`.
-The ASFS LoggerNet source stores flat `asfs-logger_sci_*.dat` files in
-`/home/aurora/data/asfs/raw/loggernet`; only the dated science files are synced.
+The ASFS Logger source stores chunked CRD TOA5 files in
+`/home/aurora/data/asfs/raw/crd`; the science sync pulls
+`aurora_asfs_data_sci_*.dat` files from the May 2 onward retained window.
 The ASFS fast-sonic source uses the same source directory but syncs only the
-dated `asfs-logger_fast_sonic_*.dat` files.
+`aurora_asfs_data_fast_sonic_*.dat` files from the same retained window.
 The power source stores flat `power_data_*.csv` files in `/data/power/level1`.
 The wxcam source stores nested `FISH/` and `PANO/` trees under
-`/home/aurora/data/wxcam`; the deployed sync copies the full tree rather than
-filtering by extension so JPG and MP4 products stay together on disk.
+`/home/aurora/data/wxcam`; the deployed sync filters that tree to FISH HDR JPG
+and MP4 files only.
 
 The legacy source-side `cl61sync.timer` on `celine-edge-1` pushes to the old
 `aurora-cloud:/mnt/data/cl61` location and prunes local files older than 21 days
@@ -229,6 +231,8 @@ into its own monitoring stream:
   `/data/aurora/products/ops_monitor/ops_monitor.zarr`
 - quicklooks:
   `/data/aurora/products/quicklooks/ops_monitor/`
+- observe-only health reports:
+  `/data/aurora/products/ops_monitor/health/`
 
 The collector records:
 
@@ -238,6 +242,13 @@ The collector records:
 - per-stream local and GWS mirror coverage, lag, and mismatch counts
 - prune-gate and product-gate summaries
 - systemd health for source sync, processing, and transfer units
+- dashboard HTTP endpoint health and response time
+- dashboard and infrastructure git branch, commit, dirty state, and local
+  ahead/behind counts
+
+The health-report layer is Phase 1 observe-only. It summarizes status into
+green/amber/red checks, but it does not restart services, delete files, rebuild
+stores, or modify code.
 
 The relevant timers are:
 
