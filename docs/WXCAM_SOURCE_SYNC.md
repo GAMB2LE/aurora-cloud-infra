@@ -8,9 +8,9 @@
 - Pixel Zarr path: `/data/aurora/products/wxcam/wxcam.zarr`
 
 The wxcam source contains nested `FISH/` and `PANO/` trees. The deployed sync
-retains only `FISH` HDR JPG and MP4 files locally. `PANO` and
-`AUTO`/`LONG`/`SHORT` files remain on the camera host and are not cataloged,
-Zarr-appended, or archived from this VM.
+retains HDR JPG and MP4 files from both streams locally. `AUTO`/`LONG`/`SHORT`
+files remain on the camera host and are not cataloged, Zarr-appended, or
+archived from this VM.
 
 ## Dashboard behavior
 
@@ -19,9 +19,10 @@ Zarr-appended, or archived from this VM.
 - Science Quicklooks: hourly JPG thumbnail grid
 
 The dashboard uses the SQLite catalog plus daily MP4 and hourly thumbnail
-products for browsing. The science-quicklook grid is driven by FISH HDR JPG
-selections, while the interactive browser uses stitched FISH HDR MP4 products.
-The wxcam pixel Zarr path is built from the FISH HDR JPG archive.
+products for browsing. The science-quicklook grid is driven by the selected
+HDR JPG stream, while the interactive browser uses stitched HDR MP4 products.
+The wxcam pixel Zarr path is built from the retained FISH HDR and PANO HDR JPG
+archives.
 
 The catalog, daily-video, and pixel-Zarr timers are intentionally allowed to
 run while a long raw backfill is still in progress. Fresh in-flight media are

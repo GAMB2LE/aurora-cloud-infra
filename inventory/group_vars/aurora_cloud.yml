@@ -213,15 +213,16 @@ wxcam_source_sync_timer_enabled: true
 wxcam_source_user: aurora
 wxcam_source_host: 100.124.55.22
 wxcam_source_path: /home/aurora/data/wxcam
-# The deployed raw sync retains only FISH HDR JPG and MP4 assets locally. PANO
-# and AUTO/LONG/SHORT files remain on the camera host.
+# The deployed raw sync retains only HDR JPG and MP4 assets for the FISH and
+# PANO camera streams. AUTO/LONG/SHORT files remain on the camera host.
 wxcam_source_fish_pattern: "HDR_*.jpg"
+wxcam_source_pano_pattern: "HDR_*_PANO.jpg"
 wxcam_source_destination: "{{ aurora_paths.raw_wxcam }}"
 wxcam_source_state_file: "{{ aurora_state_root }}/wxcam-sync.last"
 wxcam_source_sync_interval: 2min
 wxcam_source_sync_randomized_delay: 30
 wxcam_full_raw_mirror: false
-# False means the first timer run can pull the retained FISH HDR archive locally.
+# False means the first timer run can pull the retained WXcam HDR archive locally.
 wxcam_source_start_fresh: false
 
 wxcam_zarr_state_file: "{{ aurora_state_root }}/wxcam-zarr-state.json"

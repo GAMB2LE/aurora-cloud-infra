@@ -116,9 +116,9 @@ and is restricted to files matching
 only builds a Zarr product and is not exposed in the dashboard selectors.
 The power source sync is restricted to files matching `power_data_YYYYMMDD.csv`
 and excludes wind-named variables before writing the Zarr product.
-The wxcam source sync retains only FISH HDR JPG and MP4 files under
-`/project/aurora/raw/wxcam`. PANO and AUTO/LONG/SHORT files stay on the camera
-host and are not cataloged, Zarr-appended, or archived from this VM.
+The wxcam source sync retains only HDR JPG and MP4 files for the FISH and PANO
+streams under `/project/aurora/raw/wxcam`. AUTO/LONG/SHORT files stay on the
+camera host and are not cataloged, Zarr-appended, or archived from this VM.
 
 Before enabling this live, confirm SSH from the target works:
 
@@ -142,8 +142,8 @@ The ASFS fast-sonic source uses the same source directory but syncs only the
 `aurora_asfs_data_fast_sonic_*.dat` files from the same retained window.
 The power source stores flat `power_data_*.csv` files in `/data/power/level1`.
 The wxcam source stores nested `FISH/` and `PANO/` trees under
-`/home/aurora/data/wxcam`; the deployed sync filters that tree to FISH HDR JPG
-and MP4 files only.
+`/home/aurora/data/wxcam`; the deployed sync filters that tree to FISH HDR and
+PANO HDR JPG/MP4 files only.
 
 The legacy source-side `cl61sync.timer` on `celine-edge-1` pushes to the old
 `aurora-cloud:/mnt/data/cl61` location and prunes local files older than 21 days

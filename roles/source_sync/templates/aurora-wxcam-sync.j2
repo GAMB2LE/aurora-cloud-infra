@@ -23,9 +23,9 @@ rsync_base=(rsync -a --partial --timeout=120)
 mkdir -p "$destination" "$(dirname "$known_hosts")" "$(dirname "$lock_file")"
 
 # The wxcam tree is large enough that overlapping rsync runs are more trouble
-# than help. Exit cleanly if a previous timer run is still working. Only FISH
-# HDR JPG/MP4 assets are retained locally; PANO and AUTO/LONG/SHORT files stay
-# on the camera host.
+# than help. Exit cleanly if a previous timer run is still working. Only HDR
+# JPG/MP4 assets from the FISH and PANO streams are retained locally; AUTO,
+# LONG, and SHORT products stay on the camera host.
 exec 9>"$lock_file"
 if ! flock -n 9; then
   echo "wxcam sync already running; exiting."
@@ -40,6 +40,10 @@ fi
   --include='FISH/**/' \
   --include='FISH/**/HDR_*.jpg' \
   --include='FISH/**/HDR_*.mp4' \
+  --include='PANO/' \
+  --include='PANO/**/' \
+  --include='PANO/**/HDR_*_PANO.jpg' \
+  --include='PANO/**/HDR_*_PANO.mp4' \
   --exclude='*' \
   -e "ssh ${ssh_opts[*]}" \
   "${source_user}@${source_host}:${source_path%/}/" \

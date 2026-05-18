@@ -124,13 +124,23 @@ CONFIG = json.loads(
       "name": "wxcam",
       "source_user": {{ wxcam_source_user | to_json }},
       "source_host": {{ wxcam_source_host | to_json }},
-      "source_root": {{ (wxcam_source_path ~ "/FISH") | to_json }},
+      "source_root": {{ wxcam_source_path | to_json }},
       "source_auth": "tailscale",
-      "source_pattern": ["HDR_*.jpg", "HDR_*.mp4"],
+      "source_pattern": [
+        "FISH/**/HDR_*.jpg",
+        "FISH/**/HDR_*.mp4",
+        "PANO/**/HDR_*_PANO.jpg",
+        "PANO/**/HDR_*_PANO.mp4"
+      ],
       "recursive": true,
-      "local_root": {{ (aurora_paths.raw_wxcam ~ "/FISH") | to_json }},
-      "gws_relpath": "wxcam/FISH",
-      "product_patterns": ["HDR_*.jpg", "HDR_*.mp4"],
+      "local_root": {{ aurora_paths.raw_wxcam | to_json }},
+      "gws_relpath": "wxcam",
+      "product_patterns": [
+        "FISH/**/HDR_*.jpg",
+        "FISH/**/HDR_*.mp4",
+        "PANO/**/HDR_*_PANO.jpg",
+        "PANO/**/HDR_*_PANO.mp4"
+      ],
       "required_services": [
         "aurora-wxcam-catalog.service",
         "aurora-wxcam-daily-videos.service",
@@ -209,14 +219,14 @@ def match_entry(relpath: str, pattern: str | list[str]) -> bool:
         return any(match_entry(relpath, item) for item in pattern)
     if pattern == "*" or not pattern:
         return True
-    return fnmatch.fnmatch(Path(relpath).name, pattern)
+    return fnmatch.fnmatch(Path(relpath).name, pattern) or fnmatch.fnmatch(relpath, pattern)
 
 
 def match_any(relpath: str, patterns: list[str]) -> bool:
     if not patterns:
         return False
     basename = Path(relpath).name
-    return any(fnmatch.fnmatch(basename, pat) for pat in patterns)
+    return any(fnmatch.fnmatch(basename, pat) or fnmatch.fnmatch(relpath, pat) for pat in patterns)
 
 
 def should_checksum(relpath: str) -> bool:

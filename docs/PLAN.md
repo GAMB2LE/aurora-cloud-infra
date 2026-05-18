@@ -105,9 +105,9 @@ Optional `sshfs` can be added as a convenience mount at `/mnt/gws/gamb2le`, but 
   writes science PNGs under `/data/aurora/products/quicklooks/hatpro`.
 - The dashboard code should be deployed from a GitHub commit that includes
   environment-driven quicklook paths and missing-Zarr tolerance.
-- Mirror the WXcam FISH HDR JPG and MP4 assets locally. PANO and
-  AUTO/LONG/SHORT files remain on the source host, and retention checks should
-  use the retained local FISH HDR mirror plus the GWS mirror.
+- Mirror the WXcam FISH HDR and PANO HDR JPG/MP4 assets locally. AUTO/LONG/SHORT
+  files remain on the source host, and retention checks should use the retained
+  local HDR mirror plus the GWS mirror.
 
 ## Current Operations Note: 2026-05-18
 
@@ -115,7 +115,7 @@ Optional `sshfs` can be added as a convenience mount at `/mnt/gws/gamb2le`, but 
   Markdown reports under `/data/aurora/products/ops_monitor/health`.
 - ASFS science and fast-sonic source syncs now use the CRD source directory
   `/home/aurora/data/asfs/raw/crd` with the May 2 onward retention window.
-- WXcam local retention is FISH HDR JPG/MP4 only; PANO and AUTO/LONG/SHORT
+- WXcam local retention is FISH HDR and PANO HDR JPG/MP4 only; AUTO/LONG/SHORT
   assets stay on the camera host.
 
 ## First Safe Commands
