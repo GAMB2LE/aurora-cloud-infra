@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule Aurora HATPRO source sync
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec={{ hatpro_source_sync_interval }}
+Persistent=true
+RandomizedDelaySec={{ hatpro_source_sync_randomized_delay }}
+Unit=aurora-hatpro-source-sync.service
+
+[Install]
+WantedBy=timers.target

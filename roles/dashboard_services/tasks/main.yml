@@ -29,6 +29,8 @@
     - aurora-radar-quicklooks.timer
     - aurora-hatpro-append.service
     - aurora-hatpro-append.timer
+    - aurora-hatpro-quicklooks.service
+    - aurora-hatpro-quicklooks.timer
     - aurora-vaisalamet-append.service
     - aurora-vaisalamet-append.timer
     - aurora-vaisalamet-quicklooks.service
@@ -82,6 +84,7 @@
     - { unit: aurora-radar-append.timer, key: radar_append }
     - { unit: aurora-radar-quicklooks.timer, key: radar_quicklooks }
     - { unit: aurora-hatpro-append.timer, key: hatpro_append }
+    - { unit: aurora-hatpro-quicklooks.timer, key: hatpro_quicklooks }
     - { unit: aurora-vaisalamet-append.timer, key: vaisalamet_append }
     - { unit: aurora-vaisalamet-quicklooks.timer, key: vaisalamet_quicklooks }
     - { unit: aurora-asfs-logger-append.timer, key: asfs_logger_append }
@@ -109,6 +112,7 @@
     - aurora-radar-append.service
     - aurora-radar-quicklooks.service
     - aurora-hatpro-append.service
+    - aurora-hatpro-quicklooks.service
     - aurora-vaisalamet-append.service
     - aurora-vaisalamet-quicklooks.service
     - aurora-asfs-logger-append.service

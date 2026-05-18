@@ -98,7 +98,11 @@ Optional `sshfs` can be added as a convenience mount at `/mnt/gws/gamb2le`, but 
   authentication disabled.
 - Radar append and radar quicklook timers are enabled now that the fresh raw
   source is configured.
-  HATPRO timers remain disabled until its fresh raw source is configured.
+- HATPRO source sync now pulls
+  `aurora@100.124.55.22:/home/aurora/data/hatprog5` into
+  `/project/aurora/raw/hatprog5`, and the HATPRO append timer builds
+  `/data/aurora/products/hatprog5/hatpro.zarr`. The HATPRO quicklook timer
+  writes science PNGs under `/data/aurora/products/quicklooks/hatpro`.
 - The dashboard code should be deployed from a GitHub commit that includes
   environment-driven quicklook paths and missing-Zarr tolerance.
 - Mirror the WXcam FISH HDR JPG and MP4 assets locally. PANO and

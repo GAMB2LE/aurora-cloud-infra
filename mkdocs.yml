@@ -31,6 +31,7 @@ nav:
   - Source Syncs:
       - CL61: CL61_SOURCE_SYNC.md
       - Cloud Radar: RADAR_SOURCE_SYNC.md
+      - HATPRO: HATPRO_SOURCE_SYNC.md
       - Vaisala MET: VAISALAMET_SOURCE_SYNC.md
       - ASFS Logger: ASFS_LOGGER_SOURCE_SYNC.md
       - ASFS Fast Sonic: ASFS_FAST_SONIC_SOURCE_SYNC.md

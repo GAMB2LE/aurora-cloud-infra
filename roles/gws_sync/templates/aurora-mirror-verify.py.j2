@@ -56,6 +56,19 @@ CONFIG = json.loads(
       "required_services": ["aurora-radar-append.service"]
     },
     {
+      "name": "hatprog5",
+      "source_user": {{ hatpro_source_user | to_json }},
+      "source_host": {{ hatpro_source_host | to_json }},
+      "source_root": {{ hatpro_source_path | to_json }},
+      "source_auth": "tailscale",
+      "source_pattern": {{ hatpro_source_pattern | to_json }},
+      "recursive": true,
+      "local_root": {{ aurora_paths.raw_hatpro | to_json }},
+      "gws_relpath": "hatprog5",
+      "product_patterns": ["*.LWP.NC", "*.IWV.NC", "*.IRT.NC", "*.TPC.NC", "*.TPB.NC", "*.MET.NC"],
+      "required_services": ["aurora-hatpro-append.service"]
+    },
+    {
       "name": "vaisalamet",
       "source_user": {{ vaisalamet_source_user | to_json }},
       "source_host": {{ vaisalamet_source_host | to_json }},

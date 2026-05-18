@@ -1,0 +1,15 @@
+[Unit]
+Description=Aurora HATPRO radiometer quicklooks
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+WorkingDirectory={{ aurora_app_dir }}
+EnvironmentFile=/etc/aurora-dashboard.env
+ExecStart=/bin/bash -lc 'source {{ aurora_venv }}/bin/activate && ./generate_hatpro_quicklooks.py'
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6

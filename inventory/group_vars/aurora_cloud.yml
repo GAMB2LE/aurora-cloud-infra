@@ -94,7 +94,8 @@ aurora_processing_timers:
   ceilometer_quicklooks: true
   radar_append: true
   radar_quicklooks: true
-  hatpro_append: false
+  hatpro_append: true
+  hatpro_quicklooks: true
   vaisalamet_append: true
   vaisalamet_quicklooks: true
   asfs_logger_append: true
@@ -137,6 +138,19 @@ radar_source_sync_interval: 2min
 radar_source_sync_randomized_delay: 30
 # True means the first timer run records "now" and does not pull historical data.
 radar_source_start_fresh: false
+
+hatpro_source_sync_enabled: true
+hatpro_source_sync_timer_enabled: true
+hatpro_source_user: aurora
+hatpro_source_host: 100.124.55.22
+hatpro_source_path: /home/aurora/data/hatprog5
+hatpro_source_pattern: "HATPROG5-AURORA-ICELAND_*"
+hatpro_source_destination: "{{ aurora_paths.raw_hatpro }}"
+hatpro_source_state_file: "{{ aurora_state_root }}/hatpro-sync.last"
+hatpro_source_sync_interval: 2min
+hatpro_source_sync_randomized_delay: 30
+# False means the first timer run pulls all existing matching HATPRO files.
+hatpro_source_start_fresh: false
 
 vaisalamet_source_sync_enabled: true
 vaisalamet_source_sync_timer_enabled: true

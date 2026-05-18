@@ -46,6 +46,7 @@ The deployed syncs currently cover:
 
 - CL61
 - Cloud Radar
+- HATPRO
 - Vaisala MET
 - ASFS Logger
 - ASFS Fast Sonic
