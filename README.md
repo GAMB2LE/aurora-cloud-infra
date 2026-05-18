@@ -10,6 +10,8 @@ Ansible configuration for rebuilding the Aurora cloud dashboard host on the exis
 - Dashboard app: `/opt/aurora-cloud-dashboard`.
 - Public access: `nginx` on `80/443`.
 - Private Panel backend: `127.0.0.1:5006` only.
+- Operations health reports:
+  `/data/aurora/products/ops_monitor/health`.
 - Panel session policy: websocket keepalive every `15 s`, unused sessions kept
   for `1 h`, and session tokens valid for `24 h` to make short mobile
   backgrounding/reconnect events less disruptive.

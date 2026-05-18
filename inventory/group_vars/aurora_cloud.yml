@@ -7,6 +7,7 @@ aurora_service_group: aurora
 aurora_app_dir: /opt/aurora-cloud-dashboard
 aurora_app_repo: git@github-dashboard:GAMB2LE/aurora_cloud_dashboard.git
 aurora_app_version: main
+aurora_infra_repo_dir: /tmp/aurora-cloud-infra-codex
 aurora_python: /usr/bin/python3
 aurora_venv: "{{ aurora_app_dir }}/venv"
 aurora_uv_bin: /usr/local/bin/uv
@@ -40,6 +41,7 @@ aurora_paths:
   products_asfs_fast_sonic: "{{ aurora_product_root }}/asfs_fast_sonic"
   products_power: "{{ aurora_product_root }}/power"
   products_ops_monitor: "{{ aurora_product_root }}/ops_monitor"
+  products_ops_monitor_health: "{{ aurora_product_root }}/ops_monitor/health"
   products_wxcam: "{{ aurora_product_root }}/wxcam"
   products_wxcam_daily_videos: "{{ aurora_product_root }}/wxcam/daily_videos"
   quicklooks: "{{ aurora_product_root }}/quicklooks"

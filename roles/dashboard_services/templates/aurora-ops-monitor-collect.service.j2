@@ -9,5 +9,5 @@ User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
 WorkingDirectory={{ aurora_app_dir }}
 EnvironmentFile=/etc/aurora-dashboard.env
-ExecStart={{ aurora_venv }}/bin/python collect_operations_snapshot.py --output-root {{ aurora_paths.raw_ops_monitor }} --manifest-root {{ gws_manifest_root }} --gws-path {{ gws_path }}
+ExecStart={{ aurora_venv }}/bin/python collect_operations_snapshot.py --output-root {{ aurora_paths.raw_ops_monitor }} --health-output-root {{ aurora_paths.products_ops_monitor_health }} --manifest-root {{ gws_manifest_root }} --gws-path {{ gws_path }}
 Nice=10

@@ -7,6 +7,7 @@ Aurora cloud dashboard host on the existing JASMIN Cloud VM.
 
 - source sync timers and services for the instrument hosts
 - deployment of the dashboard systemd services
+- observe-only operations health-sentinel outputs
 - GWS transfer and mirror-verification jobs
 - WXcam FISH HDR mirroring policy and downstream processing support
 - host-level operational configuration for the Aurora stack
@@ -24,6 +25,8 @@ Aurora cloud dashboard host on the existing JASMIN Cloud VM.
   short mobile backgrounding events.
 - `/wxcam-media` is served from `/data/aurora/products/wxcam` so WXcam MP4s
   stream over normal HTTP with byte-range support.
+- Operations health reports are written under
+  `/data/aurora/products/ops_monitor/health` by the observe-only collector.
 
 ## Storage model
 
