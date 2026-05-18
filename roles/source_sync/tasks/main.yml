@@ -197,7 +197,7 @@
     - not vaisalamet_source_sync_enabled | bool or not vaisalamet_source_sync_timer_enabled | bool
     - not ansible_check_mode
 
-- name: Install ASFS LoggerNet source sync script
+- name: Install ASFS source sync script
   ansible.builtin.template:
     src: aurora-asfs-logger-sync.j2
     dest: /usr/local/bin/aurora-asfs-logger-sync
@@ -206,7 +206,7 @@
     mode: "0755"
   when: asfs_logger_source_sync_enabled | bool
 
-- name: Install ASFS LoggerNet source sync systemd units
+- name: Install ASFS source sync systemd units
   ansible.builtin.template:
     src: "{{ item }}.j2"
     dest: "/etc/systemd/system/{{ item }}"
@@ -218,7 +218,7 @@
     - aurora-asfs-logger-source-sync.timer
   when: asfs_logger_source_sync_enabled | bool
 
-- name: Enable ASFS LoggerNet source sync timer
+- name: Enable ASFS source sync timer
   ansible.builtin.systemd:
     name: aurora-asfs-logger-source-sync.timer
     enabled: true
@@ -229,7 +229,7 @@
     - asfs_logger_source_sync_timer_enabled | bool
     - not ansible_check_mode
 
-- name: Disable ASFS LoggerNet source sync timer when requested
+- name: Disable ASFS source sync timer when requested
   ansible.builtin.systemd:
     name: aurora-asfs-logger-source-sync.timer
     enabled: false

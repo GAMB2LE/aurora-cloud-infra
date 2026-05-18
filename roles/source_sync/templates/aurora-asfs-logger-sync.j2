@@ -16,7 +16,7 @@ mkdir -p "$destination" "$(dirname "$state_file")" "$(dirname "$known_hosts")"
 if [[ ! -f "$state_file" ]]; then
   if [[ "$start_fresh" == "1" ]]; then
     date +%s > "$state_file"
-    echo "Initialized fresh ASFS LoggerNet sync state at $(cat "$state_file"); no historical files pulled."
+    echo "Initialized fresh ASFS sync state at $(cat "$state_file"); no historical files pulled."
     exit 0
   fi
   echo 0 > "$state_file"
@@ -64,7 +64,7 @@ REMOTE_FIND
 
 if [[ ! -s "$files_from" ]]; then
   echo "$now_epoch" > "$state_file"
-  echo "No new ASFS LoggerNet files found."
+  echo "No new ASFS source files found."
   exit 0
 fi
 
