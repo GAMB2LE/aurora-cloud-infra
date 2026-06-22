@@ -25,6 +25,13 @@
     force: true
   notify: Reload nginx
 
+- name: Disable configured stale nginx sites
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/{{ item }}
+    state: absent
+  loop: "{{ aurora_nginx_disabled_sites | default([]) | difference([aurora_domain]) }}"
+  notify: Reload nginx
+
 - name: Disable default nginx site
   ansible.builtin.file:
     path: /etc/nginx/sites-enabled/default
@@ -43,7 +50,9 @@
   args:
     creates: /etc/letsencrypt/live/{{ aurora_domain }}/fullchain.pem
   notify: Reload nginx
-  when: not ansible_check_mode
+  when:
+    - aurora_certbot_enabled | bool
+    - not ansible_check_mode
 
 - name: Recheck whether TLS certificate exists
   ansible.builtin.stat:

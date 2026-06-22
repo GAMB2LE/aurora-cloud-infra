@@ -33,6 +33,7 @@
     - "{{ aurora_paths.products_vaisalamet }}"
     - "{{ aurora_paths.products_asfs_logger }}"
     - "{{ aurora_paths.products_asfs_fast_sonic }}"
+    - "{{ aurora_paths.products_asfs_fast_gas }}"
     - "{{ aurora_paths.products_power }}"
     - "{{ aurora_paths.products_ops_monitor }}"
     - "{{ aurora_paths.products_wxcam }}"

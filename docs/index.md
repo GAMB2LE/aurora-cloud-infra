@@ -14,7 +14,8 @@ Aurora cloud dashboard host on the existing JASMIN Cloud VM.
 
 ## Current deployment contract
 
-- Public hostname: `data.gamb2le.co.uk`
+- Primary public hostname: `data.gamb2le.co.uk`
+- Warm-standby public hostname: `data-ocean.gamb2le.co.uk`
 - Raw mirror root: `/project/aurora/raw`
 - Product root: `/data/aurora/products`
 - Dashboard app checkout: `/opt/aurora-cloud-dashboard`
@@ -93,6 +94,8 @@ standalone repo-local Pages site.
 ## Key docs in this site
 
 - **Rebuild Plan** for host rebuild and recovery notes
+- **Failover** for the `data-ocean.gamb2le.co.uk` warm standby, promotion
+  steps, and standby dashboard troubleshooting
 - **Source Syncs** for per-instrument sync behavior and deployment details
 
 ## Safe working pattern

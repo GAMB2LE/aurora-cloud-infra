@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "{{ aurora_failover_role }}" != "standby" ]]; then
+  echo "Standby pull skipped because aurora_failover_role={{ aurora_failover_role }}."
+  exit 0
+fi
+
+source_user={{ aurora_standby_primary_user | quote }}
+source_host={{ aurora_standby_primary_host | quote }}
+proxy_jump={{ aurora_standby_primary_proxy_jump | default("") | quote }}
+ssh_key={{ aurora_standby_replication_ssh_private_key | quote }}
+known_hosts=/home/{{ aurora_service_user }}/.ssh/known_hosts
+state_root={{ aurora_standby_replication_state_root | quote }}
+rsync_path={{ aurora_standby_replication_rsync_path | quote }}
+
+mkdir -p "$state_root" "$(dirname "$known_hosts")"
+touch "$known_hosts"
+chown {{ aurora_service_user | quote }}:{{ aurora_service_group | quote }} "$known_hosts"
+chmod 0644 "$known_hosts"
+
+if [[ ! -r "$ssh_key" ]]; then
+  echo "Missing readable standby replication SSH key: $ssh_key" >&2
+  exit 1
+fi
+
+exec 9>/run/aurora-standby-pull.lock
+if ! flock -n 9; then
+  echo "Another aurora-standby-pull run is still active."
+  exit 0
+fi
+
+ssh_command=(
+  ssh
+  -i "$ssh_key"
+  -o BatchMode=yes
+  -o IdentitiesOnly=yes
+  -o StrictHostKeyChecking=accept-new
+  -o UserKnownHostsFile="$known_hosts"
+  -o ConnectTimeout=30
+  -o ServerAliveInterval=30
+  -o ServerAliveCountMax=4
+)
+
+if [[ -n "$proxy_jump" ]]; then
+  proxy_command=(
+    ssh
+    -i "$ssh_key"
+    -o BatchMode=yes
+    -o IdentitiesOnly=yes
+    -o StrictHostKeyChecking=accept-new
+    -o UserKnownHostsFile="$known_hosts"
+    -o ConnectTimeout=30
+    -W %h:%p
+    "$proxy_jump"
+  )
+  ssh_command+=(
+    -o
+    "ProxyCommand=$(printf "%q " "${proxy_command[@]}")"
+  )
+fi
+
+{% for arg in aurora_standby_primary_ssh_extra_args %}
+ssh_command+=({{ arg | quote }})
+{% endfor %}
+ssh_wrapper="$state_root/ssh-wrapper"
+{
+  printf '#!/usr/bin/env bash\n'
+  printf 'exec'
+  for arg in "${ssh_command[@]}"; do
+    printf ' %q' "$arg"
+  done
+  printf ' "$@"\n'
+} > "$ssh_wrapper"
+chmod 0700 "$ssh_wrapper"
+
+rsync_common=(
+  -aHAX
+  --numeric-ids
+  --partial
+  --protect-args
+  --human-readable
+  --stats
+  --timeout=120
+{% if aurora_standby_replication_delete | bool %}
+  --delete
+  --delete-delay
+{% endif %}
+)
+
+replicate_path() {
+  local name="$1"
+  local source_path="$2"
+  local destination_path="$3"
+  shift 3
+
+  local clean_destination="${destination_path%/}"
+  case "$clean_destination" in
+    /project/aurora|/project/aurora/*|/data/aurora|/data/aurora/*|/var/lib/aurora-cloud|/var/lib/aurora-cloud/*)
+      ;;
+    *)
+      echo "Refusing unsafe standby replication destination: $destination_path" >&2
+      exit 2
+      ;;
+  esac
+
+  mkdir -p "$destination_path"
+  echo "Replicating $name from ${source_user}@${source_host}:${source_path} to ${destination_path}"
+  rsync \
+    "${rsync_common[@]}" \
+    "$@" \
+    --rsync-path="$rsync_path" \
+    -e "$ssh_wrapper" \
+    "${source_user}@${source_host}:${source_path}" \
+    "$destination_path"
+}
+
+{% for path in aurora_standby_replication_paths %}
+replicate_path {{ path.name | quote }} {{ path.source | quote }} {{ path.destination | quote }}{% for exclude in path.exclude | default([]) %} --exclude={{ exclude | quote }}{% endfor %}{{ '\n' }}
+{% endfor %}
+
+date -u +"%Y-%m-%dT%H:%M:%SZ" > "$state_root/last_success_utc"

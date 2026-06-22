@@ -6,7 +6,7 @@
     owner: "{{ aurora_service_user }}"
     group: "{{ aurora_service_group }}"
     mode: "0755"
-  when: cl61_source_sync_enabled | bool or radar_source_sync_enabled | bool or hatpro_source_sync_enabled | bool or vaisalamet_source_sync_enabled | bool or asfs_logger_source_sync_enabled | bool or asfs_fast_sonic_source_sync_enabled | bool or power_source_sync_enabled | bool or wxcam_source_sync_enabled | bool
+  when: cl61_source_sync_enabled | bool or radar_source_sync_enabled | bool or hatpro_source_sync_enabled | bool or vaisalamet_source_sync_enabled | bool or asfs_logger_source_sync_enabled | bool or asfs_fast_sonic_source_sync_enabled | bool or asfs_fast_gas_source_sync_enabled | bool or power_source_sync_enabled | bool or wxcam_source_sync_enabled | bool
 
 - name: Ensure Aurora SSH directory exists
   ansible.builtin.file:
@@ -15,7 +15,7 @@
     owner: "{{ aurora_service_user }}"
     group: "{{ aurora_service_group }}"
     mode: "0700"
-  when: cl61_source_sync_enabled | bool or radar_source_sync_enabled | bool or hatpro_source_sync_enabled | bool or vaisalamet_source_sync_enabled | bool or asfs_logger_source_sync_enabled | bool or asfs_fast_sonic_source_sync_enabled | bool or power_source_sync_enabled | bool or wxcam_source_sync_enabled | bool
+  when: cl61_source_sync_enabled | bool or radar_source_sync_enabled | bool or hatpro_source_sync_enabled | bool or vaisalamet_source_sync_enabled | bool or asfs_logger_source_sync_enabled | bool or asfs_fast_sonic_source_sync_enabled | bool or asfs_fast_gas_source_sync_enabled | bool or power_source_sync_enabled | bool or wxcam_source_sync_enabled | bool
 
 - name: Install CL61 source SSH private key when provided by vault
   ansible.builtin.copy:
@@ -37,6 +37,7 @@
   become_user: "{{ aurora_service_user }}"
   when:
     - cl61_source_sync_enabled | bool
+    - cl61_source_sync_timer_enabled | bool
     - cl61_source_generate_ssh_key | bool
     - cl61_source_ssh_private_key_content is not defined or cl61_source_ssh_private_key_content | length == 0
     - not ansible_check_mode
@@ -47,6 +48,7 @@
   register: cl61_source_keyscan
   when:
     - cl61_source_sync_enabled | bool
+    - cl61_source_sync_timer_enabled | bool
     - not ansible_check_mode
 
 - name: Trust CL61 source SSH host key for Aurora service user
@@ -58,6 +60,7 @@
   loop: "{{ cl61_source_keyscan.stdout_lines | default([]) }}"
   when:
     - cl61_source_sync_enabled | bool
+    - cl61_source_sync_timer_enabled | bool
     - not ansible_check_mode
 
 - name: Ensure CL61 source known_hosts ownership
@@ -68,6 +71,7 @@
     mode: "0644"
   when:
     - cl61_source_sync_enabled | bool
+    - cl61_source_sync_timer_enabled | bool
     - not ansible_check_mode
     - cl61_source_keyscan.stdout_lines | default([]) | length > 0
 
@@ -321,6 +325,48 @@
     daemon_reload: true
   when:
     - not asfs_fast_sonic_source_sync_enabled | bool or not asfs_fast_sonic_source_sync_timer_enabled | bool
+    - not ansible_check_mode
+
+- name: Install ASFS fast-gas source sync script
+  ansible.builtin.template:
+    src: aurora-asfs-fast-gas-sync.j2
+    dest: /usr/local/bin/aurora-asfs-fast-gas-sync
+    owner: root
+    group: root
+    mode: "0755"
+  when: asfs_fast_gas_source_sync_enabled | bool
+
+- name: Install ASFS fast-gas source sync systemd units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - aurora-asfs-fast-gas-source-sync.service
+    - aurora-asfs-fast-gas-source-sync.timer
+  when: asfs_fast_gas_source_sync_enabled | bool
+
+- name: Enable ASFS fast-gas source sync timer
+  ansible.builtin.systemd:
+    name: aurora-asfs-fast-gas-source-sync.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - asfs_fast_gas_source_sync_enabled | bool
+    - asfs_fast_gas_source_sync_timer_enabled | bool
+    - not ansible_check_mode
+
+- name: Disable ASFS fast-gas source sync timer when requested
+  ansible.builtin.systemd:
+    name: aurora-asfs-fast-gas-source-sync.timer
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  when:
+    - not asfs_fast_gas_source_sync_enabled | bool or not asfs_fast_gas_source_sync_timer_enabled | bool
     - not ansible_check_mode
 
 - name: Install power source sync script

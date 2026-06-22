@@ -1,0 +1,35 @@
+---
+aurora_failover_role: standby
+aurora_domain: data-ocean.gamb2le.co.uk
+aurora_public_ip: 167.172.54.82
+aurora_app_repo: https://github.com/GAMB2LE/aurora_cloud_dashboard.git
+aurora_dashboard_extra_files:
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/app.py"
+    dest: app.py
+    mode: "0644"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/collect_operations_snapshot.py"
+    dest: collect_operations_snapshot.py
+    mode: "0644"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/model-evaluation.py"
+    dest: model-evaluation.py
+    owner: root
+    group: root
+    mode: "0644"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/wxcam_catalog.py"
+    dest: wxcam_catalog.py
+    mode: "0644"
+
+# The standby has its own public hostname for parallel read-only service.
+# During promotion, override aurora_domain=data.gamb2le.co.uk after DNS moves.
+aurora_certbot_enabled: true
+aurora_nginx_disabled_sites:
+  - data.gamb2le.co.uk
+
+aurora_standby_replication_timer_enabled: true
+aurora_standby_replication_ssh_private_key_source: "{{ lookup('env', 'HOME') }}/.ssh/id_rsa_jasmin_20200514"
+aurora_standby_primary_host: 130.246.212.116
+aurora_standby_primary_user: azimuth
+aurora_standby_primary_proxy_jump: rrniii@login.jasmin.ac.uk
+aurora_standby_replication_known_hosts:
+  - login.jasmin.ac.uk
+  - "{{ aurora_standby_primary_host }}"

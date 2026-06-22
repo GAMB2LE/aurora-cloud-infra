@@ -1,12 +1,32 @@
 ---
-aurora_domain: data.gamb2le.co.uk
+# aurora_domain is the hostname this host actively serves. Standby hosts can
+# override it while aurora_failover_domain remains the promoted main site.
+aurora_failover_domain: data.gamb2le.co.uk
+aurora_standby_domain: data-ocean.gamb2le.co.uk
+aurora_domain: "{{ aurora_failover_domain }}"
 aurora_public_ip: 130.246.212.116
+
+aurora_failover_role: primary
+aurora_is_primary: "{{ aurora_failover_role | default('primary') == 'primary' }}"
+aurora_writer_timers_enabled: "{{ aurora_is_primary }}"
+aurora_certbot_enabled: "{{ aurora_is_primary }}"
 
 aurora_service_user: aurora
 aurora_service_group: aurora
 aurora_app_dir: /opt/aurora-cloud-dashboard
 aurora_app_repo: git@github-dashboard:GAMB2LE/aurora_cloud_dashboard.git
-aurora_app_version: main
+aurora_app_version: 3295de15366480b7e14a5cad3cd30ac7c4bf66d2
+aurora_dashboard_extra_files:
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/app.py"
+    dest: app.py
+    mode: "0644"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/collect_operations_snapshot.py"
+    dest: collect_operations_snapshot.py
+    mode: "0644"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/wxcam_catalog.py"
+    dest: wxcam_catalog.py
+    mode: "0644"
+aurora_dashboard_default_instrument: Ceilometer
 aurora_infra_repo_dir: /tmp/aurora-cloud-infra-codex
 aurora_python: /usr/bin/python3
 aurora_venv: "{{ aurora_app_dir }}/venv"
@@ -14,6 +34,7 @@ aurora_uv_bin: /usr/local/bin/uv
 aurora_uv_cache_dir: "{{ aurora_data_root }}/uv-cache"
 aurora_panel_host: 127.0.0.1
 aurora_panel_port: 5006
+aurora_nginx_disabled_sites: []
 
 # JASMIN target already has /data on a 999G volume and /project on a 4T Ceph mount.
 aurora_data_root: /data/aurora
@@ -39,6 +60,7 @@ aurora_paths:
   products_vaisalamet: "{{ aurora_product_root }}/vaisalamet"
   products_asfs_logger: "{{ aurora_product_root }}/asfs_logger"
   products_asfs_fast_sonic: "{{ aurora_product_root }}/asfs_fast_sonic"
+  products_asfs_fast_gas: "{{ aurora_product_root }}/asfs_fast_gas"
   products_power: "{{ aurora_product_root }}/power"
   products_ops_monitor: "{{ aurora_product_root }}/ops_monitor"
   products_ops_monitor_health: "{{ aurora_product_root }}/ops_monitor/health"
@@ -53,6 +75,7 @@ aurora_zarr:
   vaisalamet: "{{ aurora_product_root }}/vaisalamet/vaisalamet.zarr"
   asfs_logger: "{{ aurora_product_root }}/asfs_logger/asfs_logger.zarr"
   asfs_fast_sonic: "{{ aurora_product_root }}/asfs_fast_sonic/asfs_fast_sonic.zarr"
+  asfs_fast_gas: "{{ aurora_product_root }}/asfs_fast_gas/asfs_fast_gas.zarr"
   power: "{{ aurora_product_root }}/power/power.zarr"
   ops_monitor: "{{ aurora_product_root }}/ops_monitor/ops_monitor.zarr"
   wxcam: "{{ aurora_product_root }}/wxcam/wxcam.zarr"
@@ -83,34 +106,38 @@ aurora_quicklook_latest:
 aurora_dashboard_allowed_origins:
   - "{{ aurora_domain }}"
   - "{{ aurora_domain }}:443"
+  - "{{ aurora_public_ip }}"
+  - "{{ aurora_public_ip }}:80"
+  - "{{ aurora_public_ip }}:443"
 
 # Backward-compatible global default for any timer not listed below.
-aurora_enable_processing_timers: false
+aurora_enable_processing_timers: "{{ aurora_writer_timers_enabled }}"
 aurora_processing_timers:
   # CL61 is the first fresh pipeline to enable. The append script now
   # bootstraps the Zarr from recent raw files when the store is absent.
-  ceilometer_append: true
-  ceilometer_last24h: true
-  ceilometer_quicklooks: true
-  radar_append: true
-  radar_quicklooks: true
-  hatpro_append: true
-  hatpro_quicklooks: true
-  vaisalamet_append: true
-  vaisalamet_quicklooks: true
-  asfs_logger_append: true
-  asfs_logger_quicklooks: true
-  asfs_fast_sonic_append: true
-  asfs_fast_sonic_quicklooks: true
-  power_append: true
-  power_quicklooks: true
-  ops_monitor_collect: true
-  ops_monitor_append: true
-  ops_monitor_alerts: true
-  ops_monitor_quicklooks: true
-  wxcam_catalog: true
-  wxcam_append: true
-  wxcam_daily_videos: true
+  ceilometer_append: "{{ aurora_writer_timers_enabled }}"
+  ceilometer_last24h: "{{ aurora_writer_timers_enabled }}"
+  ceilometer_quicklooks: "{{ aurora_writer_timers_enabled }}"
+  radar_append: "{{ aurora_writer_timers_enabled }}"
+  radar_quicklooks: "{{ aurora_writer_timers_enabled }}"
+  hatpro_append: "{{ aurora_writer_timers_enabled }}"
+  hatpro_quicklooks: "{{ aurora_writer_timers_enabled }}"
+  vaisalamet_append: "{{ aurora_writer_timers_enabled }}"
+  vaisalamet_quicklooks: "{{ aurora_writer_timers_enabled }}"
+  asfs_logger_append: "{{ aurora_writer_timers_enabled }}"
+  asfs_logger_quicklooks: "{{ aurora_writer_timers_enabled }}"
+  asfs_fast_sonic_append: "{{ aurora_writer_timers_enabled }}"
+  asfs_fast_sonic_quicklooks: "{{ aurora_writer_timers_enabled }}"
+  asfs_fast_gas_append: "{{ aurora_writer_timers_enabled }}"
+  power_append: "{{ aurora_writer_timers_enabled }}"
+  power_quicklooks: "{{ aurora_writer_timers_enabled }}"
+  ops_monitor_collect: "{{ aurora_writer_timers_enabled }}"
+  ops_monitor_append: "{{ aurora_writer_timers_enabled }}"
+  ops_monitor_alerts: "{{ aurora_writer_timers_enabled }}"
+  ops_monitor_quicklooks: "{{ aurora_writer_timers_enabled }}"
+  wxcam_catalog: "{{ aurora_writer_timers_enabled }}"
+  wxcam_append: "{{ aurora_writer_timers_enabled }}"
+  wxcam_daily_videos: "{{ aurora_writer_timers_enabled }}"
 
 ops_alert_recipients:
   - gamb2le@ncas.ac.uk
@@ -124,7 +151,7 @@ ops_alert_smtp_starttls: true
 ops_alert_smtp_ssl: false
 
 cl61_source_sync_enabled: true
-cl61_source_sync_timer_enabled: true
+cl61_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 cl61_source_generate_ssh_key: true
 cl61_source_user: aurora
 cl61_source_host: 100.117.101.84
@@ -139,7 +166,7 @@ cl61_source_sync_randomized_delay: 30
 cl61_source_start_fresh: false
 
 radar_source_sync_enabled: true
-radar_source_sync_timer_enabled: true
+radar_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 radar_source_user: aurora
 radar_source_host: 100.124.55.22
 radar_source_path: /home/aurora/data/rpgfmcw94
@@ -152,7 +179,7 @@ radar_source_sync_randomized_delay: 30
 radar_source_start_fresh: false
 
 hatpro_source_sync_enabled: true
-hatpro_source_sync_timer_enabled: true
+hatpro_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 hatpro_source_user: aurora
 hatpro_source_host: 100.124.55.22
 hatpro_source_path: /home/aurora/data/hatprog5
@@ -165,7 +192,7 @@ hatpro_source_sync_randomized_delay: 30
 hatpro_source_start_fresh: false
 
 vaisalamet_source_sync_enabled: true
-vaisalamet_source_sync_timer_enabled: true
+vaisalamet_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 vaisalamet_source_user: aurora
 vaisalamet_source_host: 100.124.55.22
 vaisalamet_source_path: /home/aurora/data/vaisalamet
@@ -178,7 +205,7 @@ vaisalamet_source_sync_randomized_delay: 30
 vaisalamet_source_start_fresh: false
 
 asfs_logger_source_sync_enabled: true
-asfs_logger_source_sync_timer_enabled: true
+asfs_logger_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 asfs_logger_source_user: aurora
 asfs_logger_source_host: 100.124.55.22
 asfs_logger_source_path: /home/aurora/data/asfs/raw/crd
@@ -193,7 +220,7 @@ asfs_logger_source_lookback_days: 10
 asfs_logger_source_start_fresh: false
 
 asfs_fast_sonic_source_sync_enabled: true
-asfs_fast_sonic_source_sync_timer_enabled: true
+asfs_fast_sonic_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 asfs_fast_sonic_source_user: aurora
 asfs_fast_sonic_source_host: 100.124.55.22
 asfs_fast_sonic_source_path: /home/aurora/data/asfs/raw/crd
@@ -206,8 +233,22 @@ asfs_fast_sonic_source_lookback_days: 10
 # False means the first timer run pulls all existing matching source files.
 asfs_fast_sonic_source_start_fresh: false
 
+asfs_fast_gas_source_sync_enabled: true
+asfs_fast_gas_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
+asfs_fast_gas_source_user: aurora
+asfs_fast_gas_source_host: 100.124.55.22
+asfs_fast_gas_source_path: /home/aurora/data/asfs/raw/crd
+asfs_fast_gas_source_pattern: "aurora_asfs_data_fast_gas_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].dat"
+asfs_fast_gas_source_destination: "{{ aurora_paths.raw_asfs_crd }}"
+asfs_fast_gas_source_state_file: "{{ aurora_state_root }}/asfs-fast-gas-sync.last"
+asfs_fast_gas_source_sync_interval: 2min
+asfs_fast_gas_source_sync_randomized_delay: 30
+asfs_fast_gas_source_lookback_days: 10
+# False means the first timer run pulls all existing matching source files.
+asfs_fast_gas_source_start_fresh: false
+
 power_source_sync_enabled: true
-power_source_sync_timer_enabled: true
+power_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 power_source_user: aurora
 power_source_host: 100.81.226.30
 power_source_path: /data/power/level1
@@ -221,7 +262,7 @@ power_source_lookback_days: 10
 power_source_start_fresh: false
 
 wxcam_source_sync_enabled: true
-wxcam_source_sync_timer_enabled: true
+wxcam_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 wxcam_source_user: aurora
 wxcam_source_host: 100.124.55.22
 wxcam_source_path: /home/aurora/data/wxcam
@@ -293,7 +334,7 @@ tailscale_authkey: "{{ lookup('env', 'TAILSCALE_AUTHKEY') | default('', true) }}
 
 # Prefer rsync via JASMIN transfer servers for reliable GWS sync.
 gws_sync_enabled: true
-gws_sync_timer_enabled: true
+gws_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 gws_transfer_hosts:
   - xfer-vm-03.jasmin.ac.uk
   - xfer-vm-01.jasmin.ac.uk
@@ -313,7 +354,7 @@ gws_manifest_history_keep: 48
 gws_manifest_checksum_mode: none
 gws_manifest_spot_modulus: 20
 gws_verification_enabled: true
-gws_verification_timer_enabled: true
+gws_verification_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 gws_sync_randomized_delay_sec: 60
 gws_sync_timeout_start_sec: 6h
 gws_verification_randomized_delay_sec: 60
@@ -342,3 +383,41 @@ gws_sync_jobs:
 # SSHFS mount is optional convenience, not the primary sync path.
 gws_sshfs_enabled: false
 gws_sshfs_mountpoint: /mnt/gws/gamb2le
+
+# Warm-standby replication. The droplet pulls from the primary while writer
+# timers stay disabled. Promotion flips aurora_failover_role to primary and
+# disables this pull timer.
+aurora_standby_replication_enabled: "{{ aurora_failover_role == 'standby' }}"
+aurora_standby_replication_timer_enabled: "{{ aurora_standby_replication_enabled }}"
+aurora_standby_primary_host: 130.246.212.116
+aurora_standby_primary_user: azimuth
+aurora_standby_primary_proxy_jump: ""
+aurora_standby_primary_ssh_extra_args: []
+aurora_standby_replication_known_hosts:
+  - "{{ aurora_standby_primary_host }}"
+aurora_standby_replication_ssh_private_key: /home/aurora/.ssh/id_rsa_jasmin_20200514
+aurora_standby_replication_ssh_private_key_source: ""
+aurora_standby_replication_ssh_private_key_content: ""
+aurora_standby_replication_rsync_path: sudo rsync
+aurora_standby_replication_interval: 5min
+aurora_standby_replication_randomized_delay_sec: 60
+aurora_standby_replication_timeout_start_sec: 12h
+aurora_standby_replication_delete: true
+aurora_standby_replication_state_root: "{{ aurora_state_root }}/standby-replication"
+aurora_standby_replication_paths:
+  - name: raw
+    source: "{{ aurora_raw_root }}/"
+    destination: "{{ aurora_raw_root }}/"
+  - name: products
+    source: "{{ aurora_product_root }}/"
+    destination: "{{ aurora_product_root }}/"
+  - name: internal
+    source: "{{ aurora_data_root }}/internal/"
+    destination: "{{ aurora_data_root }}/internal/"
+  - name: state
+    source: "{{ aurora_state_root }}/"
+    destination: "{{ aurora_state_root }}/"
+    exclude:
+      - standby-replication/**
+      - "*.lock"
+      - "*.tmp"

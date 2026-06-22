@@ -5,6 +5,7 @@ Ansible configuration for rebuilding the Aurora cloud dashboard host on the exis
 ## Current Contract
 
 - Public hostname: `data.gamb2le.co.uk`.
+- Warm-standby hostname: `data-ocean.gamb2le.co.uk`.
 - Raw data: `/project/aurora/raw`.
 - Dashboard products: `/data/aurora/products`.
 - Dashboard app: `/opt/aurora-cloud-dashboard`.
@@ -23,6 +24,7 @@ Ansible configuration for rebuilding the Aurora cloud dashboard host on the exis
 - Vaisala met raw source: `aurora@100.124.55.22:/home/aurora/data/vaisalamet` pulled into `/project/aurora/raw/vaisalamet`.
 - ASFS Logger CRD raw source: `aurora@100.124.55.22:/home/aurora/data/asfs/raw/crd` pulled into `/project/aurora/raw/asfs/crd`.
 - ASFS fast-sonic CRD raw source: `aurora@100.124.55.22:/home/aurora/data/asfs/raw/crd` pulled into `/project/aurora/raw/asfs/crd`.
+- ASFS fast-gas CRD raw source: `aurora@100.124.55.22:/home/aurora/data/asfs/raw/crd` pulled into `/project/aurora/raw/asfs/crd`.
 - Power raw source: `aurora@100.81.226.30:/data/power/level1` pulled into `/project/aurora/raw/power/level1`.
 - WXcam raw source: `aurora@100.124.55.22:/home/aurora/data/wxcam` pulled into `/project/aurora/raw/wxcam`.
 - GWS backup/sync: rsync via JASMIN transfer hosts to `/gws/ssde/j25b/gamb2le`.
@@ -94,6 +96,30 @@ uv run ansible-playbook playbooks/site.yml --check --diff
 ```
 
 Do not run `playbooks/site.yml` without `--check` until the old production Git changes have been preserved and transfer/Tailscale secrets have been put in Ansible Vault.
+
+## Warm Standby Failover
+
+The inventory now includes `aurora-cloud-droplet` at `167.172.54.82` as a
+warm-standby host. While in standby it serves the replicated dashboard at
+`https://data-ocean.gamb2le.co.uk`; `data.gamb2le.co.uk` remains on
+`aurora-cloud` until failover is initiated. `aurora_failover_role` controls
+writer behavior:
+
+- `primary` enables source sync, product processing, quicklook, operations, and
+  GWS timers.
+- `standby` installs the same dashboard stack but keeps writer timers disabled
+  and enables `aurora-standby-pull.timer` to pull raw, product, internal, and
+  state data from the primary.
+
+The live primary audit on `2026-06-19` measured roughly `95G` under
+`/project/aurora/raw`, `457G` under `/data/aurora/products`, and `949M` under
+`/data/aurora/internal`. A full warm standby therefore needs a 1TB-class data
+disk before replication is enabled.
+
+Promotion moves `data.gamb2le.co.uk` to `167.172.54.82` and runs the droplet
+with `aurora_domain=data.gamb2le.co.uk` and `aurora_failover_role=primary`.
+
+See `docs/FAILOVER.md` for deployment, promotion, and failback steps.
 
 ## Source Syncs
 
