@@ -131,7 +131,7 @@ The managed service uses:
 
 ```bash
 python -m aurora_les.cli campaign operational-run \
-  --campaign configs/campaigns/aurora_leeds_pilot_20260521_20260523.yaml \
+  --campaign configs/campaigns/aurora_leeds_operational_20260521_rolling.yaml \
   --target latest-ready \
   --era5-lag-days 5 \
   --skip-completed \
@@ -149,7 +149,7 @@ service uses the `cloudnetpy-model-eval` Python runtime because it includes
 Manual dry-run check:
 
 ```bash
-sudo -u aurora bash -lc 'cd /data/aurora/les/runtimes/aurora-les-operational-current && PYTHONPATH=src /data/aurora/les/runtimes/cloudnetpy-model-eval/bin/python3 -m aurora_les.cli campaign operational-run --campaign configs/campaigns/aurora_leeds_pilot_20260521_20260523.yaml --target latest-ready --era5-lag-days 5 --skip-completed --json'
+sudo -u aurora bash -lc 'cd /data/aurora/les/runtimes/aurora-les-operational-current && PYTHONPATH=src /data/aurora/les/runtimes/cloudnetpy-model-eval/bin/python3 -m aurora_les.cli campaign operational-run --campaign configs/campaigns/aurora_leeds_operational_20260521_rolling.yaml --target latest-ready --era5-lag-days 5 --skip-completed --json'
 ```
 
 ## Source Syncs
