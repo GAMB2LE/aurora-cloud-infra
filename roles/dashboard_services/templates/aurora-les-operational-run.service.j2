@@ -1,0 +1,13 @@
+[Unit]
+Description=Aurora LES daily virtual-observatory evaluation
+After=network-online.target aurora-radar-append.service aurora-vaisalamet-append.service aurora-asfs-logger-append.service aurora-asfs-fast-sonic-append.service aurora-asfs-fast-gas-append.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+WorkingDirectory={{ aurora_les_runtime_dir }}
+EnvironmentFile=/etc/aurora-dashboard.env
+ExecStart=/bin/bash -lc 'PYTHONPATH=src {{ aurora_les_python }} -m aurora_les.cli campaign operational-run --campaign {{ aurora_les_campaign_config }} --era5-lag-days {{ aurora_les_era5_lag_days }} --execute --timeout-seconds {{ aurora_les_run_timeout_seconds }} --working-dir {{ aurora_les_runtime_dir }}'
+Nice=10

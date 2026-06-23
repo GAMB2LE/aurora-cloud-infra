@@ -66,6 +66,8 @@
     - aurora-ops-monitor-alerts.timer
     - aurora-ops-monitor-quicklooks.service
     - aurora-ops-monitor-quicklooks.timer
+    - aurora-les-operational-run.service
+    - aurora-les-operational-run.timer
     - aurora-wxcam-catalog.service
     - aurora-wxcam-catalog.timer
     - aurora-wxcam-daily-videos.service
@@ -111,6 +113,7 @@
     - { unit: aurora-ops-monitor-append.timer, key: ops_monitor_append }
     - { unit: aurora-ops-monitor-alerts.timer, key: ops_monitor_alerts }
     - { unit: aurora-ops-monitor-quicklooks.timer, key: ops_monitor_quicklooks }
+    - { unit: aurora-les-operational-run.timer, key: les_operational_run }
     - { unit: aurora-wxcam-catalog.timer, key: wxcam_catalog }
     - { unit: aurora-wxcam-daily-videos.timer, key: wxcam_daily_videos }
     - { unit: aurora-wxcam-append.timer, key: wxcam_append }
@@ -141,6 +144,7 @@
     - aurora-ops-monitor-append.service
     - aurora-ops-monitor-alerts.service
     - aurora-ops-monitor-quicklooks.service
+    - aurora-les-operational-run.service
     - aurora-wxcam-catalog.service
     - aurora-wxcam-daily-videos.service
     - aurora-wxcam-append.service

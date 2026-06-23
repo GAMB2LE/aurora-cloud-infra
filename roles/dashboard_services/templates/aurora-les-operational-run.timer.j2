@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Aurora LES virtual-observatory evaluation daily after ERA5 availability window
+
+[Timer]
+OnCalendar=*-*-* 06:30:00 UTC
+RandomizedDelaySec=1800
+Persistent=true
+Unit=aurora-les-operational-run.service
+
+[Install]
+WantedBy=timers.target
