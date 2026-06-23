@@ -37,7 +37,10 @@ aurora_python: /usr/bin/python3
 aurora_venv: "{{ aurora_app_dir }}/venv"
 aurora_uv_bin: /usr/local/bin/uv
 aurora_uv_cache_dir: "{{ aurora_data_root }}/uv-cache"
-aurora_les_runtime_dir: "{{ aurora_data_root }}/les/runtimes/aurora-les-operational-current"
+aurora_les_root: "{{ aurora_data_root }}/les"
+aurora_les_campaign_root: "{{ aurora_les_root }}/campaigns"
+aurora_les_runtime_root: "{{ aurora_les_root }}/runtimes"
+aurora_les_runtime_dir: "{{ aurora_les_runtime_root }}/aurora-les-operational-current"
 aurora_les_python: "{{ aurora_data_root }}/les/runtimes/cloudnetpy-model-eval/bin/python3"
 aurora_les_campaign_config: configs/campaigns/aurora_leeds_pilot_20260521_20260523.yaml
 aurora_les_target: latest-ready

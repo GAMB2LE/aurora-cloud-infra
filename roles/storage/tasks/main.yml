@@ -48,3 +48,15 @@
     - "{{ aurora_quicklook_dirs.ops_monitor }}"
     - "{{ aurora_log_root }}"
     - "{{ aurora_state_root }}"
+    - "{{ aurora_les_root }}"
+    - "{{ aurora_les_campaign_root }}"
+    - "{{ aurora_les_runtime_root }}"
+
+- name: Ensure LES campaign outputs remain writable by the service user
+  ansible.builtin.file:
+    path: "{{ aurora_les_campaign_root }}"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "02775"
+    recurse: true
