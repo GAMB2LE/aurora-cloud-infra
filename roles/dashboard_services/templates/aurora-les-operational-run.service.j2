@@ -9,5 +9,5 @@ User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
 WorkingDirectory={{ aurora_les_runtime_dir }}
 EnvironmentFile=/etc/aurora-dashboard.env
-ExecStart=/bin/bash -lc 'PYTHONPATH=src {{ aurora_les_python }} -m aurora_les.cli campaign operational-run --campaign {{ aurora_les_campaign_config }} --era5-lag-days {{ aurora_les_era5_lag_days }} --execute --timeout-seconds {{ aurora_les_run_timeout_seconds }} --working-dir {{ aurora_les_runtime_dir }}'
+ExecStart=/bin/bash -lc 'PYTHONPATH=src {{ aurora_les_python }} -m aurora_les.cli campaign operational-run --campaign {{ aurora_les_campaign_config }} --target {{ aurora_les_target }} --era5-lag-days {{ aurora_les_era5_lag_days }}{% if aurora_les_skip_completed | bool %} --skip-completed{% endif %} --execute --timeout-seconds {{ aurora_les_run_timeout_seconds }} --working-dir {{ aurora_les_runtime_dir }}'
 Nice=10

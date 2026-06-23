@@ -121,6 +121,37 @@ with `aurora_domain=data.gamb2le.co.uk` and `aurora_failover_role=primary`.
 
 See `docs/FAILOVER.md` for deployment, promotion, and failback steps.
 
+## AURORA-LASSO Operational Timer
+
+`aurora-les-operational-run.timer` runs the Cloudnet-centred AURORA-LASSO
+daily workflow from the deployed science runtime at
+`/data/aurora/les/runtimes/aurora-les-operational-current`.
+
+The managed service uses:
+
+```bash
+python -m aurora_les.cli campaign operational-run \
+  --campaign configs/campaigns/aurora_leeds_pilot_20260521_20260523.yaml \
+  --target latest-ready \
+  --era5-lag-days 5 \
+  --skip-completed \
+  --execute \
+  --timeout-seconds 86400
+```
+
+This selects the newest configured campaign day whose required ERA5 and
+observation inputs are present, skips days already recorded as successfully run,
+executes the configured command plan, writes the operational summary, writes the
+AURORA-LASSO bundle, runs `lasso-check`, and refreshes the campaign index. The
+service uses the `cloudnetpy-model-eval` Python runtime because it includes
+`xarray` and can validate the MODF/MMDF NetCDF metadata.
+
+Manual dry-run check:
+
+```bash
+sudo -u aurora bash -lc 'cd /data/aurora/les/runtimes/aurora-les-operational-current && PYTHONPATH=src /data/aurora/les/runtimes/cloudnetpy-model-eval/bin/python3 -m aurora_les.cli campaign operational-run --campaign configs/campaigns/aurora_leeds_pilot_20260521_20260523.yaml --target latest-ready --era5-lag-days 5 --skip-completed --json'
+```
+
 ## Source Syncs
 
 All configured source syncs now initialize from epoch `0` when their state file

@@ -40,6 +40,8 @@ aurora_uv_cache_dir: "{{ aurora_data_root }}/uv-cache"
 aurora_les_runtime_dir: "{{ aurora_data_root }}/les/runtimes/aurora-les-operational-current"
 aurora_les_python: "{{ aurora_data_root }}/les/runtimes/cloudnetpy-model-eval/bin/python3"
 aurora_les_campaign_config: configs/campaigns/aurora_leeds_pilot_20260521_20260523.yaml
+aurora_les_target: latest-ready
+aurora_les_skip_completed: true
 aurora_les_era5_lag_days: 5
 aurora_les_run_timeout_seconds: 86400
 aurora_panel_host: 127.0.0.1
