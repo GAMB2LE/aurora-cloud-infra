@@ -15,6 +15,11 @@ aurora_dashboard_extra_files:
     owner: root
     group: root
     mode: "0644"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/dart.py"
+    dest: dart.py
+    owner: root
+    group: root
+    mode: "0644"
   - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/wxcam_catalog.py"
     dest: wxcam_catalog.py
     mode: "0644"
