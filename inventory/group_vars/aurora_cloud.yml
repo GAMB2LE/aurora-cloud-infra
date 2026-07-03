@@ -13,6 +13,8 @@ aurora_certbot_enabled: "{{ aurora_is_primary }}"
 
 aurora_service_user: aurora
 aurora_service_group: aurora
+aurora_service_uid: 56781
+aurora_service_gid: 56781
 aurora_app_dir: /opt/aurora-cloud-dashboard
 aurora_app_repo: git@github-dashboard:GAMB2LE/aurora_cloud_dashboard.git
 aurora_app_version: 3295de15366480b7e14a5cad3cd30ac7c4bf66d2

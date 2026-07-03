@@ -18,11 +18,13 @@
 - name: Ensure dashboard service group exists
   ansible.builtin.group:
     name: "{{ aurora_service_group }}"
+    gid: "{{ aurora_service_gid | default(omit) }}"
     state: present
 
 - name: Ensure dashboard service user exists
   ansible.builtin.user:
     name: "{{ aurora_service_user }}"
+    uid: "{{ aurora_service_uid | default(omit) }}"
     group: "{{ aurora_service_group }}"
     shell: /bin/bash
     home: "/home/{{ aurora_service_user }}"
