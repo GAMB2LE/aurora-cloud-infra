@@ -1,16 +1,22 @@
 # Aurora Cloud Failover
 
-This deployment supports a warm-standby droplet for `data.gamb2le.co.uk`.
-The droplet normally serves the replicated dashboard at
-`data-ocean.gamb2le.co.uk`; only after failover is initiated should it become
-the `data.gamb2le.co.uk` host. Only one host should run writer timers at a time.
+This deployment supports a droplet mirror for `data.gamb2le.co.uk`. The
+intended public split is:
+
+- `data.gamb2le.co.uk`: the legacy JASMIN `aurora-cloud` endpoint.
+- `data-ocean.gamb2le.co.uk`: the DigitalOcean droplet endpoint.
+
+Only move `data.gamb2le.co.uk` to the droplet if a full public failover is
+explicitly initiated. Only one host should run writer timers at a time.
 
 ## Roles
 
 - `aurora-cloud`: `aurora_failover_role: primary`,
   `aurora_domain: data.gamb2le.co.uk`
-- `aurora-cloud-droplet`: `aurora_failover_role: standby`,
-  `aurora_domain: data-ocean.gamb2le.co.uk`
+- `aurora-cloud-droplet`: normally `aurora_failover_role: standby`,
+  `aurora_domain: data-ocean.gamb2le.co.uk`; during the July 2026 JASMIN
+  shutdown window it may run `aurora_failover_role: primary` while still serving
+  only `data-ocean.gamb2le.co.uk`
 
 The primary role enables source-sync, product-processing, quicklook, operations,
 and GWS timers. The standby role installs the same code, units, nginx
@@ -176,18 +182,27 @@ application traceback.
    curl --fail --silent --show-error --output /dev/null --write-out '%{http_code}\n' https://data.gamb2le.co.uk/app
    ```
 
-## 2026-07-03 Cutover Notes
+## 2026-07-03 Parallel Endpoint Notes
 
-The droplet was promoted to live processing on `data-ocean.gamb2le.co.uk`
-because the public `data.gamb2le.co.uk` A record still resolved to the JASMIN
-VM. The zone is hosted on IONOS/1&1 nameservers (`ui-dns.*`), so moving the main
-site still requires changing the `data.gamb2le.co.uk` A record to
-`167.172.54.82` and then rerunning the promotion play with
+The selected operating mode is to keep `data.gamb2le.co.uk` pointed at the
+JASMIN VM and keep `data-ocean.gamb2le.co.uk` pointed at the droplet. This makes
+it clear which public endpoint is serving which host.
+
+The droplet was promoted to live processing on `data-ocean.gamb2le.co.uk`.
+That means its writer, GWS, product, quicklook, and operations timers are
+enabled, while `aurora-standby-pull.timer` is disabled. The old JASMIN host is
+web-only during the shutdown window: dashboard/nginx may remain active, but
+Aurora writer timers should stay stopped there.
+
+Moving the main site is not required in this operating mode. If full public
+failover is later needed, change the `data.gamb2le.co.uk` A record to
+`167.172.54.82` and rerun the promotion play with
 `aurora_domain=data.gamb2le.co.uk`.
 
-Before promotion, freeze the JASMIN primary by disabling/stopping Aurora writer
-and GWS timers, then run the final `aurora-standby-pull.service`. Do not convert
-the old JASMIN host to the Ansible `standby` role during this outage cutover.
+For the 2026-07-03 handover, freeze the JASMIN primary by disabling/stopping
+Aurora writer and GWS timers, then run the final `aurora-standby-pull.service`
+before enabling live processing on the droplet. Do not convert the old JASMIN
+host to the Ansible `standby` role during this outage cutover.
 
 The service account UID/GID must match the replicated data ownership. The
 JASMIN primary uses `aurora` UID/GID `56781`, so the infra inventory now pins

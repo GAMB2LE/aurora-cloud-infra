@@ -97,13 +97,18 @@ uv run ansible-playbook playbooks/site.yml --check --diff
 
 Do not run `playbooks/site.yml` without `--check` until the old production Git changes have been preserved and transfer/Tailscale secrets have been put in Ansible Vault.
 
-## Warm Standby Failover
+## Parallel Endpoints and Failover
 
-The inventory now includes `aurora-cloud-droplet` at `167.172.54.82` as a
-warm-standby host. While in standby it serves the replicated dashboard at
-`https://data-ocean.gamb2le.co.uk`; `data.gamb2le.co.uk` remains on
-`aurora-cloud` until failover is initiated. `aurora_failover_role` controls
-writer behavior:
+The inventory now includes `aurora-cloud-droplet` at `167.172.54.82`. The
+intended public split is:
+
+- `https://data.gamb2le.co.uk`: the legacy JASMIN `aurora-cloud` endpoint.
+- `https://data-ocean.gamb2le.co.uk`: the DigitalOcean droplet endpoint.
+
+During the July 2026 JASMIN shutdown window, the droplet can run as the live
+processing host on `data-ocean.gamb2le.co.uk` while `data.gamb2le.co.uk`
+continues to identify the JASMIN host. Keep only one host running writer timers
+at a time. `aurora_failover_role` controls writer behavior:
 
 - `primary` enables source sync, product processing, quicklook, operations, and
   GWS timers.
@@ -116,8 +121,9 @@ The live primary audit on `2026-06-19` measured roughly `95G` under
 `/data/aurora/internal`. A full warm standby therefore needs a 1TB-class data
 disk before replication is enabled.
 
-Promotion moves `data.gamb2le.co.uk` to `167.172.54.82` and runs the droplet
-with `aurora_domain=data.gamb2le.co.uk` and `aurora_failover_role=primary`.
+Full failover is optional. It moves `data.gamb2le.co.uk` to `167.172.54.82`
+and runs the droplet with `aurora_domain=data.gamb2le.co.uk` and
+`aurora_failover_role=primary`.
 
 See `docs/FAILOVER.md` for deployment, promotion, and failback steps.
 
