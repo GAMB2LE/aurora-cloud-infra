@@ -13,6 +13,7 @@
     dest: "{{ aurora_app_dir }}"
     version: "{{ aurora_app_version }}"
     update: true
+    force: true
   become_user: "{{ aurora_service_user }}"
   when: not ansible_check_mode
 
@@ -57,6 +58,7 @@
     owner: "{{ aurora_service_user }}"
     group: "{{ aurora_service_group }}"
     mode: "0755"
+    recurse: true
   when: not ansible_check_mode
 
 - name: Create Python virtual environment with uv

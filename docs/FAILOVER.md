@@ -176,6 +176,33 @@ application traceback.
    curl --fail --silent --show-error --output /dev/null --write-out '%{http_code}\n' https://data.gamb2le.co.uk/app
    ```
 
+## 2026-07-03 Cutover Notes
+
+The droplet was promoted to live processing on `data-ocean.gamb2le.co.uk`
+because the public `data.gamb2le.co.uk` A record still resolved to the JASMIN
+VM. The zone is hosted on IONOS/1&1 nameservers (`ui-dns.*`), so moving the main
+site still requires changing the `data.gamb2le.co.uk` A record to
+`167.172.54.82` and then rerunning the promotion play with
+`aurora_domain=data.gamb2le.co.uk`.
+
+Before promotion, freeze the JASMIN primary by disabling/stopping Aurora writer
+and GWS timers, then run the final `aurora-standby-pull.service`. Do not convert
+the old JASMIN host to the Ansible `standby` role during this outage cutover.
+
+The service account UID/GID must match the replicated data ownership. The
+JASMIN primary uses `aurora` UID/GID `56781`, so the infra inventory now pins
+the droplet to the same IDs. This avoids recursively rewriting the 500GB-class
+replicated product/raw trees and keeps Zarr/appends writable after promotion.
+
+Expected post-cutover red checks while Aurora sources are off:
+
+- CL61 source sync can fail against the old `celine-edge-1` source until the
+  CL61 move to `aurora-edge-1` is configured and authorized.
+- WXcam, ASFS, radar, HATPRO, Vaisala, and power source streams can be stale
+  until the Aurora source host is powered back on and reachable over Tailscale.
+- GWS rsync should remain enabled; S3/object-store workflows are not part of
+  this cutover.
+
 ## Failback
 
 Do not simply restart writer timers on the original host. Treat the promoted
