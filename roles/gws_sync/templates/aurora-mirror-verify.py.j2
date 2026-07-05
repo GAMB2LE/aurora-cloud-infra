@@ -31,6 +31,7 @@ CONFIG = json.loads(
   "streams": [
     {
       "name": "cl61",
+      "enabled": {{ cl61_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ cl61_source_user | to_json }},
       "source_host": {{ cl61_source_host | to_json }},
       "source_root": {{ cl61_source_path | to_json }},
@@ -44,6 +45,7 @@ CONFIG = json.loads(
     },
     {
       "name": "rpgfmcw94",
+      "enabled": {{ radar_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ radar_source_user | to_json }},
       "source_host": {{ radar_source_host | to_json }},
       "source_root": {{ radar_source_path | to_json }},
@@ -57,6 +59,7 @@ CONFIG = json.loads(
     },
     {
       "name": "hatprog5",
+      "enabled": {{ hatpro_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ hatpro_source_user | to_json }},
       "source_host": {{ hatpro_source_host | to_json }},
       "source_root": {{ hatpro_source_path | to_json }},
@@ -70,6 +73,7 @@ CONFIG = json.loads(
     },
     {
       "name": "vaisalamet",
+      "enabled": {{ vaisalamet_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ vaisalamet_source_user | to_json }},
       "source_host": {{ vaisalamet_source_host | to_json }},
       "source_root": {{ vaisalamet_source_path | to_json }},
@@ -83,6 +87,7 @@ CONFIG = json.loads(
     },
     {
       "name": "asfs_logger",
+      "enabled": {{ asfs_logger_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ asfs_logger_source_user | to_json }},
       "source_host": {{ asfs_logger_source_host | to_json }},
       "source_root": {{ asfs_logger_source_path | to_json }},
@@ -96,6 +101,7 @@ CONFIG = json.loads(
     },
     {
       "name": "asfs_fast_sonic",
+      "enabled": {{ asfs_fast_sonic_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ asfs_fast_sonic_source_user | to_json }},
       "source_host": {{ asfs_fast_sonic_source_host | to_json }},
       "source_root": {{ asfs_fast_sonic_source_path | to_json }},
@@ -109,6 +115,7 @@ CONFIG = json.loads(
     },
     {
       "name": "power",
+      "enabled": {{ power_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ power_source_user | to_json }},
       "source_host": {{ power_source_host | to_json }},
       "source_root": {{ power_source_path | to_json }},
@@ -122,6 +129,7 @@ CONFIG = json.loads(
     },
     {
       "name": "wxcam",
+      "enabled": {{ wxcam_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ wxcam_source_user | to_json }},
       "source_host": {{ wxcam_source_host | to_json }},
       "source_root": {{ wxcam_source_path | to_json }},
@@ -143,7 +151,9 @@ CONFIG = json.loads(
       ],
       "required_services": [
         "aurora-wxcam-catalog.service",
+{% if aurora_processing_timers.wxcam_daily_videos | default(aurora_enable_processing_timers) | bool %}
         "aurora-wxcam-daily-videos.service",
+{% endif %}
         "aurora-wxcam-append.service"
       ]
     }
@@ -433,6 +443,13 @@ def main() -> int:
 
     for stream in CONFIG["streams"]:
         name = stream["name"]
+        if not stream.get("enabled", True):
+            summary["streams"][name] = {
+                "planned_offline": True,
+                "prune_ready": False,
+                "prune_candidate_count": 0,
+            }
+            continue
         stream_dir = history_dir / name
         ensure_dir(stream_dir)
         try:

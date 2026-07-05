@@ -327,6 +327,22 @@ The relevant timers are:
 - `aurora-ops-monitor-quicklooks.timer` every 10 minutes
 - `aurora-mirror-verify.timer` every 10 minutes
 
+## Time Baseline
+
+Aurora cloud hosts are UTC-only systems. The Ansible base role installs
+`chrony`, writes `/etc/chrony/sources.d/gamb2le-ntp.sources`, sets timezone
+`UTC`, keeps `LocalRTC=no`, enables NTP, and asks chrony to step after source
+changes.
+
+Required live verification:
+
+```bash
+timedatectl show -p Timezone -p LocalRTC -p NTPSynchronized --value
+chronyc tracking
+```
+
+Expected values are `UTC`, `no`, and `yes`.
+
 ## Secrets
 
 Do not commit secrets. For a first Tailscale registration, pass the auth key from the environment:

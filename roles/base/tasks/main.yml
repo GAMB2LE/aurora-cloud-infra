@@ -9,6 +9,41 @@
     name: "{{ aurora_apt_packages }}"
     state: present
 
+- name: Ensure host timezone is UTC
+  ansible.builtin.command: "timedatectl set-timezone {{ aurora_timezone | default('UTC') }}"
+  changed_when: false
+
+- name: Ensure hardware clock is not stored as local time
+  ansible.builtin.command: timedatectl set-local-rtc 0
+  changed_when: false
+
+- name: Install common chrony NTP sources
+  ansible.builtin.copy:
+    dest: /etc/chrony/sources.d/gamb2le-ntp.sources
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {% for server in aurora_ntp_servers %}
+      server {{ server }} iburst
+      {% endfor %}
+  notify: Restart chrony
+
+- name: Ensure chrony is enabled and running
+  ansible.builtin.systemd:
+    name: chrony
+    enabled: true
+    state: started
+
+- name: Ensure systemd knows NTP sync is enabled
+  ansible.builtin.command: timedatectl set-ntp true
+  changed_when: false
+
+- name: Ask chrony to step after source changes
+  ansible.builtin.command: chronyc makestep
+  changed_when: false
+  failed_when: false
+
 - name: Ensure unattended upgrades are enabled
   ansible.builtin.systemd:
     name: unattended-upgrades

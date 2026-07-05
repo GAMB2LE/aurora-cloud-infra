@@ -15,6 +15,13 @@ aurora_service_user: aurora
 aurora_service_group: aurora
 aurora_service_uid: 56781
 aurora_service_gid: 56781
+aurora_timezone: UTC
+aurora_ntp_servers:
+  # Keep these DNS-free so hosts with broken resolver state can still sync.
+  - 162.159.200.1
+  - 162.159.200.123
+  - 129.6.15.28
+  - 129.6.15.29
 aurora_app_dir: /opt/aurora-cloud-dashboard
 aurora_app_repo: git@github-dashboard:GAMB2LE/aurora_cloud_dashboard.git
 aurora_app_version: 3295de15366480b7e14a5cad3cd30ac7c4bf66d2
@@ -305,8 +312,10 @@ wxcam_source_start_fresh: false
 wxcam_zarr_state_file: "{{ aurora_state_root }}/wxcam-zarr-state.json"
 
 aurora_enable_ufw: true
-aurora_preserve_existing_listener_ports:
-  # Existing target services the user asked to leave in place.
+aurora_preserve_existing_listener_ports: []
+aurora_remove_public_listener_ports:
+  # Previously preserved on the JASMIN-era host. The active droplet has no
+  # current listeners on these ports, so remove public allows if present.
   - { port: "5901", proto: tcp, comment: "existing VNC" }
   - { port: "9100", proto: tcp, comment: "existing node_exporter" }
   - { port: "111", proto: tcp, comment: "existing rpcbind" }
@@ -315,6 +324,7 @@ aurora_preserve_existing_listener_ports:
 aurora_apt_packages:
   - ca-certificates
   - certbot
+  - chrony
   - curl
   - fail2ban
   - ffmpeg
