@@ -1,7 +1,7 @@
 # Aurora Cloud Infrastructure
 
-This repo contains the Ansible configuration used to rebuild and operate the
-Aurora cloud dashboard host on the existing JASMIN Cloud VM.
+This repo contains the Ansible configuration used to build and operate the
+Aurora cloud dashboard hosts on JASMIN Cloud and the DigitalOcean droplet.
 
 ## What this repo covers
 
@@ -14,8 +14,8 @@ Aurora cloud dashboard host on the existing JASMIN Cloud VM.
 
 ## Current deployment contract
 
-- Primary public hostname: `data.gamb2le.co.uk`
-- Warm-standby public hostname: `data-ocean.gamb2le.co.uk`
+- Legacy JASMIN public hostname: `data.gamb2le.co.uk`
+- Active droplet public hostname: `data-ocean.gamb2le.co.uk`
 - Raw mirror root: `/project/aurora/raw`
 - Product root: `/data/aurora/products`
 - Dashboard app checkout: `/opt/aurora-cloud-dashboard`
@@ -55,7 +55,8 @@ dashboard-serving artifacts on local disk.
 
 The deployed syncs currently cover:
 
-- CL61
+- CL61, currently disabled on the droplet until the instrument moves from
+  retired `celine-edge-1` to `aurora-edge-1`
 - Cloud Radar
 - HATPRO
 - Vaisala MET
@@ -86,6 +87,18 @@ Verification manifests are generated for source, local raw, and GWS copies so
 upstream pruning decisions can be made against evidence rather than trust.
 Product sync is split into core products and WXcam products so the large WXcam
 media tree cannot delay the smaller product artifacts.
+
+## July 2026 droplet state
+
+`aurora-cloud-droplet` is the active processor during the JASMIN shutdown
+window while still serving `data-ocean.gamb2le.co.uk`. The standby pull timer is
+disabled on the droplet; source, product, quicklook, operations, and GWS timers
+run there instead.
+
+Unattended Tailscale SSH from the droplet to `ass-proxmox-linux` and
+`aps-proxmox-linux` must use an `accept` policy for Linux user `aurora`, not an
+interactive `check` policy. The CL61 source timer is deliberately disabled on
+the droplet until the CL61 instrument is moved to `aurora-edge-1`.
 
 Docs are published through the central `GAMB2LE/mkdocs-portal` build only. This
 repo keeps `trigger-docs.yml` for portal dispatch and no longer deploys a

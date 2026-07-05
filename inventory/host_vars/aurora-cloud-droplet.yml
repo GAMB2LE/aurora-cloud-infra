@@ -1,5 +1,7 @@
 ---
-aurora_failover_role: standby
+# The JASMIN VM has been shut down for the July 2026 outage window. The
+# droplet is the active processor while still serving its split public hostname.
+aurora_failover_role: primary
 aurora_domain: data-ocean.gamb2le.co.uk
 aurora_public_ip: 167.172.54.82
 aurora_app_repo: https://github.com/GAMB2LE/aurora_cloud_dashboard.git
@@ -24,13 +26,13 @@ aurora_dashboard_extra_files:
     dest: wxcam_catalog.py
     mode: "0644"
 
-# The standby has its own public hostname for parallel read-only service.
-# During promotion, override aurora_domain=data.gamb2le.co.uk after DNS moves.
+# The droplet has its own public hostname. Full public failover can still be
+# done later by overriding aurora_domain=data.gamb2le.co.uk after DNS moves.
 aurora_certbot_enabled: true
 aurora_nginx_disabled_sites:
   - data.gamb2le.co.uk
 
-aurora_standby_replication_timer_enabled: true
+aurora_standby_replication_timer_enabled: false
 aurora_standby_replication_ssh_private_key_source: "{{ lookup('env', 'HOME') }}/.ssh/id_rsa_jasmin_20200514"
 aurora_standby_primary_host: 130.246.212.116
 aurora_standby_primary_user: azimuth
@@ -38,3 +40,8 @@ aurora_standby_primary_proxy_jump: rrniii@login.jasmin.ac.uk
 aurora_standby_replication_known_hosts:
   - login.jasmin.ac.uk
   - "{{ aurora_standby_primary_host }}"
+
+# celine-edge-1 is retired. Keep the droplet from re-enabling CL61 source
+# pulls until the CL61 instrument has moved to aurora-edge-1 and SSH is
+# authorized there.
+cl61_source_sync_timer_enabled: false

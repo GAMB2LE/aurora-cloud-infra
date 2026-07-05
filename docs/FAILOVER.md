@@ -218,6 +218,95 @@ Expected post-cutover red checks while Aurora sources are off:
 - GWS rsync should remain enabled; S3/object-store workflows are not part of
   this cutover.
 
+## 2026-07-05 Droplet Active-Processor State
+
+The JASMIN VM has been shut down, and the droplet is the active Aurora cloud
+processor on `data-ocean.gamb2le.co.uk`. `data.gamb2le.co.uk` may be dark while
+its DNS still points at the shut-down JASMIN address.
+
+The committed droplet host vars match that live state:
+
+- `aurora_failover_role: primary`
+- `aurora_domain: data-ocean.gamb2le.co.uk`
+- `aurora_standby_replication_timer_enabled: false`
+- `cl61_source_sync_timer_enabled: false`
+
+Do not enable the standby pull timer on the droplet while it is the active
+processor. Do not re-enable the CL61 source timer until CL61 has moved from the
+retired `celine-edge-1` source to `aurora-edge-1` and SSH has been authorized.
+
+The Tailscale SSH policy must allow unattended source pulls from the droplet to
+the ASS and APS edge hosts. The required shape is an `accept` SSH rule from the
+droplet identity to the source host identity for Linux user `aurora`, plus a
+network rule that allows TCP port 22. A working tag-based policy is:
+
+```json
+{
+  "tagOwners": {
+    "tag:aurora-cloud": ["autogroup:admin"],
+    "tag:aurora-source": ["autogroup:admin"]
+  },
+  "grants": [
+    {
+      "src": ["tag:aurora-cloud"],
+      "dst": ["tag:aurora-source"],
+      "ip": ["tcp:22"]
+    }
+  ],
+  "ssh": [
+    {
+      "action": "accept",
+      "src": ["tag:aurora-cloud"],
+      "dst": ["tag:aurora-source"],
+      "users": ["aurora"]
+    }
+  ]
+}
+```
+
+Apply `tag:aurora-cloud` to `aurora-cloud-droplet` and `tag:aurora-source` to
+`ass-proxmox-linux` and `aps-proxmox-linux`. If a source sync logs
+`Tailscale SSH requires an additional check`, a broader `action: "check"` rule
+is still matching and must be narrowed or superseded.
+
+Verification after the policy change on `2026-07-05`:
+
+```bash
+sudo -u aurora ssh -o BatchMode=yes -o ConnectTimeout=10 \
+  -o IdentitiesOnly=yes -o IdentityFile=none -o PubkeyAuthentication=no \
+  aurora@100.124.55.22 hostname
+sudo -u aurora ssh -o BatchMode=yes -o ConnectTimeout=10 \
+  -o IdentitiesOnly=yes -o IdentityFile=none -o PubkeyAuthentication=no \
+  aurora@100.81.226.30 hostname
+```
+
+Both commands returned without an approval link:
+
+- `ass-proxmox-linux`
+- `aps-proxmox-linux`
+
+After stopping stale pre-policy jobs and restarting live ASS/APS-backed source
+syncs, radar, HATPRO, Vaisala, ASFS logger, ASFS fast sonic, ASFS fast gas, and
+WXcam completed cleanly with no new source files. APS power completed a real
+catch-up transfer and pulled `/project/aurora/raw/power/level1/power_data_20260704.csv`.
+
+Expected remaining red checks while instruments are off:
+
+- `aurora-ceilometer-last24h.service` can fail with `No data found in the last
+  24 hours` while CL61 is not producing fresh data.
+- `aurora-wxcam-daily-videos.service` can fail with `No WXcam housekeeping rows
+  available` while WXcam/housekeeping are not producing fresh rows.
+
+The operational baseline to verify after any reboot or redeploy is:
+
+```bash
+curl --fail --silent --show-error --output /dev/null \
+  --write-out '%{http_code}\n' https://data-ocean.gamb2le.co.uk/app
+systemctl is-active nginx aurora-dashboard.service
+systemctl list-timers 'aurora-*source-sync.timer' --no-pager
+systemctl status aurora-cl61-source-sync.timer --no-pager
+```
+
 ## Failback
 
 Do not simply restart writer timers on the original host. Treat the promoted

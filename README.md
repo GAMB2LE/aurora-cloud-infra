@@ -1,11 +1,12 @@
 # Aurora Cloud Infrastructure
 
-Ansible configuration for rebuilding the Aurora cloud dashboard host on the existing JASMIN Cloud VM.
+Ansible configuration for building and operating the Aurora cloud dashboard
+hosts on JASMIN Cloud and the DigitalOcean droplet.
 
 ## Current Contract
 
-- Public hostname: `data.gamb2le.co.uk`.
-- Warm-standby hostname: `data-ocean.gamb2le.co.uk`.
+- Legacy JASMIN public hostname: `data.gamb2le.co.uk`.
+- Active droplet public hostname: `data-ocean.gamb2le.co.uk`.
 - Raw data: `/project/aurora/raw`.
 - Dashboard products: `/data/aurora/products`.
 - Dashboard app: `/opt/aurora-cloud-dashboard`.
@@ -19,7 +20,7 @@ Ansible configuration for rebuilding the Aurora cloud dashboard host on the exis
 - Static dashboard media route:
   `/wxcam-media` maps to `/data/aurora/products/wxcam` so WXcam MP4 playback
   uses normal HTTP range requests rather than the Panel websocket.
-- CL61 raw source: `aurora@100.117.101.84:/home/aurora/data/cl61` pulled into `/project/aurora/raw/cl61`.
+- CL61 raw source: disabled on the droplet until CL61 moves from retired `celine-edge-1` to `aurora-edge-1`.
 - Cloud radar raw source: `aurora@100.124.55.22:/home/aurora/data/rpgfmcw94` pulled into `/project/aurora/raw/rpgfmcw94`.
 - Vaisala met raw source: `aurora@100.124.55.22:/home/aurora/data/vaisalamet` pulled into `/project/aurora/raw/vaisalamet`.
 - ASFS Logger CRD raw source: `aurora@100.124.55.22:/home/aurora/data/asfs/raw/crd` pulled into `/project/aurora/raw/asfs/crd`.
@@ -115,6 +116,12 @@ at a time. `aurora_failover_role` controls writer behavior:
 - `standby` installs the same dashboard stack but keeps writer timers disabled
   and enables `aurora-standby-pull.timer` to pull raw, product, internal, and
   state data from the primary.
+
+As of `2026-07-05`, `aurora-cloud-droplet` is committed as `primary` on
+`data-ocean.gamb2le.co.uk`; the standby pull timer is disabled there. Source
+pulls to ASS and APS require a Tailscale SSH `accept` policy for Linux user
+`aurora`, not an interactive `check` policy. The CL61 source timer is pinned off
+on the droplet until the CL61 instrument is moved to `aurora-edge-1`.
 
 The live primary audit on `2026-06-19` measured roughly `95G` under
 `/project/aurora/raw`, `457G` under `/data/aurora/products`, and `949M` under
