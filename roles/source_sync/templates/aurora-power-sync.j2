@@ -8,6 +8,7 @@ destination={{ power_source_destination | quote }}
 state_file={{ power_source_state_file | quote }}
 start_fresh={{ '1' if power_source_start_fresh | bool else '0' }}
 lookback_days={{ power_source_lookback_days | int }}
+mtime_grace_seconds={{ power_source_mtime_grace_seconds | int }}
 known_hosts=/home/{{ aurora_service_user }}/.ssh/known_hosts
 
 mkdir -p "$destination" "$(dirname "$state_file")" "$(dirname "$known_hosts")"
@@ -43,14 +44,16 @@ ssh_opts=(
   -o UserKnownHostsFile="$known_hosts"
 )
 
-ssh "${ssh_opts[@]}" "${source_user}@${source_host}" bash -s -- "$source_path" "$scan_epoch" "$now_epoch" > "$files_from" <<'REMOTE_FIND'
+ssh "${ssh_opts[@]}" "${source_user}@${source_host}" bash -s -- "$source_path" "$scan_epoch" "$mtime_grace_seconds" > "$files_from" <<'REMOTE_FIND'
 set -euo pipefail
 source_path="$1"
 scan_epoch="$2"
-now_epoch="$3"
+mtime_grace_seconds="$3"
 source_pattern={{ power_source_pattern | quote }}
 cd "$source_path"
-find . -maxdepth 1 -type f -name "$source_pattern" -newermt "@${scan_epoch}" ! -newermt "@${now_epoch}" -printf '%P\0'
+source_now_epoch="$(date +%s)"
+upper_epoch=$(( source_now_epoch + mtime_grace_seconds ))
+find . -maxdepth 1 -type f -name "$source_pattern" -newermt "@${scan_epoch}" ! -newermt "@${upper_epoch}" -printf '%P\0'
 REMOTE_FIND
 
 if [[ ! -s "$files_from" ]]; then

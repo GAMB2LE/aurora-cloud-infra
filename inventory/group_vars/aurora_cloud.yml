@@ -281,6 +281,7 @@ power_source_state_file: "{{ aurora_state_root }}/power-sync.last"
 power_source_sync_interval: 2min
 power_source_sync_randomized_delay: 30
 power_source_lookback_days: 10
+power_source_mtime_grace_seconds: 300
 # False means the first timer run pulls all existing matching source files.
 power_source_start_fresh: false
 
