@@ -229,11 +229,15 @@ The committed droplet host vars match that live state:
 - `aurora_failover_role: primary`
 - `aurora_domain: data-ocean.gamb2le.co.uk`
 - `aurora_standby_replication_timer_enabled: false`
-- `cl61_source_sync_timer_enabled: false`
+- `aurora_edge_hosts.ass.linux.tailscale_ip: 100.124.55.22`
+- `aurora_edge_hosts.aps.linux.tailscale_ip: 100.81.226.30`
+- ASS-backed source hosts use `{{ aurora_edge_hosts.ass.linux.tailscale_ip }}`
+- APS power source uses `{{ aurora_edge_hosts.aps.linux.tailscale_ip }}`
+- `cl61_source_auth: tailscale`
 
 Do not enable the standby pull timer on the droplet while it is the active
-processor. Do not re-enable the CL61 source timer until CL61 has moved from the
-retired `celine-edge-1` source to `aurora-edge-1` and SSH has been authorized.
+processor. CL61 source sync now uses the ASS Linux data path over Tailscale SSH
+while JASMIN is down.
 
 The Tailscale SSH policy must allow unattended source pulls from the droplet to
 the ASS and APS edge hosts. The required shape is an `accept` SSH rule from the

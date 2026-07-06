@@ -20,7 +20,7 @@ hosts on JASMIN Cloud and the DigitalOcean droplet.
 - Static dashboard media route:
   `/wxcam-media` maps to `/data/aurora/products/wxcam` so WXcam MP4 playback
   uses normal HTTP range requests rather than the Panel websocket.
-- CL61 raw source: disabled on the droplet until CL61 moves from retired `celine-edge-1` to `aurora-edge-1`.
+- CL61 raw source: `aurora@100.124.55.22:/home/aurora/data/cl61` pulled into `/project/aurora/raw/cl61`.
 - Cloud radar raw source: `aurora@100.124.55.22:/home/aurora/data/rpgfmcw94` pulled into `/project/aurora/raw/rpgfmcw94`.
 - Vaisala met raw source: `aurora@100.124.55.22:/home/aurora/data/vaisalamet` pulled into `/project/aurora/raw/vaisalamet`.
 - ASFS Logger CRD raw source: `aurora@100.124.55.22:/home/aurora/data/asfs/raw/crd` pulled into `/project/aurora/raw/asfs/crd`.
@@ -29,6 +29,23 @@ hosts on JASMIN Cloud and the DigitalOcean droplet.
 - Power raw source: `aurora@100.81.226.30:/data/power/level1` pulled into `/project/aurora/raw/power/level1`.
 - WXcam raw source: `aurora@100.124.55.22:/home/aurora/data/wxcam` pulled into `/project/aurora/raw/wxcam`.
 - GWS backup/sync: rsync via JASMIN transfer hosts to `/gws/ssde/j25b/gamb2le`.
+
+## Current ASS/APS Edge IPs
+
+The canonical Ansible copy is `aurora_edge_hosts` in
+`inventory/group_vars/aurora_cloud.yml`. It was checked against live hosts on
+`2026-07-06` UTC.
+
+| Host | Tailscale | LAN | WAN | Other |
+| --- | --- | --- | --- | --- |
+| `ass-proxmox` | `100.123.149.9` | `192.168.1.254` bridge, `192.168.1.219` uplink | `10.0.0.254` bridge | |
+| `ass-proxmox-linux` | `100.124.55.22` | `192.168.1.2`, `192.168.2.1` | `10.0.0.2` | Wi-Fi `192.168.10.2` |
+| `ass-proxmox-windows` | `100.121.25.32` | `192.168.1.3` | `10.0.0.3` | |
+| `ass-proxmox-pbs` | `100.104.16.48` | | `10.0.0.253` | |
+| `aps-proxmox` | `100.125.60.40` | `192.168.0.254` bridge, `192.168.99.195` uplink | `10.0.0.254` bridge | |
+| `aps-proxmox-linux` | `100.81.226.30` | `192.168.0.8` | `10.0.0.8` | Wi-Fi `192.168.10.8` |
+| `aps-proxmox-windows` | `100.92.179.9` | `192.168.0.9` | `10.0.0.3` | |
+| `aps-proxmox-pbs` | none running | | `10.0.0.253` | |
 
 ## Storage layout
 
@@ -193,15 +210,12 @@ camera host and are not cataloged, Zarr-appended, or archived from this VM.
 Before enabling this live, confirm SSH from the target works:
 
 ```bash
-sudo -u aurora ssh -i /home/aurora/.ssh/id_ed25519_celine aurora@100.117.101.84 true
 sudo -u aurora ssh -o IdentityFile=none -o PubkeyAuthentication=no aurora@100.124.55.22 true
 ```
 
-The current audit found Tailscale reachability to `100.117.101.84`
-(`celine-edge-1`) and passwordless SSH now works from the `aurora` service user
-on `azimuth` using `/home/aurora/.ssh/id_ed25519_celine`. The source contains
-fresh files in `/home/aurora/data/cl61`. The radar source at `100.124.55.22`
-uses Tailscale SSH without private keys and stores `*LV1.NC` files under a
+The CL61 source now uses the shared ASS Linux data path at `100.124.55.22` and
+Tailscale SSH without private keys, matching the radar, HATPRO, Vaisala, ASFS,
+and WXcam source pulls. The radar source stores `*LV1.NC` files under a
 recursive `/home/aurora/data/rpgfmcw94/Yyyyy/Mmm/Ddd/` tree.
 The Vaisala met source at the same tailnet IP stores flat
 `vaisala_met_level0_*.dat` files in `/home/aurora/data/vaisalamet`.

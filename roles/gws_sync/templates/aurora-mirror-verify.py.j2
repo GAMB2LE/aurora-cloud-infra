@@ -35,7 +35,7 @@ CONFIG = json.loads(
       "source_user": {{ cl61_source_user | to_json }},
       "source_host": {{ cl61_source_host | to_json }},
       "source_root": {{ cl61_source_path | to_json }},
-      "source_auth": "cl61_key",
+      "source_auth": {{ cl61_source_auth | default('tailscale') | to_json }},
       "source_pattern": {{ cl61_source_pattern | to_json }},
       "recursive": false,
       "local_root": {{ aurora_paths.raw_cl61 | to_json }},
@@ -263,7 +263,7 @@ def sha256_remote(base_cmd: list[str], target: str, root: str, relpath: str) -> 
 
 
 def ssh_base(stream: dict) -> list[str]:
-    return CL61_BASE if stream["source_auth"] == "cl61_key" else TAILSCALE_BASE
+    return CL61_BASE if stream["source_auth"] == "ssh_key" else TAILSCALE_BASE
 
 
 def list_remote_entries(base_cmd: list[str], target: str, root: str, recursive: bool, pattern: str | list[str]) -> dict[str, dict]:

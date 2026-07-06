@@ -41,14 +41,11 @@ aurora_standby_replication_known_hosts:
   - login.jasmin.ac.uk
   - "{{ aurora_standby_primary_host }}"
 
-# celine-edge-1 is retired. Keep the droplet from re-enabling CL61 source
-# pulls until the CL61 instrument has moved to aurora-edge-1 and SSH is
-# authorized there.
-cl61_source_sync_timer_enabled: false
+# CL61 is now written to the shared ASS Linux data path and is reachable from
+# the droplet via Tailscale SSH as the aurora user.
 
 # Planned-offline/no-data states during the JASMIN outage should not leave
 # failed oneshot units behind. Keep core append/sync/health timers running.
 aurora_processing_timers:
-  ceilometer_last24h: false
   les_operational_run: false
   wxcam_daily_videos: false

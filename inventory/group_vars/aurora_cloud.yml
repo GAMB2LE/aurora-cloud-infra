@@ -22,6 +22,48 @@ aurora_ntp_servers:
   - 162.159.200.123
   - 129.6.15.28
   - 129.6.15.29
+
+# Current ASS/APS edge addressing, checked 2026-07-06 UTC. Keep source-sync
+# hosts pointed at these entries instead of repeating literal Tailscale IPs.
+aurora_edge_hosts:
+  ass:
+    proxmox:
+      tailscale_ip: 100.123.149.9
+      uplink_ip: 192.168.1.219
+      lan_bridge_ip: 192.168.1.254
+      wan_bridge_ip: 10.0.0.254
+    linux:
+      tailscale_ip: 100.124.55.22
+      lan_ip: 192.168.1.2
+      secondary_lan_ip: 192.168.2.1
+      wan_ip: 10.0.0.2
+      wifi_ip: 192.168.10.2
+    windows:
+      tailscale_ip: 100.121.25.32
+      lan_ip: 192.168.1.3
+      wan_ip: 10.0.0.3
+    pbs:
+      tailscale_ip: 100.104.16.48
+      wan_ip: 10.0.0.253
+  aps:
+    proxmox:
+      tailscale_ip: 100.125.60.40
+      uplink_ip: 192.168.99.195
+      lan_bridge_ip: 192.168.0.254
+      wan_bridge_ip: 10.0.0.254
+    linux:
+      tailscale_ip: 100.81.226.30
+      lan_ip: 192.168.0.8
+      wan_ip: 10.0.0.8
+      wifi_ip: 192.168.10.8
+    windows:
+      tailscale_ip: 100.92.179.9
+      lan_ip: 192.168.0.9
+      wan_ip: 10.0.0.3
+    pbs:
+      tailscale_ip: ""
+      wan_ip: 10.0.0.253
+
 aurora_app_dir: /opt/aurora-cloud-dashboard
 aurora_app_repo: git@github-dashboard:GAMB2LE/aurora_cloud_dashboard.git
 aurora_app_version: 3295de15366480b7e14a5cad3cd30ac7c4bf66d2
@@ -182,12 +224,15 @@ ops_alert_smtp_ssl: false
 
 cl61_source_sync_enabled: true
 cl61_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
-cl61_source_generate_ssh_key: true
+cl61_source_auth: tailscale
+cl61_source_generate_ssh_key: false
 cl61_source_user: aurora
-cl61_source_host: 100.117.101.84
+cl61_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
 cl61_source_path: /home/aurora/data/cl61
 cl61_source_pattern: "gamb2le_depolarisation_lidar_ceilometer_aurora_*.nc"
 cl61_source_destination: "{{ aurora_paths.raw_cl61 }}"
+# Retained for the retired celine-edge-1 key-auth mode; unused when
+# cl61_source_auth is tailscale.
 cl61_source_ssh_key_path: /home/aurora/.ssh/id_ed25519_celine
 cl61_source_state_file: "{{ aurora_state_root }}/cl61-sync.last"
 cl61_source_sync_interval: 2min
@@ -198,7 +243,7 @@ cl61_source_start_fresh: false
 radar_source_sync_enabled: true
 radar_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 radar_source_user: aurora
-radar_source_host: 100.124.55.22
+radar_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
 radar_source_path: /home/aurora/data/rpgfmcw94
 radar_source_pattern: "*LV1.NC"
 radar_source_destination: "{{ aurora_paths.raw_radar }}"
@@ -211,7 +256,7 @@ radar_source_start_fresh: false
 hatpro_source_sync_enabled: true
 hatpro_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 hatpro_source_user: aurora
-hatpro_source_host: 100.124.55.22
+hatpro_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
 hatpro_source_path: /home/aurora/data/hatprog5
 hatpro_source_pattern: "HATPROG5-AURORA-ICELAND_*"
 hatpro_source_destination: "{{ aurora_paths.raw_hatpro }}"
@@ -224,7 +269,7 @@ hatpro_source_start_fresh: false
 vaisalamet_source_sync_enabled: true
 vaisalamet_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 vaisalamet_source_user: aurora
-vaisalamet_source_host: 100.124.55.22
+vaisalamet_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
 vaisalamet_source_path: /home/aurora/data/vaisalamet
 vaisalamet_source_pattern: "vaisala_met_level0_*.dat"
 vaisalamet_source_destination: "{{ aurora_paths.raw_vaisalamet }}"
@@ -237,7 +282,7 @@ vaisalamet_source_start_fresh: false
 asfs_logger_source_sync_enabled: true
 asfs_logger_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 asfs_logger_source_user: aurora
-asfs_logger_source_host: 100.124.55.22
+asfs_logger_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
 asfs_logger_source_path: /home/aurora/data/asfs/raw/crd
 asfs_logger_source_pattern: "aurora_asfs_data_sci_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].dat"
 asfs_logger_source_destination: "{{ aurora_paths.raw_asfs_crd }}"
@@ -252,7 +297,7 @@ asfs_logger_source_start_fresh: false
 asfs_fast_sonic_source_sync_enabled: true
 asfs_fast_sonic_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 asfs_fast_sonic_source_user: aurora
-asfs_fast_sonic_source_host: 100.124.55.22
+asfs_fast_sonic_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
 asfs_fast_sonic_source_path: /home/aurora/data/asfs/raw/crd
 asfs_fast_sonic_source_pattern: "aurora_asfs_data_fast_sonic_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].dat"
 asfs_fast_sonic_source_destination: "{{ aurora_paths.raw_asfs_crd }}"
@@ -266,7 +311,7 @@ asfs_fast_sonic_source_start_fresh: false
 asfs_fast_gas_source_sync_enabled: true
 asfs_fast_gas_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 asfs_fast_gas_source_user: aurora
-asfs_fast_gas_source_host: 100.124.55.22
+asfs_fast_gas_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
 asfs_fast_gas_source_path: /home/aurora/data/asfs/raw/crd
 asfs_fast_gas_source_pattern: "aurora_asfs_data_fast_gas_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].dat"
 asfs_fast_gas_source_destination: "{{ aurora_paths.raw_asfs_crd }}"
@@ -280,7 +325,7 @@ asfs_fast_gas_source_start_fresh: false
 power_source_sync_enabled: true
 power_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 power_source_user: aurora
-power_source_host: 100.81.226.30
+power_source_host: "{{ aurora_edge_hosts.aps.linux.tailscale_ip }}"
 power_source_path: /data/power/level1
 power_source_pattern: "power_data_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].csv"
 power_source_destination: "{{ aurora_paths.raw_power }}"
@@ -295,7 +340,7 @@ power_source_start_fresh: false
 wxcam_source_sync_enabled: true
 wxcam_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 wxcam_source_user: aurora
-wxcam_source_host: 100.124.55.22
+wxcam_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
 wxcam_source_path: /home/aurora/data/wxcam
 # The deployed raw sync retains only HDR JPG and MP4 assets for the FISH and
 # PANO camera streams. AUTO/LONG/SHORT files remain on the camera host.

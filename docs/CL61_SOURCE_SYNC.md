@@ -7,16 +7,15 @@ can become authoritative for retention and downstream archival checks.
 
 ## Source And Destination
 
+- Active source: `aurora@100.124.55.22:/home/aurora/data/cl61`
 - Retired source: `aurora@100.117.101.84:/home/aurora/data/cl61`
-- Planned source: `aurora-edge-1` after the CL61 instrument move
 - Target raw directory: `/project/aurora/raw/cl61`
 - Target Zarr: `/data/aurora/products/cl61/gamb2le_depolarisation_lidar_ceilometer_aurora.zarr`
 - Quicklooks: `/data/aurora/products/quicklooks/ceilometer`
 
 The original source host answered Tailscale as `celine-edge-1`. That host is
-retired and should not be used for new source pulls. The droplet has
-`aurora-cl61-source-sync.timer` disabled until CL61 is moved to
-`aurora-edge-1` and unattended SSH is authorized there.
+retired and should not be used for new source pulls. Current CL61 files are
+written on `ass-proxmox-linux` under the shared data drive.
 
 The retired source directory contained current NetCDF files written about every
 five minutes, plus older retained files. Passwordless SSH from `azimuth` to that
@@ -29,28 +28,16 @@ approximately five-minute spacing.
 ## Authentication
 
 The target service user needs unattended SSH access to the active CL61 source.
-For the retired `celine-edge-1` source, the check was:
+The active source uses Tailscale SSH without a private key, matching the other
+ASS source streams:
 
 ```bash
-sudo -u aurora ssh -i /home/aurora/.ssh/id_ed25519_celine aurora@100.117.101.84 true
+sudo -u aurora ssh -o IdentityFile=none -o PubkeyAuthentication=no aurora@100.124.55.22 true
 ```
 
-For the `aurora-edge-1` move, update `cl61_source_host`, confirm the source
-path and local `aurora` account, authorize the deployed key, then run the same
-style of check against the new host before enabling the timer.
-
-Preferred setup after the new source is ready:
-
-1. Run the Ansible playbook. This installs the unit files and generates
-   `/home/aurora/.ssh/id_ed25519_celine` if no vault key is supplied.
-2. Add `/home/aurora/.ssh/id_ed25519_celine.pub` from the cloud host to
-   `aurora@<new-cl61-source>:~/.ssh/authorized_keys` if it is not already
-   present.
-3. Confirm the SSH test above passes.
-4. Run `playbooks/site.yml --check --diff`, then the real playbook.
-
-Alternatively, store an existing source private key in Ansible Vault as
-`cl61_source_ssh_private_key_content`.
+The retired `celine-edge-1` source used `/home/aurora/.ssh/id_ed25519_celine`.
+That key-auth mode is retained in the template behind `cl61_source_auth:
+ssh_key`, but the live configuration uses `cl61_source_auth: tailscale`.
 
 ## Current Deployed Behavior
 
@@ -60,11 +47,8 @@ With the current deployment variables, when
 pulls the full current source history, and then advances the state marker on
 later runs.
 
-On `2026-07-05`, the live droplet had the CL61 source timer stopped and disabled
-because the configured source was still `celine-edge-1`. The infra inventory
-pins `cl61_source_sync_timer_enabled: false` for `aurora-cloud-droplet` so a
-redeploy does not re-enable dead source pulls. Remove that override only after
-the CL61 move to `aurora-edge-1` is complete.
+On `2026-07-06`, CL61 ingest was retargeted to the ASS Linux data path and the
+droplet override that disabled `aurora-cl61-source-sync.timer` was removed.
 
 If you deliberately want the old fresh-start behavior again, set
 `cl61_source_start_fresh: true` and redeploy. In that mode the script writes

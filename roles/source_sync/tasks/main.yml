@@ -27,6 +27,7 @@
   no_log: true
   when:
     - cl61_source_sync_enabled | bool
+    - cl61_source_auth | default('tailscale') == 'ssh_key'
     - cl61_source_ssh_private_key_content is defined
     - cl61_source_ssh_private_key_content | length > 0
 
@@ -38,6 +39,7 @@
   when:
     - cl61_source_sync_enabled | bool
     - cl61_source_sync_timer_enabled | bool
+    - cl61_source_auth | default('tailscale') == 'ssh_key'
     - cl61_source_generate_ssh_key | bool
     - cl61_source_ssh_private_key_content is not defined or cl61_source_ssh_private_key_content | length == 0
     - not ansible_check_mode
@@ -49,6 +51,7 @@
   when:
     - cl61_source_sync_enabled | bool
     - cl61_source_sync_timer_enabled | bool
+    - cl61_source_auth | default('tailscale') == 'ssh_key'
     - not ansible_check_mode
 
 - name: Trust CL61 source SSH host key for Aurora service user
@@ -61,6 +64,7 @@
   when:
     - cl61_source_sync_enabled | bool
     - cl61_source_sync_timer_enabled | bool
+    - cl61_source_auth | default('tailscale') == 'ssh_key'
     - not ansible_check_mode
 
 - name: Ensure CL61 source known_hosts ownership
@@ -72,6 +76,7 @@
   when:
     - cl61_source_sync_enabled | bool
     - cl61_source_sync_timer_enabled | bool
+    - cl61_source_auth | default('tailscale') == 'ssh_key'
     - not ansible_check_mode
     - cl61_source_keyscan.stdout_lines | default([]) | length > 0
 
