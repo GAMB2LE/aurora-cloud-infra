@@ -69,6 +69,7 @@ CONFIG = json.loads(
       "local_root": {{ aurora_paths.raw_hatpro | to_json }},
       "gws_relpath": "hatprog5",
       "product_patterns": ["*.LWP.NC", "*.IWV.NC", "*.IRT.NC", "*.TPC.NC", "*.TPB.NC", "*.MET.NC"],
+      "ignore_flat_legacy": true,
       "required_services": ["aurora-hatpro-append.service"]
     },
     {
@@ -328,6 +329,16 @@ def maybe_add_checksums(entries: dict[str, dict], mode: str, root: str | Path, r
             entry["checksum"] = sha256_remote(remote_base, remote_target, str(root), relpath)
 
 
+def normalize_entries(stream: dict, entries: dict[str, dict]) -> dict[str, dict]:
+    if not stream.get("ignore_flat_legacy"):
+        return entries
+    return {
+        relpath: entry
+        for relpath, entry in entries.items()
+        if "/" in relpath
+    }
+
+
 def write_manifest(path: Path, entries: dict[str, dict]) -> None:
     ensure_dir(path.parent)
     with path.open("w", encoding="utf-8") as handle:
@@ -462,6 +473,7 @@ def main() -> int:
                 stream["source_pattern"],
             )
             local_entries = list_local_entries(Path(stream["local_root"]), bool(stream["recursive"]), stream["source_pattern"])
+            local_entries = normalize_entries(stream, local_entries)
             maybe_add_checksums(source_entries, CONFIG["checksum_mode"], stream["source_root"], ssh_base(stream), source_target)
             maybe_add_checksums(local_entries, CONFIG["checksum_mode"], Path(stream["local_root"]))
 
@@ -473,6 +485,7 @@ def main() -> int:
                     bool(stream["recursive"]),
                     stream["source_pattern"],
                 )
+                gws_entries = normalize_entries(stream, gws_entries)
                 maybe_add_checksums(
                     gws_entries,
                     CONFIG["checksum_mode"],

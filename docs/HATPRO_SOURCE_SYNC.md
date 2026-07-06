@@ -55,11 +55,17 @@ The deployed HATPRO processing timer is:
 - `aurora-hatpro-append.timer`
 - `aurora-hatpro-quicklooks.timer`
 
-The existing HATPRO builder rewrites the consolidated Zarr from the mirrored raw
-tree. This is acceptable for the current HATPRO file volume and keeps the
-product deterministic while the instrument has sparse fresh coverage. The
-timer runs every 15 minutes because a full rewrite currently takes several
-minutes.
+The HATPRO builder appends new samples by default. Each timer run scans a
+bounded lookback window before the current Zarr frontier, prefers canonical
+`Yyyyy/Mmm/Ddd/` files over old top-level mirror duplicates, and appends only
+samples newer than the product. Use `hatpro_to_zarr.py --rebuild` only for an
+intentional full product rewrite.
+
+Mirror verification also ignores legacy top-level HATPRO duplicates and compares
+only the canonical recursive raw tree against source and GWS manifests. If a
+source batch was mirrored flat before this policy, run one preservation rsync
+from the source root to backfill the missing `Yyyyy/Mmm/Ddd/` paths before
+allowing pruning.
 
 The Zarr keeps the standard temperature profile (`T_PROF`) separate from the
 composite temperature profile (`T_PROF_CMP`) because those source files can
