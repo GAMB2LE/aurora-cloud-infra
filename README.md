@@ -134,11 +134,15 @@ at a time. `aurora_failover_role` controls writer behavior:
   and enables `aurora-standby-pull.timer` to pull raw, product, internal, and
   state data from the primary.
 
-As of `2026-07-05`, `aurora-cloud-droplet` is committed as `primary` on
+As of `2026-07-06`, `aurora-cloud-droplet` is committed as `primary` on
 `data-ocean.gamb2le.co.uk`; the standby pull timer is disabled there. Source
 pulls to ASS and APS require a Tailscale SSH `accept` policy for Linux user
-`aurora`, not an interactive `check` policy. The CL61 source timer is pinned off
-on the droplet until the CL61 instrument is moved to `aurora-edge-1`.
+`aurora`, not an interactive `check` policy. CL61 source sync uses the ASS Linux
+data path at `100.124.55.22:/home/aurora/data/cl61` over Tailscale SSH.
+
+The current droplet has a 1TB-class data disk shared by `/data` and `/project`.
+The last checked size was still `4 vCPU` and `7.8 GiB` RAM with no swap; for
+sustained live processing, either resize to `8 vCPU / 16 GiB` or add swap.
 
 The live primary audit on `2026-06-19` measured roughly `95G` under
 `/project/aurora/raw`, `457G` under `/data/aurora/products`, and `949M` under

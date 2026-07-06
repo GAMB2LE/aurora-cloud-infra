@@ -74,11 +74,18 @@ the primary host. The replication script uses `sudo rsync` on the primary so it
 can read the product and state trees.
 
 The inventory pins the dashboard checkout to commit
-`3295de15366480b7e14a5cad3cd30ac7c4bf66d2`, which includes the failover
-endpoint checks and read-only standby catalog handling. `model-evaluation.py`
-is tracked by that dashboard revision; the droplet still overlays it through
-`aurora_dashboard_extra_files` during controller-based rollout so the running
-host matches the primary exactly.
+`b91dfa5f9b5185de7ae63e46af7b395850d79d0d`, which includes the failover
+endpoint checks, read-only standby catalog handling, APS output-axis split, and
+UTC quicklook-window fixes. Controller-based rollouts still overlay the
+compatibility files listed in `aurora_dashboard_extra_files` so the running host
+receives the locally audited dashboard entrypoints.
+
+The current live droplet checkout has also been normalized onto
+`codex/droplet-live-dashboard-20260706` at
+`aaa96bf Persist droplet dashboard deployment state`. That branch records the
+on-host deployment state and prevents a normal manual `git pull` in
+`/opt/aurora-cloud-dashboard` from reverting the APS axis fix back to the older
+detached checkout.
 
 The standby can replicate from the primary without Tailscale, but promotion
 requires the droplet to reach instrument source hosts. Provide `TAILSCALE_AUTHKEY`
@@ -130,8 +137,8 @@ The durable fix is in the dashboard repository:
   back to `mode=ro&immutable=1` for replicated standby catalogs where SQLite
   would otherwise try to create recovery or WAL metadata files
 
-This file is included in pinned dashboard commit
-`3295de15366480b7e14a5cad3cd30ac7c4bf66d2` and is also deployed through
+This file is included in the pinned dashboard commit
+`b91dfa5f9b5185de7ae63e46af7b395850d79d0d` and is also deployed through
 `aurora_dashboard_extra_files` during controller-based rollout, so the patched
 `wxcam_catalog.py` lands under `/opt/aurora-cloud-dashboard/` on both hosts.
 
@@ -211,8 +218,9 @@ replicated product/raw trees and keeps Zarr/appends writable after promotion.
 
 Expected post-cutover red checks while Aurora sources are off:
 
-- CL61 source sync can fail against the old `celine-edge-1` source until the
-  CL61 move to `aurora-edge-1` is configured and authorized.
+- CL61 source sync should target the ASS Linux data path over Tailscale SSH;
+  failures there are source/auth/offline symptoms rather than `celine-edge-1`
+  migration blockers.
 - WXcam, ASFS, radar, HATPRO, Vaisala, and power source streams can be stale
   until the Aurora source host is powered back on and reachable over Tailscale.
 - GWS rsync should remain enabled; S3/object-store workflows are not part of
@@ -234,6 +242,8 @@ The committed droplet host vars match that live state:
 - ASS-backed source hosts use `{{ aurora_edge_hosts.ass.linux.tailscale_ip }}`
 - APS power source uses `{{ aurora_edge_hosts.aps.linux.tailscale_ip }}`
 - `cl61_source_auth: tailscale`
+- dashboard deployment checkout:
+  `codex/droplet-live-dashboard-20260706` at `aaa96bf`
 
 Do not enable the standby pull timer on the droplet while it is the active
 processor. CL61 source sync now uses the ASS Linux data path over Tailscale SSH

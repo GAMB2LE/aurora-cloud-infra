@@ -55,8 +55,7 @@ dashboard-serving artifacts on local disk.
 
 The deployed syncs currently cover:
 
-- CL61, currently disabled on the droplet until the instrument moves from
-  retired `celine-edge-1` to `aurora-edge-1`
+- CL61, pulled from the ASS Linux data path over Tailscale SSH
 - Cloud Radar
 - HATPRO
 - Vaisala MET
@@ -97,8 +96,13 @@ run there instead.
 
 Unattended Tailscale SSH from the droplet to `ass-proxmox-linux` and
 `aps-proxmox-linux` must use an `accept` policy for Linux user `aurora`, not an
-interactive `check` policy. The CL61 source timer is deliberately disabled on
-the droplet until the CL61 instrument is moved to `aurora-edge-1`.
+interactive `check` policy. CL61 source sync now uses the ASS Linux data path
+at `100.124.55.22:/home/aurora/data/cl61`.
+
+The active droplet data disk is 1TB-class and is shared by `/data` and
+`/project`. The last resource audit still showed the smaller `4 vCPU / 7.8 GiB`
+compute size with no swap; resize to `8 vCPU / 16 GiB` or add swap for safer
+live-processing headroom.
 
 Docs are published through the central `GAMB2LE/mkdocs-portal` build only. This
 repo keeps `trigger-docs.yml` for portal dispatch and no longer deploys a
