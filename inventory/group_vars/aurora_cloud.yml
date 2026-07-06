@@ -66,7 +66,7 @@ aurora_edge_hosts:
 
 aurora_app_dir: /opt/aurora-cloud-dashboard
 aurora_app_repo: git@github-dashboard:GAMB2LE/aurora_cloud_dashboard.git
-aurora_app_version: b38ae3a66a6c42bb27a747709ae19086110ec76d
+aurora_app_version: 4bfcd9c89acb824d45f33445801cf91c08617134
 aurora_dashboard_extra_files:
   - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/app.py"
     dest: app.py
