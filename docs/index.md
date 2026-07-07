@@ -113,6 +113,8 @@ standalone repo-local Pages site.
 - **Rebuild Plan** for host rebuild and recovery notes
 - **Failover** for the `data-ocean.gamb2le.co.uk` warm standby, promotion
   steps, and standby dashboard troubleshooting
+- **Data Locations** for source, local raw, local product, GWS archive, and
+  active Zarr paths
 - **Source Syncs** for per-instrument sync behavior and deployment details
 
 ## Safe working pattern
