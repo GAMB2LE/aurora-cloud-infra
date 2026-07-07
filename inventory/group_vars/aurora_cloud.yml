@@ -87,6 +87,9 @@ aurora_dashboard_extra_files:
   - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/wxcam_catalog.py"
     dest: wxcam_catalog.py
     mode: "0644"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/radar_colormaps.py"
+    dest: radar_colormaps.py
+    mode: "0644"
 aurora_dashboard_default_instrument: Ceilometer
 aurora_infra_repo_dir: /tmp/aurora-cloud-infra-codex
 aurora_python: /usr/bin/python3

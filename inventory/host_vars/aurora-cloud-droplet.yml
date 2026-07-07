@@ -25,6 +25,9 @@ aurora_dashboard_extra_files:
   - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/wxcam_catalog.py"
     dest: wxcam_catalog.py
     mode: "0644"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/radar_colormaps.py"
+    dest: radar_colormaps.py
+    mode: "0644"
 
 # The droplet has its own public hostname. Full public failover can still be
 # done later by overriding aurora_domain=data.gamb2le.co.uk after DNS moves.
