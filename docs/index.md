@@ -93,6 +93,8 @@ standalone repo-local Pages site.
 ## Key docs in this site
 
 - **Rebuild Plan** for host rebuild and recovery notes
+- **Data Locations** for source, local raw, local product, GWS archive, and
+  active Zarr paths
 - **Source Syncs** for per-instrument sync behavior and deployment details
 
 ## Safe working pattern

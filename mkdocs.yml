@@ -28,6 +28,7 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Rebuild Plan: PLAN.md
+  - Data Locations: DATA_LOCATIONS.md
   - Source Syncs:
       - CL61: CL61_SOURCE_SYNC.md
       - Cloud Radar: RADAR_SOURCE_SYNC.md
