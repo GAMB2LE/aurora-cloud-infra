@@ -6,7 +6,7 @@
     owner: "{{ aurora_service_user }}"
     group: "{{ aurora_service_group }}"
     mode: "0755"
-  when: cl61_source_sync_enabled | bool or radar_source_sync_enabled | bool or hatpro_source_sync_enabled | bool or vaisalamet_source_sync_enabled | bool or asfs_logger_source_sync_enabled | bool or asfs_fast_sonic_source_sync_enabled | bool or asfs_fast_gas_source_sync_enabled | bool or power_source_sync_enabled | bool or wxcam_source_sync_enabled | bool
+  when: cl61_source_sync_enabled | bool or radar_source_sync_enabled | bool or hatpro_source_sync_enabled | bool or vaisalamet_source_sync_enabled | bool or asfs_logger_source_sync_enabled | bool or asfs_fast_sonic_source_sync_enabled | bool or asfs_fast_gas_source_sync_enabled | bool or power_source_sync_enabled | bool or pdu_source_sync_enabled | bool or wxcam_source_sync_enabled | bool
 
 - name: Ensure Aurora SSH directory exists
   ansible.builtin.file:
@@ -15,7 +15,7 @@
     owner: "{{ aurora_service_user }}"
     group: "{{ aurora_service_group }}"
     mode: "0700"
-  when: cl61_source_sync_enabled | bool or radar_source_sync_enabled | bool or hatpro_source_sync_enabled | bool or vaisalamet_source_sync_enabled | bool or asfs_logger_source_sync_enabled | bool or asfs_fast_sonic_source_sync_enabled | bool or asfs_fast_gas_source_sync_enabled | bool or power_source_sync_enabled | bool or wxcam_source_sync_enabled | bool
+  when: cl61_source_sync_enabled | bool or radar_source_sync_enabled | bool or hatpro_source_sync_enabled | bool or vaisalamet_source_sync_enabled | bool or asfs_logger_source_sync_enabled | bool or asfs_fast_sonic_source_sync_enabled | bool or asfs_fast_gas_source_sync_enabled | bool or power_source_sync_enabled | bool or pdu_source_sync_enabled | bool or wxcam_source_sync_enabled | bool
 
 - name: Install CL61 source SSH private key when provided by vault
   ansible.builtin.copy:
@@ -414,6 +414,48 @@
     daemon_reload: true
   when:
     - not power_source_sync_enabled | bool or not power_source_sync_timer_enabled | bool
+    - not ansible_check_mode
+
+- name: Install PDU source sync script
+  ansible.builtin.template:
+    src: aurora-pdu-sync.j2
+    dest: /usr/local/bin/aurora-pdu-sync
+    owner: root
+    group: root
+    mode: "0755"
+  when: pdu_source_sync_enabled | bool
+
+- name: Install PDU source sync systemd units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - aurora-pdu-source-sync.service
+    - aurora-pdu-source-sync.timer
+  when: pdu_source_sync_enabled | bool
+
+- name: Enable PDU source sync timer
+  ansible.builtin.systemd:
+    name: aurora-pdu-source-sync.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - pdu_source_sync_enabled | bool
+    - pdu_source_sync_timer_enabled | bool
+    - not ansible_check_mode
+
+- name: Disable PDU source sync timer when requested
+  ansible.builtin.systemd:
+    name: aurora-pdu-source-sync.timer
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  when:
+    - not pdu_source_sync_enabled | bool or not pdu_source_sync_timer_enabled | bool
     - not ansible_check_mode
 
 - name: Install wxcam source sync script

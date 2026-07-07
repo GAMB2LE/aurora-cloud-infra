@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Aurora PDU append every 5 minutes
+
+[Timer]
+OnCalendar=*:08/5
+RandomizedDelaySec=0
+Persistent=true
+Unit=aurora-pdu-append.service
+
+[Install]
+WantedBy=timers.target

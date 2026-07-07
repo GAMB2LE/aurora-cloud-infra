@@ -12,6 +12,18 @@ aurora_dashboard_extra_files:
   - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/collect_operations_snapshot.py"
     dest: collect_operations_snapshot.py
     mode: "0644"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/grouped_timeseries.py"
+    dest: grouped_timeseries.py
+    mode: "0644"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/generate_power_display_summary.py"
+    dest: generate_power_display_summary.py
+    mode: "0755"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/append_new_pdu_to_zarr.py"
+    dest: append_new_pdu_to_zarr.py
+    mode: "0755"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/rebuild_cutoff.py"
+    dest: rebuild_cutoff.py
+    mode: "0644"
   - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/model-evaluation.py"
     dest: model-evaluation.py
     owner: root

@@ -74,6 +74,18 @@ aurora_dashboard_extra_files:
   - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/collect_operations_snapshot.py"
     dest: collect_operations_snapshot.py
     mode: "0644"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/grouped_timeseries.py"
+    dest: grouped_timeseries.py
+    mode: "0644"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/generate_power_display_summary.py"
+    dest: generate_power_display_summary.py
+    mode: "0755"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/append_new_pdu_to_zarr.py"
+    dest: append_new_pdu_to_zarr.py
+    mode: "0755"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/rebuild_cutoff.py"
+    dest: rebuild_cutoff.py
+    mode: "0644"
   - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/model-evaluation.py"
     dest: model-evaluation.py
     owner: root
@@ -126,6 +138,7 @@ aurora_paths:
   raw_asfs_logger: "{{ aurora_raw_root }}/asfs/loggernet"
   raw_asfs_crd: "{{ aurora_raw_root }}/asfs/crd"
   raw_power: "{{ aurora_raw_root }}/power/level1"
+  raw_pdu: "{{ aurora_raw_root }}/pdu"
   raw_wxcam: "{{ aurora_raw_root }}/wxcam"
   raw_ops_monitor: "{{ aurora_raw_root }}/ops_monitor"
   products_cl61: "{{ aurora_product_root }}/cl61"
@@ -151,6 +164,7 @@ aurora_zarr:
   asfs_fast_sonic: "{{ aurora_product_root }}/asfs_fast_sonic/asfs_fast_sonic.zarr"
   asfs_fast_gas: "{{ aurora_product_root }}/asfs_fast_gas/asfs_fast_gas.zarr"
   power: "{{ aurora_product_root }}/power/power.zarr"
+  pdu: "{{ aurora_product_root }}/power/pdu.zarr"
   ops_monitor: "{{ aurora_product_root }}/ops_monitor/ops_monitor.zarr"
   wxcam: "{{ aurora_product_root }}/wxcam/wxcam.zarr"
 
@@ -204,6 +218,7 @@ aurora_processing_timers:
   asfs_fast_sonic_quicklooks: "{{ aurora_writer_timers_enabled }}"
   asfs_fast_gas_append: "{{ aurora_writer_timers_enabled }}"
   power_append: "{{ aurora_writer_timers_enabled }}"
+  pdu_append: "{{ aurora_writer_timers_enabled }}"
   power_quicklooks: "{{ aurora_writer_timers_enabled }}"
   ops_monitor_collect: "{{ aurora_writer_timers_enabled }}"
   ops_monitor_append: "{{ aurora_writer_timers_enabled }}"
@@ -339,6 +354,21 @@ power_source_lookback_days: 10
 power_source_mtime_grace_seconds: 300
 # False means the first timer run pulls all existing matching source files.
 power_source_start_fresh: false
+
+pdu_source_sync_enabled: true
+pdu_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
+pdu_source_user: aurora
+pdu_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
+pdu_source_path: /home/aurora/data/pdu
+pdu_source_pattern: "pdu_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].csv"
+pdu_source_destination: "{{ aurora_paths.raw_pdu }}"
+pdu_source_state_file: "{{ aurora_state_root }}/pdu-sync.last"
+pdu_source_sync_interval: 2min
+pdu_source_sync_randomized_delay: 30
+pdu_source_lookback_days: 10
+pdu_source_mtime_grace_seconds: 300
+# False means the first timer run pulls all existing matching source files.
+pdu_source_start_fresh: false
 
 wxcam_source_sync_enabled: true
 wxcam_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"

@@ -56,6 +56,8 @@
     - aurora-asfs-fast-gas-append.timer
     - aurora-power-append.service
     - aurora-power-append.timer
+    - aurora-pdu-append.service
+    - aurora-pdu-append.timer
     - aurora-power-quicklooks.service
     - aurora-power-quicklooks.timer
     - aurora-ops-monitor-collect.service
@@ -108,6 +110,7 @@
     - { unit: aurora-asfs-fast-sonic-quicklooks.timer, key: asfs_fast_sonic_quicklooks }
     - { unit: aurora-asfs-fast-gas-append.timer, key: asfs_fast_gas_append }
     - { unit: aurora-power-append.timer, key: power_append }
+    - { unit: aurora-pdu-append.timer, key: pdu_append }
     - { unit: aurora-power-quicklooks.timer, key: power_quicklooks }
     - { unit: aurora-ops-monitor-collect.timer, key: ops_monitor_collect }
     - { unit: aurora-ops-monitor-append.timer, key: ops_monitor_append }
@@ -139,6 +142,7 @@
     - aurora-asfs-fast-sonic-quicklooks.service
     - aurora-asfs-fast-gas-append.service
     - aurora-power-append.service
+    - aurora-pdu-append.service
     - aurora-power-quicklooks.service
     - aurora-ops-monitor-collect.service
     - aurora-ops-monitor-append.service
@@ -172,6 +176,7 @@
     - { service: aurora-asfs-fast-sonic-quicklooks.service, key: asfs_fast_sonic_quicklooks }
     - { service: aurora-asfs-fast-gas-append.service, key: asfs_fast_gas_append }
     - { service: aurora-power-append.service, key: power_append }
+    - { service: aurora-pdu-append.service, key: pdu_append }
     - { service: aurora-power-quicklooks.service, key: power_quicklooks }
     - { service: aurora-ops-monitor-collect.service, key: ops_monitor_collect }
     - { service: aurora-ops-monitor-append.service, key: ops_monitor_append }

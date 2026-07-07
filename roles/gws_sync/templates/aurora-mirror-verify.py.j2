@@ -129,6 +129,20 @@ CONFIG = json.loads(
       "required_services": ["aurora-power-append.service"]
     },
     {
+      "name": "pdu",
+      "enabled": {{ pdu_source_sync_timer_enabled | bool | to_json }},
+      "source_user": {{ pdu_source_user | to_json }},
+      "source_host": {{ pdu_source_host | to_json }},
+      "source_root": {{ pdu_source_path | to_json }},
+      "source_auth": "tailscale",
+      "source_pattern": {{ pdu_source_pattern | to_json }},
+      "recursive": false,
+      "local_root": {{ aurora_paths.raw_pdu | to_json }},
+      "gws_relpath": "pdu",
+      "product_patterns": [{{ pdu_source_pattern | to_json }}],
+      "required_services": ["aurora-pdu-append.service"]
+    },
+    {
       "name": "wxcam",
       "enabled": {{ wxcam_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ wxcam_source_user | to_json }},
