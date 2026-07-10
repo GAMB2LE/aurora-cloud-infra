@@ -275,7 +275,7 @@ cl61_source_pattern: "gamb2le_depolarisation_lidar_ceilometer_aurora_*.nc"
 cl61_source_destination: "{{ aurora_paths.raw_cl61 }}"
 # Retained for the retired celine-edge-1 key-auth mode; unused when
 # cl61_source_auth is tailscale.
-cl61_source_ssh_key_path: "{{ edge_source_sync_ssh_key_path }}"
+cl61_source_ssh_key_path: "{{ edge_source_sync_ssh_key_path if (edge_source_sync_use_reverse_tunnels | bool) else '/home/aurora/.ssh/id_ed25519_celine' }}"
 cl61_source_state_file: "{{ aurora_state_root }}/cl61-sync.last"
 cl61_source_sync_interval: 2min
 cl61_source_sync_randomized_delay: 30
