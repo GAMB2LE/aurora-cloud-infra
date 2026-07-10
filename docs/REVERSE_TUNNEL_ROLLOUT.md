@@ -31,6 +31,14 @@ Use `docs/examples/reverse_tunnel_vars.yml` as a non-secret template for the
 cloud-side variables. Use `GAMB2LE/aurora-edge-infra/docs/examples/reverse_tunnel_vars.yml`
 as the matching edge-side template.
 
+The helper below creates the two keypairs if they do not already exist and
+prints cloud-side and edge-side variable snippets without printing private key
+contents:
+
+```bash
+scripts/prepare_reverse_tunnel_keys.sh
+```
+
 Generate fresh keys on the operator machine and keep the plaintext private keys
 outside git:
 
