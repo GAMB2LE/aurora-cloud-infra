@@ -31,6 +31,38 @@ Use `docs/examples/reverse_tunnel_vars.yml` as a non-secret template for the
 cloud-side variables. Use `GAMB2LE/aurora-edge-infra/docs/examples/reverse_tunnel_vars.yml`
 as the matching edge-side template.
 
+Generate fresh keys on the operator machine and keep the plaintext private keys
+outside git:
+
+```bash
+install -d -m 0700 ~/.config/gamb2le/reverse-tunnels
+ssh-keygen -t ed25519 -a 64 \
+  -f ~/.config/gamb2le/reverse-tunnels/edge-to-data-ocean \
+  -C edge-reverse-tunnel
+ssh-keygen -t ed25519 -a 64 \
+  -f ~/.config/gamb2le/reverse-tunnels/data-ocean-source-sync \
+  -C data-ocean-source-sync
+```
+
+Use the public half of `edge-to-data-ocean` for
+`edge_tunnel_server_authorized_keys` in this repo. Store the private half in the
+edge repo as `edge_reverse_tunnel_private_key_content` or provide it via
+`edge_reverse_tunnel_private_key_source`.
+
+Use the private half of `data-ocean-source-sync` for
+`edge_source_sync_ssh_private_key_content` in this repo. Store the public half in
+the edge repo as `edge_source_sync_authorized_keys`.
+
+For vault-backed variables, convert private keys with:
+
+```bash
+ansible-vault encrypt_string \
+  --stdin-name edge_source_sync_ssh_private_key_content \
+  < ~/.config/gamb2le/reverse-tunnels/data-ocean-source-sync
+```
+
+Do not commit plaintext private keys or unencrypted variable files.
+
 ## Preflight
 
 Confirm current SSH access to data-ocean from the operator machine:
