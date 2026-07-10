@@ -30,6 +30,7 @@ nav:
   - Rebuild Plan: PLAN.md
   - Failover: FAILOVER.md
   - Reverse Tunnels: REVERSE_TUNNELS.md
+  - Reverse Tunnel Rollout: REVERSE_TUNNEL_ROLLOUT.md
   - Data Locations: DATA_LOCATIONS.md
   - Source Syncs:
       - CL61: CL61_SOURCE_SYNC.md

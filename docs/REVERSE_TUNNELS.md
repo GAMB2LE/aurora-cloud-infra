@@ -18,6 +18,9 @@ Source-sync failover support is also present in this repo, but it is disabled by
 default. The live source-sync hosts and ports remain the Tailscale values until
 `edge_source_sync_use_reverse_tunnels=true` is set.
 
+Use the [Reverse Tunnel Rollout](REVERSE_TUNNEL_ROLLOUT.md) checklist for the
+live deployment sequence.
+
 ## Server role
 
 The `edge_tunnel_server` role is wired into `playbooks/site.yml` but disabled by
