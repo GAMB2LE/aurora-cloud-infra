@@ -444,6 +444,31 @@ tailscale_enabled: true
 # or override this variable from an Ansible Vault file.
 tailscale_authkey: "{{ lookup('env', 'TAILSCALE_AUTHKEY') | default('', true) }}"
 
+# Optional ASS/APS edge reverse-tunnel server on data-ocean. Disabled by
+# default; enabling this creates only the restricted SSH tunnel account unless
+# edge_tunnel_server_manage_sshd_config is also set. Keep enablement scoped to
+# aurora-cloud-droplet unless intentionally promoting another data-ocean host.
+edge_tunnel_server_enabled: false
+edge_tunnel_server_allowed_inventory_hosts:
+  - aurora-cloud-droplet
+edge_tunnel_server_user: aurora-tunnel
+edge_tunnel_server_group: aurora-tunnel
+edge_tunnel_server_home: /var/lib/aurora-tunnel
+edge_tunnel_server_shell: /usr/sbin/nologin
+edge_tunnel_server_authorized_keys: []
+edge_tunnel_server_default_key_options:
+  - restrict
+  - port-forwarding
+  - no-agent-forwarding
+  - no-X11-forwarding
+  - no-pty
+  - permitlisten="127.0.0.1:2201"
+  - permitlisten="127.0.0.1:2202"
+edge_tunnel_server_manage_sshd_config: false
+edge_tunnel_server_listen_ports:
+  - 127.0.0.1:2201
+  - 127.0.0.1:2202
+
 # Prefer rsync via JASMIN transfer servers for reliable GWS sync.
 gws_sync_enabled: true
 gws_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"

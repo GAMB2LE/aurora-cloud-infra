@@ -1,0 +1,85 @@
+---
+- name: Skip edge tunnel server role when disabled
+  ansible.builtin.debug:
+    msg: "edge_tunnel_server_enabled is false; no data-ocean tunnel server changes made."
+  when: not edge_tunnel_server_enabled | bool
+
+- name: Require data-ocean tunnel server host when enabled
+  ansible.builtin.assert:
+    that:
+      - inventory_hostname in edge_tunnel_server_allowed_inventory_hosts
+    fail_msg: >-
+      edge_tunnel_server_enabled is true for {{ inventory_hostname }}, but this
+      role is only allowed for {{ edge_tunnel_server_allowed_inventory_hosts | join(', ') }}.
+      Override edge_tunnel_server_allowed_inventory_hosts only when intentionally
+      moving the tunnel server endpoint.
+  when: edge_tunnel_server_enabled | bool
+
+- name: Require authorized edge tunnel keys when enabled
+  ansible.builtin.assert:
+    that:
+      - edge_tunnel_server_authorized_keys | length > 0
+    fail_msg: >-
+      edge_tunnel_server_enabled is true, but no authorized edge tunnel keys are
+      configured. Add public keys to edge_tunnel_server_authorized_keys from
+      Ansible Vault or a non-secret vars file.
+  when: edge_tunnel_server_enabled | bool
+
+- name: Ensure edge tunnel group exists
+  ansible.builtin.group:
+    name: "{{ edge_tunnel_server_group }}"
+    system: true
+    state: present
+  when: edge_tunnel_server_enabled | bool
+
+- name: Ensure edge tunnel user exists
+  ansible.builtin.user:
+    name: "{{ edge_tunnel_server_user }}"
+    group: "{{ edge_tunnel_server_group }}"
+    home: "{{ edge_tunnel_server_home }}"
+    shell: "{{ edge_tunnel_server_shell }}"
+    create_home: true
+    system: true
+    password: "!"
+    state: present
+  when: edge_tunnel_server_enabled | bool
+
+- name: Ensure edge tunnel SSH directory exists
+  ansible.builtin.file:
+    path: "{{ edge_tunnel_server_home }}/.ssh"
+    state: directory
+    owner: "{{ edge_tunnel_server_user }}"
+    group: "{{ edge_tunnel_server_group }}"
+    mode: "0700"
+  when: edge_tunnel_server_enabled | bool
+
+- name: Install authorized edge tunnel keys
+  ansible.posix.authorized_key:
+    user: "{{ edge_tunnel_server_user }}"
+    key: "{{ item.key }}"
+    key_options: "{{ (item.key_options | default(edge_tunnel_server_default_key_options)) | join(',') }}"
+    comment: "{{ item.name | default(omit) }}"
+    manage_dir: false
+    state: present
+  loop: "{{ edge_tunnel_server_authorized_keys }}"
+  no_log: true
+  when: edge_tunnel_server_enabled | bool
+
+- name: Install optional edge tunnel sshd Match config
+  ansible.builtin.template:
+    src: edge-tunnel-sshd.conf.j2
+    dest: /etc/ssh/sshd_config.d/90-aurora-edge-tunnel.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload sshd
+  when:
+    - edge_tunnel_server_enabled | bool
+    - edge_tunnel_server_manage_sshd_config | bool
+
+- name: Validate sshd configuration after optional edge tunnel config
+  ansible.builtin.command: /usr/sbin/sshd -t
+  changed_when: false
+  when:
+    - edge_tunnel_server_enabled | bool
+    - edge_tunnel_server_manage_sshd_config | bool

@@ -9,6 +9,8 @@ Aurora cloud dashboard hosts on JASMIN Cloud and the DigitalOcean droplet.
 - deployment of the dashboard systemd services
 - observe-only operations health-sentinel outputs
 - GWS transfer and mirror-verification jobs
+- optional edge reverse-tunnel server configuration for ASS/APS access through
+  data-ocean
 - WXcam HDR mirroring policy and downstream processing support
 - host-level operational configuration for the Aurora stack
 
@@ -116,6 +118,7 @@ standalone repo-local Pages site.
 - **Data Locations** for source, local raw, local product, GWS archive, and
   active Zarr paths
 - **Source Syncs** for per-instrument sync behavior and deployment details
+- **Reverse Tunnels** for the disabled-by-default data-ocean SSH fallback path
 
 ## Safe working pattern
 
