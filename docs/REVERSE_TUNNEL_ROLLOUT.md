@@ -134,6 +134,9 @@ ansible-playbook playbooks/reverse_tunnels.yml --check --diff \
   -e edge_reverse_tunnels_enabled=true
 ```
 
+The focused edge playbook connects to ASS/APS Linux as `root` because the
+`aurora` user does not currently have unattended sudo for Ansible.
+
 Apply only after approval and after confirming ASS/APS collection and APS power
 logging are healthy:
 

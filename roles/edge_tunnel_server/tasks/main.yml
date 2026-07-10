@@ -56,6 +56,7 @@
 - name: Install authorized edge tunnel keys
   ansible.posix.authorized_key:
     user: "{{ edge_tunnel_server_user }}"
+    path: "{{ edge_tunnel_server_home }}/.ssh/authorized_keys"
     key: "{{ item.key }}"
     key_options: "{{ (item.key_options | default(edge_tunnel_server_default_key_options)) | join(',') }}"
     comment: "{{ item.name | default(omit) }}"
