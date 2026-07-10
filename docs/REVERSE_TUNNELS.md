@@ -14,6 +14,10 @@ The active design is:
 The reverse tunnel clients live in `GAMB2LE/aurora-edge-infra`. The data-ocean
 server-side account and SSH restrictions live in this repo.
 
+Source-sync failover support is also present in this repo, but it is disabled by
+default. The live source-sync hosts and ports remain the Tailscale values until
+`edge_source_sync_use_reverse_tunnels=true` is set.
+
 ## Server role
 
 The `edge_tunnel_server` role is wired into `playbooks/site.yml` but disabled by
@@ -50,6 +54,33 @@ edge_reverse_tunnels_enabled: false
 
 `ass-proxmox-linux` maps to `127.0.0.1:2201` and `aps-proxmox-linux` maps to
 `127.0.0.1:2202`.
+
+## Source-sync tunnel transport
+
+The source-sync scripts can be rendered for either Tailscale SSH or the reverse
+tunnel endpoints:
+
+```yaml
+edge_source_sync_use_reverse_tunnels: false
+```
+
+With the default `false`, source-sync jobs continue to use the Tailscale IPs on
+port `22` and Tailscale SSH authentication.
+
+With `true`, ASS-backed streams use `127.0.0.1:2201`, APS-backed streams use
+`127.0.0.1:2202`, and the scripts use normal SSH key authentication through the
+forwarded edge SSH daemon. That requires a data-ocean private key:
+
+```yaml
+edge_source_sync_ssh_key_path: /home/aurora/.ssh/id_ed25519_edge_source_sync
+edge_source_sync_ssh_private_key_content: ""
+edge_source_sync_ssh_private_key_source: ""
+```
+
+The matching public key must be authorized for the `aurora` user on
+`ass-proxmox-linux` and `aps-proxmox-linux` before switching source-sync jobs to
+the tunnel transport. In `GAMB2LE/aurora-edge-infra`, put that public key in
+`edge_source_sync_authorized_keys`.
 
 ## SSH access
 
@@ -94,15 +125,20 @@ Host aps-proxmox-linux-tunnel
 4. Apply this repo only after confirming the sshd config include path and
    current SSH access are healthy.
 5. Add the private key to the edge repo through Ansible Vault.
-6. Run the edge repo with `edge_managed_write_mode=true` and
+6. Add the data-ocean source-sync public key to the edge repo as
+   `edge_source_sync_authorized_keys`.
+7. Run the edge repo with `edge_managed_write_mode=true` and
    `edge_reverse_tunnels_enabled=true`.
-7. Verify listeners on data-ocean:
+8. Verify listeners on data-ocean:
 
    ```bash
    ss -ltn '( sport = :2201 or sport = :2202 )'
    ssh -p 2201 aurora@127.0.0.1 hostname
    ssh -p 2202 aurora@127.0.0.1 hostname
    ```
+9. After a soak period, switch source sync in this repo with
+   `edge_source_sync_use_reverse_tunnels=true` and a configured
+   `edge_source_sync_ssh_key_path`.
 
 Do not switch source-sync jobs from Tailscale to these tunnel endpoints until
 the tunnels have survived a soak period and the change has been checked against

@@ -34,8 +34,10 @@ CONFIG = json.loads(
       "enabled": {{ cl61_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ cl61_source_user | to_json }},
       "source_host": {{ cl61_source_host | to_json }},
+      "source_port": {{ cl61_source_port | int | to_json }},
       "source_root": {{ cl61_source_path | to_json }},
       "source_auth": {{ cl61_source_auth | default('tailscale') | to_json }},
+      "source_ssh_key": {{ cl61_source_ssh_key_path | to_json }},
       "source_pattern": {{ cl61_source_pattern | to_json }},
       "recursive": false,
       "local_root": {{ aurora_paths.raw_cl61 | to_json }},
@@ -48,8 +50,10 @@ CONFIG = json.loads(
       "enabled": {{ radar_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ radar_source_user | to_json }},
       "source_host": {{ radar_source_host | to_json }},
+      "source_port": {{ radar_source_port | int | to_json }},
       "source_root": {{ radar_source_path | to_json }},
-      "source_auth": "tailscale",
+      "source_auth": {{ radar_source_auth | default('tailscale') | to_json }},
+      "source_ssh_key": {{ radar_source_ssh_key_path | to_json }},
       "source_pattern": {{ radar_source_pattern | to_json }},
       "recursive": true,
       "local_root": {{ aurora_paths.raw_radar | to_json }},
@@ -62,8 +66,10 @@ CONFIG = json.loads(
       "enabled": {{ hatpro_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ hatpro_source_user | to_json }},
       "source_host": {{ hatpro_source_host | to_json }},
+      "source_port": {{ hatpro_source_port | int | to_json }},
       "source_root": {{ hatpro_source_path | to_json }},
-      "source_auth": "tailscale",
+      "source_auth": {{ hatpro_source_auth | default('tailscale') | to_json }},
+      "source_ssh_key": {{ hatpro_source_ssh_key_path | to_json }},
       "source_pattern": {{ hatpro_source_pattern | to_json }},
       "recursive": true,
       "local_root": {{ aurora_paths.raw_hatpro | to_json }},
@@ -77,8 +83,10 @@ CONFIG = json.loads(
       "enabled": {{ vaisalamet_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ vaisalamet_source_user | to_json }},
       "source_host": {{ vaisalamet_source_host | to_json }},
+      "source_port": {{ vaisalamet_source_port | int | to_json }},
       "source_root": {{ vaisalamet_source_path | to_json }},
-      "source_auth": "tailscale",
+      "source_auth": {{ vaisalamet_source_auth | default('tailscale') | to_json }},
+      "source_ssh_key": {{ vaisalamet_source_ssh_key_path | to_json }},
       "source_pattern": {{ vaisalamet_source_pattern | to_json }},
       "recursive": false,
       "local_root": {{ aurora_paths.raw_vaisalamet | to_json }},
@@ -91,8 +99,10 @@ CONFIG = json.loads(
       "enabled": {{ asfs_logger_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ asfs_logger_source_user | to_json }},
       "source_host": {{ asfs_logger_source_host | to_json }},
+      "source_port": {{ asfs_logger_source_port | int | to_json }},
       "source_root": {{ asfs_logger_source_path | to_json }},
-      "source_auth": "tailscale",
+      "source_auth": {{ asfs_logger_source_auth | default('tailscale') | to_json }},
+      "source_ssh_key": {{ asfs_logger_source_ssh_key_path | to_json }},
       "source_pattern": {{ asfs_logger_source_pattern | to_json }},
       "recursive": false,
       "local_root": {{ aurora_paths.raw_asfs_crd | to_json }},
@@ -105,8 +115,10 @@ CONFIG = json.loads(
       "enabled": {{ asfs_fast_sonic_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ asfs_fast_sonic_source_user | to_json }},
       "source_host": {{ asfs_fast_sonic_source_host | to_json }},
+      "source_port": {{ asfs_fast_sonic_source_port | int | to_json }},
       "source_root": {{ asfs_fast_sonic_source_path | to_json }},
-      "source_auth": "tailscale",
+      "source_auth": {{ asfs_fast_sonic_source_auth | default('tailscale') | to_json }},
+      "source_ssh_key": {{ asfs_fast_sonic_source_ssh_key_path | to_json }},
       "source_pattern": {{ asfs_fast_sonic_source_pattern | to_json }},
       "recursive": false,
       "local_root": {{ aurora_paths.raw_asfs_crd | to_json }},
@@ -119,8 +131,10 @@ CONFIG = json.loads(
       "enabled": {{ power_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ power_source_user | to_json }},
       "source_host": {{ power_source_host | to_json }},
+      "source_port": {{ power_source_port | int | to_json }},
       "source_root": {{ power_source_path | to_json }},
-      "source_auth": "tailscale",
+      "source_auth": {{ power_source_auth | default('tailscale') | to_json }},
+      "source_ssh_key": {{ power_source_ssh_key_path | to_json }},
       "source_pattern": {{ power_source_pattern | to_json }},
       "recursive": false,
       "local_root": {{ aurora_paths.raw_power | to_json }},
@@ -133,8 +147,10 @@ CONFIG = json.loads(
       "enabled": {{ pdu_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ pdu_source_user | to_json }},
       "source_host": {{ pdu_source_host | to_json }},
+      "source_port": {{ pdu_source_port | int | to_json }},
       "source_root": {{ pdu_source_path | to_json }},
-      "source_auth": "tailscale",
+      "source_auth": {{ pdu_source_auth | default('tailscale') | to_json }},
+      "source_ssh_key": {{ pdu_source_ssh_key_path | to_json }},
       "source_pattern": {{ pdu_source_pattern | to_json }},
       "recursive": false,
       "local_root": {{ aurora_paths.raw_pdu | to_json }},
@@ -147,8 +163,10 @@ CONFIG = json.loads(
       "enabled": {{ wxcam_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ wxcam_source_user | to_json }},
       "source_host": {{ wxcam_source_host | to_json }},
+      "source_port": {{ wxcam_source_port | int | to_json }},
       "source_root": {{ wxcam_source_path | to_json }},
-      "source_auth": "tailscale",
+      "source_auth": {{ wxcam_source_auth | default('tailscale') | to_json }},
+      "source_ssh_key": {{ wxcam_source_ssh_key_path | to_json }},
       "source_pattern": [
         "FISH/**/HDR_*.jpg",
         "FISH/**/HDR_*.mp4",
@@ -185,7 +203,6 @@ def json_default(value):
 
 
 KNOWN_HOSTS = f"/home/{CONFIG['aurora_user']}/.ssh/known_hosts"
-CL61_KEY = {{ cl61_source_ssh_key_path | to_json }}
 TAILSCALE_BASE = [
     "ssh",
     "-o",
@@ -198,19 +215,6 @@ TAILSCALE_BASE = [
     "PubkeyAuthentication=no",
     "-o",
     "StrictHostKeyChecking=accept-new",
-    "-o",
-    f"UserKnownHostsFile={KNOWN_HOSTS}",
-]
-CL61_BASE = [
-    "ssh",
-    "-i",
-    CL61_KEY,
-    "-o",
-    "BatchMode=yes",
-    "-o",
-    "IdentitiesOnly=yes",
-    "-o",
-    "StrictHostKeyChecking=yes",
     "-o",
     f"UserKnownHostsFile={KNOWN_HOSTS}",
 ]
@@ -278,7 +282,23 @@ def sha256_remote(base_cmd: list[str], target: str, root: str, relpath: str) -> 
 
 
 def ssh_base(stream: dict) -> list[str]:
-    return CL61_BASE if stream["source_auth"] == "ssh_key" else TAILSCALE_BASE
+    if stream["source_auth"] == "ssh_key":
+        base = [
+            "ssh",
+            "-i",
+            stream["source_ssh_key"],
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "IdentitiesOnly=yes",
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            "-o",
+            f"UserKnownHostsFile={KNOWN_HOSTS}",
+        ]
+    else:
+        base = TAILSCALE_BASE
+    return base + ["-p", str(int(stream.get("source_port", 22)))]
 
 
 def list_remote_entries(base_cmd: list[str], target: str, root: str, recursive: bool, pattern: str | list[str]) -> dict[str, dict]:

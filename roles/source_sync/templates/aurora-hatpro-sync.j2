@@ -3,10 +3,13 @@ set -euo pipefail
 
 source_user={{ hatpro_source_user | quote }}
 source_host={{ hatpro_source_host | quote }}
+source_port={{ hatpro_source_port | int }}
 source_path={{ hatpro_source_path | quote }}
 source_pattern={{ hatpro_source_pattern | quote }}
 destination={{ hatpro_source_destination | quote }}
 state_file={{ hatpro_source_state_file | quote }}
+source_auth={{ hatpro_source_auth | default('tailscale') | quote }}
+ssh_key={{ hatpro_source_ssh_key_path | quote }}
 start_fresh={{ '1' if hatpro_source_start_fresh | bool else '0' }}
 known_hosts=/home/{{ aurora_service_user }}/.ssh/known_hosts
 
@@ -26,17 +29,32 @@ now_epoch="$(date +%s)"
 files_from="$(mktemp)"
 trap 'rm -f "$files_from"' EXIT
 
-# Tailscale SSH handles authentication on the tailnet. Keep this as regular
-# ssh so rsync can pass its normal remote-shell arguments, but disable identity
-# keys to avoid falling back to file-based SSH authentication.
-ssh_opts=(
-  -o BatchMode=yes
-  -o IdentitiesOnly=yes
-  -o IdentityFile=none
-  -o PubkeyAuthentication=no
-  -o StrictHostKeyChecking=accept-new
-  -o UserKnownHostsFile="$known_hosts"
-)
+if [[ "$source_auth" == "ssh_key" ]]; then
+  if [[ ! -f "$ssh_key" ]]; then
+    echo "Missing HATPRO source SSH key: $ssh_key" >&2
+    exit 1
+  fi
+  ssh_opts=(
+    -p "$source_port"
+    -i "$ssh_key"
+    -o BatchMode=yes
+    -o IdentitiesOnly=yes
+    -o StrictHostKeyChecking=accept-new
+    -o UserKnownHostsFile="$known_hosts"
+  )
+  rsync_ssh="ssh -p $source_port -i $ssh_key -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$known_hosts"
+else
+  ssh_opts=(
+    -p "$source_port"
+    -o BatchMode=yes
+    -o IdentitiesOnly=yes
+    -o IdentityFile=none
+    -o PubkeyAuthentication=no
+    -o StrictHostKeyChecking=accept-new
+    -o UserKnownHostsFile="$known_hosts"
+  )
+  rsync_ssh="ssh -p $source_port -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityFile=none -o PubkeyAuthentication=no -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$known_hosts"
+fi
 
 ssh "${ssh_opts[@]}" "${source_user}@${source_host}" bash -s -- "$source_path" "$source_pattern" "$last_epoch" "$now_epoch" > "$files_from" <<'REMOTE_FIND'
 set -euo pipefail
@@ -54,6 +72,6 @@ if [[ ! -s "$files_from" ]]; then
   exit 0
 fi
 
-export RSYNC_RSH="ssh -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityFile=none -o PubkeyAuthentication=no -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$known_hosts"
+export RSYNC_RSH="$rsync_ssh"
 rsync -a --partial --from0 --files-from="$files_from" "${source_user}@${source_host}:${source_path%/}/" "${destination%/}/"
 echo "$now_epoch" > "$state_file"

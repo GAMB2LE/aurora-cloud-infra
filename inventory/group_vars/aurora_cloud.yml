@@ -64,6 +64,29 @@ aurora_edge_hosts:
       tailscale_ip: ""
       wan_ip: 10.0.0.253
 
+aurora_edge_tunnel_endpoints:
+  ass:
+    host: 127.0.0.1
+    port: 2201
+  aps:
+    host: 127.0.0.1
+    port: 2202
+
+edge_source_sync_use_reverse_tunnels: false
+edge_source_sync_auth: "{{ 'ssh_key' if (edge_source_sync_use_reverse_tunnels | bool) else 'tailscale' }}"
+edge_source_sync_ssh_key_path: /home/aurora/.ssh/id_ed25519_edge_source_sync
+edge_source_sync_ssh_private_key_source: ""
+edge_source_sync_ssh_private_key_content: ""
+edge_source_sync_ass_host: "{{ aurora_edge_tunnel_endpoints.ass.host if (edge_source_sync_use_reverse_tunnels | bool) else aurora_edge_hosts.ass.linux.tailscale_ip }}"
+edge_source_sync_ass_port: "{{ aurora_edge_tunnel_endpoints.ass.port if (edge_source_sync_use_reverse_tunnels | bool) else 22 }}"
+edge_source_sync_aps_host: "{{ aurora_edge_tunnel_endpoints.aps.host if (edge_source_sync_use_reverse_tunnels | bool) else aurora_edge_hosts.aps.linux.tailscale_ip }}"
+edge_source_sync_aps_port: "{{ aurora_edge_tunnel_endpoints.aps.port if (edge_source_sync_use_reverse_tunnels | bool) else 22 }}"
+edge_source_sync_known_hosts:
+  - host: "{{ aurora_edge_tunnel_endpoints.ass.host }}"
+    port: "{{ aurora_edge_tunnel_endpoints.ass.port }}"
+  - host: "{{ aurora_edge_tunnel_endpoints.aps.host }}"
+    port: "{{ aurora_edge_tunnel_endpoints.aps.port }}"
+
 aurora_app_dir: /opt/aurora-cloud-dashboard
 aurora_app_repo: git@github-dashboard:GAMB2LE/aurora_cloud_dashboard.git
 aurora_app_version: 4bfcd9c89acb824d45f33445801cf91c08617134
@@ -242,16 +265,17 @@ ops_alert_smtp_ssl: false
 
 cl61_source_sync_enabled: true
 cl61_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
-cl61_source_auth: tailscale
+cl61_source_auth: "{{ edge_source_sync_auth }}"
 cl61_source_generate_ssh_key: false
 cl61_source_user: aurora
-cl61_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
+cl61_source_host: "{{ edge_source_sync_ass_host }}"
+cl61_source_port: "{{ edge_source_sync_ass_port }}"
 cl61_source_path: /home/aurora/data/cl61
 cl61_source_pattern: "gamb2le_depolarisation_lidar_ceilometer_aurora_*.nc"
 cl61_source_destination: "{{ aurora_paths.raw_cl61 }}"
 # Retained for the retired celine-edge-1 key-auth mode; unused when
 # cl61_source_auth is tailscale.
-cl61_source_ssh_key_path: /home/aurora/.ssh/id_ed25519_celine
+cl61_source_ssh_key_path: "{{ edge_source_sync_ssh_key_path }}"
 cl61_source_state_file: "{{ aurora_state_root }}/cl61-sync.last"
 cl61_source_sync_interval: 2min
 cl61_source_sync_randomized_delay: 30
@@ -260,8 +284,11 @@ cl61_source_start_fresh: false
 
 radar_source_sync_enabled: true
 radar_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
+radar_source_auth: "{{ edge_source_sync_auth }}"
 radar_source_user: aurora
-radar_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
+radar_source_host: "{{ edge_source_sync_ass_host }}"
+radar_source_port: "{{ edge_source_sync_ass_port }}"
+radar_source_ssh_key_path: "{{ edge_source_sync_ssh_key_path }}"
 radar_source_path: /home/aurora/data/rpgfmcw94
 radar_source_pattern: "*LV1.NC"
 radar_source_destination: "{{ aurora_paths.raw_radar }}"
@@ -273,8 +300,11 @@ radar_source_start_fresh: false
 
 hatpro_source_sync_enabled: true
 hatpro_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
+hatpro_source_auth: "{{ edge_source_sync_auth }}"
 hatpro_source_user: aurora
-hatpro_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
+hatpro_source_host: "{{ edge_source_sync_ass_host }}"
+hatpro_source_port: "{{ edge_source_sync_ass_port }}"
+hatpro_source_ssh_key_path: "{{ edge_source_sync_ssh_key_path }}"
 hatpro_source_path: /home/aurora/data/hatprog5
 hatpro_source_pattern: "HATPROG5-AURORA-ICELAND_*"
 hatpro_source_destination: "{{ aurora_paths.raw_hatpro }}"
@@ -286,8 +316,11 @@ hatpro_source_start_fresh: false
 
 vaisalamet_source_sync_enabled: true
 vaisalamet_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
+vaisalamet_source_auth: "{{ edge_source_sync_auth }}"
 vaisalamet_source_user: aurora
-vaisalamet_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
+vaisalamet_source_host: "{{ edge_source_sync_ass_host }}"
+vaisalamet_source_port: "{{ edge_source_sync_ass_port }}"
+vaisalamet_source_ssh_key_path: "{{ edge_source_sync_ssh_key_path }}"
 vaisalamet_source_path: /home/aurora/data/vaisalamet
 vaisalamet_source_pattern: "vaisala_met_level0_*.dat"
 vaisalamet_source_destination: "{{ aurora_paths.raw_vaisalamet }}"
@@ -299,8 +332,11 @@ vaisalamet_source_start_fresh: false
 
 asfs_logger_source_sync_enabled: true
 asfs_logger_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
+asfs_logger_source_auth: "{{ edge_source_sync_auth }}"
 asfs_logger_source_user: aurora
-asfs_logger_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
+asfs_logger_source_host: "{{ edge_source_sync_ass_host }}"
+asfs_logger_source_port: "{{ edge_source_sync_ass_port }}"
+asfs_logger_source_ssh_key_path: "{{ edge_source_sync_ssh_key_path }}"
 asfs_logger_source_path: /home/aurora/data/asfs/raw/crd
 asfs_logger_source_pattern: "aurora_asfs_data_sci_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].dat"
 asfs_logger_source_destination: "{{ aurora_paths.raw_asfs_crd }}"
@@ -314,8 +350,11 @@ asfs_logger_source_start_fresh: false
 
 asfs_fast_sonic_source_sync_enabled: true
 asfs_fast_sonic_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
+asfs_fast_sonic_source_auth: "{{ edge_source_sync_auth }}"
 asfs_fast_sonic_source_user: aurora
-asfs_fast_sonic_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
+asfs_fast_sonic_source_host: "{{ edge_source_sync_ass_host }}"
+asfs_fast_sonic_source_port: "{{ edge_source_sync_ass_port }}"
+asfs_fast_sonic_source_ssh_key_path: "{{ edge_source_sync_ssh_key_path }}"
 asfs_fast_sonic_source_path: /home/aurora/data/asfs/raw/crd
 asfs_fast_sonic_source_pattern: "aurora_asfs_data_fast_sonic_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].dat"
 asfs_fast_sonic_source_destination: "{{ aurora_paths.raw_asfs_crd }}"
@@ -328,8 +367,11 @@ asfs_fast_sonic_source_start_fresh: false
 
 asfs_fast_gas_source_sync_enabled: true
 asfs_fast_gas_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
+asfs_fast_gas_source_auth: "{{ edge_source_sync_auth }}"
 asfs_fast_gas_source_user: aurora
-asfs_fast_gas_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
+asfs_fast_gas_source_host: "{{ edge_source_sync_ass_host }}"
+asfs_fast_gas_source_port: "{{ edge_source_sync_ass_port }}"
+asfs_fast_gas_source_ssh_key_path: "{{ edge_source_sync_ssh_key_path }}"
 asfs_fast_gas_source_path: /home/aurora/data/asfs/raw/crd
 asfs_fast_gas_source_pattern: "aurora_asfs_data_fast_gas_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].dat"
 asfs_fast_gas_source_destination: "{{ aurora_paths.raw_asfs_crd }}"
@@ -342,8 +384,11 @@ asfs_fast_gas_source_start_fresh: false
 
 power_source_sync_enabled: true
 power_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
+power_source_auth: "{{ edge_source_sync_auth }}"
 power_source_user: aurora
-power_source_host: "{{ aurora_edge_hosts.aps.linux.tailscale_ip }}"
+power_source_host: "{{ edge_source_sync_aps_host }}"
+power_source_port: "{{ edge_source_sync_aps_port }}"
+power_source_ssh_key_path: "{{ edge_source_sync_ssh_key_path }}"
 power_source_path: /data/power/level1
 power_source_pattern: "power_data_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].csv"
 power_source_destination: "{{ aurora_paths.raw_power }}"
@@ -357,8 +402,11 @@ power_source_start_fresh: false
 
 pdu_source_sync_enabled: true
 pdu_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
+pdu_source_auth: "{{ edge_source_sync_auth }}"
 pdu_source_user: aurora
-pdu_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
+pdu_source_host: "{{ edge_source_sync_ass_host }}"
+pdu_source_port: "{{ edge_source_sync_ass_port }}"
+pdu_source_ssh_key_path: "{{ edge_source_sync_ssh_key_path }}"
 pdu_source_path: /home/aurora/data/pdu
 pdu_source_pattern: "pdu_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].csv"
 pdu_source_destination: "{{ aurora_paths.raw_pdu }}"
@@ -372,8 +420,11 @@ pdu_source_start_fresh: false
 
 wxcam_source_sync_enabled: true
 wxcam_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
+wxcam_source_auth: "{{ edge_source_sync_auth }}"
 wxcam_source_user: aurora
-wxcam_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
+wxcam_source_host: "{{ edge_source_sync_ass_host }}"
+wxcam_source_port: "{{ edge_source_sync_ass_port }}"
+wxcam_source_ssh_key_path: "{{ edge_source_sync_ssh_key_path }}"
 wxcam_source_path: /home/aurora/data/wxcam
 # The deployed raw sync retains only HDR JPG and MP4 assets for the FISH and
 # PANO camera streams. AUTO/LONG/SHORT files remain on the camera host.
