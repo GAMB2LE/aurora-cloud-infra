@@ -1,0 +1,23 @@
+---
+# Example only. Copy the needed values into an Ansible Vault file or pass them
+# from a secure secrets source. Do not commit real private keys.
+
+edge_tunnel_server_enabled: true
+
+# Public key used by the edge Linux VMs to open reverse tunnels to data-ocean.
+# The matching private key belongs in GAMB2LE/aurora-edge-infra as
+# edge_reverse_tunnel_private_key_content or edge_reverse_tunnel_private_key_source.
+edge_tunnel_server_authorized_keys:
+  - name: edge-reverse-tunnel
+    key: "ssh-ed25519 REPLACE_WITH_EDGE_TO_DATA_OCEAN_TUNNEL_PUBLIC_KEY edge-reverse-tunnel"
+
+# Optional. Keep false until the reverse tunnels have been verified and soaked.
+edge_source_sync_use_reverse_tunnels: false
+
+# Private key used by data-ocean source-sync jobs after
+# edge_source_sync_use_reverse_tunnels=true. The matching public key belongs in
+# GAMB2LE/aurora-edge-infra as edge_source_sync_authorized_keys.
+edge_source_sync_ssh_private_key_content: |
+  -----BEGIN OPENSSH PRIVATE KEY-----
+  REPLACE_WITH_DATA_OCEAN_SOURCE_SYNC_PRIVATE_KEY
+  -----END OPENSSH PRIVATE KEY-----

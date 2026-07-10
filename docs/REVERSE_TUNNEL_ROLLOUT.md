@@ -27,6 +27,10 @@ Use two separate SSH keypairs:
 
 Do not reuse the tunnel-client key for source sync.
 
+Use `docs/examples/reverse_tunnel_vars.yml` as a non-secret template for the
+cloud-side variables. Use `GAMB2LE/aurora-edge-infra/docs/examples/reverse_tunnel_vars.yml`
+as the matching edge-side template.
+
 ## Preflight
 
 Confirm current SSH access to data-ocean from the operator machine:
