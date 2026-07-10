@@ -1,0 +1,17 @@
+---
+- name: Configure data-ocean edge tunnel server
+  hosts: aurora-cloud-droplet
+  become: true
+  gather_facts: false
+  pre_tasks:
+    - name: Require explicit tunnel-server enablement
+      ansible.builtin.assert:
+        that:
+          - edge_tunnel_server_enabled | bool
+        fail_msg: >-
+          Refusing to manage the data-ocean tunnel server because
+          edge_tunnel_server_enabled is false. Re-run with
+          -e edge_tunnel_server_enabled=true only after checking current SSH
+          access and preparing authorized tunnel keys.
+  roles:
+    - edge_tunnel_server

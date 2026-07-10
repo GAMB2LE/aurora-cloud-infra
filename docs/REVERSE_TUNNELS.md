@@ -33,6 +33,16 @@ When enabled on `aurora-cloud-droplet`, it creates a locked
 `aurora-tunnel` system account and installs authorized keys restricted to remote
 port forwarding for `127.0.0.1:2201` and `127.0.0.1:2202`.
 
+Use the focused playbook for check/apply work:
+
+```bash
+ansible-playbook playbooks/edge_tunnel_server.yml --check --diff \
+  -e edge_tunnel_server_enabled=true
+```
+
+Only run without `--check` after confirming current SSH access to data-ocean is
+healthy and the tunnel public key has been prepared.
+
 The optional sshd `Match User` fragment is also disabled by default:
 
 ```yaml
@@ -121,7 +131,7 @@ Host aps-proxmox-linux-tunnel
 1. Generate one dedicated edge-to-data-ocean SSH keypair for the tunnel clients.
 2. Add the public key to `edge_tunnel_server_authorized_keys` for
    `aurora-cloud-droplet`.
-3. Run this repo against `aurora-cloud-droplet` in check mode first.
+3. Run `playbooks/edge_tunnel_server.yml` in check mode first.
 4. Apply this repo only after confirming the sshd config include path and
    current SSH access are healthy.
 5. Add the private key to the edge repo through Ansible Vault.
