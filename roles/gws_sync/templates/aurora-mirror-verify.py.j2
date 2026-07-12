@@ -115,6 +115,20 @@ CONFIG = json.loads(
       "required_services": ["aurora-asfs-fast-sonic-append.service"]
     },
     {
+      "name": "asfs_fast_gas",
+      "enabled": {{ asfs_fast_gas_source_sync_timer_enabled | bool | to_json }},
+      "source_user": {{ asfs_fast_gas_source_user | to_json }},
+      "source_host": {{ asfs_fast_gas_source_host | to_json }},
+      "source_root": {{ asfs_fast_gas_source_path | to_json }},
+      "source_auth": "tailscale",
+      "source_pattern": {{ asfs_fast_gas_source_pattern | to_json }},
+      "recursive": false,
+      "local_root": {{ aurora_paths.raw_asfs_crd | to_json }},
+      "gws_relpath": "asfs/crd",
+      "product_patterns": [{{ asfs_fast_gas_source_pattern | to_json }}],
+      "required_services": ["aurora-asfs-fast-gas-append.service"]
+    },
+    {
       "name": "power",
       "enabled": {{ power_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ power_source_user | to_json }},
