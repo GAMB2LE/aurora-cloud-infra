@@ -14,7 +14,7 @@ ExecStart={{ aurora_venv }}/bin/panel serve app.py model-evaluation.py dart.py \
 {% for origin in aurora_dashboard_allowed_origins %}
   --allow-websocket-origin={{ origin }} \
 {% endfor %}
-  --static-dirs wxcam-media=/data/aurora/products/wxcam \
+  --static-dirs wxcam-media=/data/aurora/products/wxcam auroracam-media={{ aurora_paths.raw_auroracam }} \
   --keep-alive=15000 \
   --check-unused-sessions=600000 \
   --unused-session-lifetime=3600000 \

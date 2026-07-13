@@ -96,16 +96,16 @@
     - aurora_standby_replication_timer_enabled | bool
     - not ansible_check_mode
 
-- name: Install standby pull replication script
+- name: Install development live pull replication script
   ansible.builtin.template:
     src: aurora-standby-pull.j2
-    dest: /usr/local/bin/aurora-standby-pull
+    dest: /usr/local/bin/aurora-dev-live-pull
     owner: root
     group: root
     mode: "0755"
   when: aurora_standby_replication_enabled | bool
 
-- name: Install standby replication systemd units
+- name: Install development live pull systemd units
   ansible.builtin.template:
     src: "{{ item }}.j2"
     dest: "/etc/systemd/system/{{ item }}"
@@ -113,13 +113,13 @@
     group: root
     mode: "0644"
   loop:
-    - aurora-standby-pull.service
-    - aurora-standby-pull.timer
+    - aurora-dev-live-pull.service
+    - aurora-dev-live-pull.timer
   when: aurora_standby_replication_enabled | bool
 
-- name: Enable standby replication timer
+- name: Enable development live pull timer
   ansible.builtin.systemd:
-    name: aurora-standby-pull.timer
+    name: aurora-dev-live-pull.timer
     enabled: true
     state: started
     daemon_reload: true
@@ -128,7 +128,18 @@
     - aurora_standby_replication_timer_enabled | bool
     - not ansible_check_mode
 
-- name: Disable standby replication timer when inactive
+- name: Disable development live pull timer when inactive
+  ansible.builtin.systemd:
+    name: aurora-dev-live-pull.timer
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  failed_when: false
+  when:
+    - not (aurora_standby_replication_enabled | bool and aurora_standby_replication_timer_enabled | bool)
+    - not ansible_check_mode
+
+- name: Disable legacy standby replication timer when development mirror is active
   ansible.builtin.systemd:
     name: aurora-standby-pull.timer
     enabled: false
@@ -136,5 +147,5 @@
     daemon_reload: true
   failed_when: false
   when:
-    - not (aurora_standby_replication_enabled | bool and aurora_standby_replication_timer_enabled | bool)
+    - aurora_standby_replication_enabled | bool
     - not ansible_check_mode

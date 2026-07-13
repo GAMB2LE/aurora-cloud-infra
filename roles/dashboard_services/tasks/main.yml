@@ -58,6 +58,8 @@
     - aurora-power-append.timer
     - aurora-pdu-append.service
     - aurora-pdu-append.timer
+    - aurora-power-soc-forecast.service
+    - aurora-power-soc-forecast.timer
     - aurora-power-quicklooks.service
     - aurora-power-quicklooks.timer
     - aurora-ops-monitor-collect.service
@@ -76,6 +78,8 @@
     - aurora-wxcam-daily-videos.timer
     - aurora-wxcam-append.service
     - aurora-wxcam-append.timer
+    - aurora-auroracam-index.service
+    - aurora-auroracam-index.timer
   notify:
     - Reload systemd
     - Restart dashboard
@@ -111,6 +115,7 @@
     - { unit: aurora-asfs-fast-gas-append.timer, key: asfs_fast_gas_append }
     - { unit: aurora-power-append.timer, key: power_append }
     - { unit: aurora-pdu-append.timer, key: pdu_append }
+    - { unit: aurora-power-soc-forecast.timer, key: power_soc_forecast }
     - { unit: aurora-power-quicklooks.timer, key: power_quicklooks }
     - { unit: aurora-ops-monitor-collect.timer, key: ops_monitor_collect }
     - { unit: aurora-ops-monitor-append.timer, key: ops_monitor_append }
@@ -120,6 +125,7 @@
     - { unit: aurora-wxcam-catalog.timer, key: wxcam_catalog }
     - { unit: aurora-wxcam-daily-videos.timer, key: wxcam_daily_videos }
     - { unit: aurora-wxcam-append.timer, key: wxcam_append }
+    - { unit: aurora-auroracam-index.timer, key: auroracam_index }
   when: not ansible_check_mode
 
 - name: Reset failed data processing service state when timers are disabled
@@ -143,6 +149,7 @@
     - aurora-asfs-fast-gas-append.service
     - aurora-power-append.service
     - aurora-pdu-append.service
+    - aurora-power-soc-forecast.service
     - aurora-power-quicklooks.service
     - aurora-ops-monitor-collect.service
     - aurora-ops-monitor-append.service
@@ -152,6 +159,7 @@
     - aurora-wxcam-catalog.service
     - aurora-wxcam-daily-videos.service
     - aurora-wxcam-append.service
+    - aurora-auroracam-index.service
   when:
     - not ansible_check_mode
     - not aurora_writer_timers_enabled | bool
@@ -177,6 +185,7 @@
     - { service: aurora-asfs-fast-gas-append.service, key: asfs_fast_gas_append }
     - { service: aurora-power-append.service, key: power_append }
     - { service: aurora-pdu-append.service, key: pdu_append }
+    - { service: aurora-power-soc-forecast.service, key: power_soc_forecast }
     - { service: aurora-power-quicklooks.service, key: power_quicklooks }
     - { service: aurora-ops-monitor-collect.service, key: ops_monitor_collect }
     - { service: aurora-ops-monitor-append.service, key: ops_monitor_append }
@@ -186,6 +195,7 @@
     - { service: aurora-wxcam-catalog.service, key: wxcam_catalog }
     - { service: aurora-wxcam-daily-videos.service, key: wxcam_daily_videos }
     - { service: aurora-wxcam-append.service, key: wxcam_append }
+    - { service: aurora-auroracam-index.service, key: auroracam_index }
   when:
     - not ansible_check_mode
     - not (aurora_processing_timers[item.key] | default(aurora_enable_processing_timers) | bool)

@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source_user={{ auroracam_source_user | quote }}
+source_host={{ auroracam_source_host | quote }}
+source_path={{ auroracam_source_path | quote }}
+destination={{ auroracam_source_destination | quote }}
+known_hosts=/home/{{ aurora_service_user }}/.ssh/known_hosts
+lock_file={{ aurora_state_root | quote }}/auroracam-sync.lock
+ssh_opts=(
+  -o BatchMode=yes
+  -o ConnectTimeout=15
+  -o IdentitiesOnly=yes
+  -o IdentityFile=none
+  -o PubkeyAuthentication=no
+  -o ServerAliveInterval=15
+  -o ServerAliveCountMax=4
+  -o StrictHostKeyChecking=accept-new
+  -o UserKnownHostsFile="$known_hosts"
+)
+rsync_base=(rsync -a --partial --timeout=120)
+
+mkdir -p "$destination" "$(dirname "$known_hosts")" "$(dirname "$lock_file")"
+
+exec 9>"$lock_file"
+if ! flock -n 9; then
+  echo "AURORACam sync already running; exiting."
+  exit 0
+fi
+
+"${rsync_base[@]}" \
+  --prune-empty-dirs \
+  --delete \
+  --delete-excluded \
+  --include='end-south-array-cam/' \
+  --include='end-south-array-cam/**/' \
+  --include='end-south-array-cam/**/end-south-array-cam_[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]_[0-9][0-9]-[0-9][0-9].jpg' \
+  --include='fence-post-cam/' \
+  --include='fence-post-cam/**/' \
+  --include='fence-post-cam/**/fence-post-cam_[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]_[0-9][0-9]-[0-9][0-9].jpg' \
+  --include='radar-cam/' \
+  --include='radar-cam/**/' \
+  --include='radar-cam/**/radar-cam_[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]_[0-9][0-9]-[0-9][0-9].jpg' \
+  --include='mid-south-array-cam/' \
+  --include='mid-south-array-cam/**/' \
+  --include='mid-south-array-cam/**/mid-south-array-cam_[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]_[0-9][0-9]-[0-9][0-9].jpg' \
+  --exclude='*' \
+  -e "ssh ${ssh_opts[*]}" \
+  "${source_user}@${source_host}:${source_path%/}/" \
+  "${destination%/}/"

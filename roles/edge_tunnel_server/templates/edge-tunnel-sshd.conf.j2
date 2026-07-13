@@ -1,0 +1,6 @@
+Match User {{ edge_tunnel_server_user }}
+    AllowTcpForwarding remote
+    GatewayPorts no
+    PermitListen {{ edge_tunnel_server_listen_ports | join(' ') }}
+    X11Forwarding no
+    PermitTTY no

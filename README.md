@@ -5,10 +5,15 @@ hosts on JASMIN Cloud and the DigitalOcean droplet.
 
 ## Current Contract
 
-- Legacy JASMIN public hostname: `data.gamb2le.co.uk`.
-- Active droplet public hostname: `data-ocean.gamb2le.co.uk`.
+- Production public hostname: `data.gamb2le.co.uk` on JASMIN.
+- Development public hostname: `data-ocean.gamb2le.co.uk` on DigitalOcean.
+- Production is the authoritative live writer.
+- Development stays live from `aurora-dev-live-pull.timer`, which mirrors
+  production about every five minutes.
 - Raw data: `/project/aurora/raw`.
 - Dashboard products: `/data/aurora/products`.
+- Development experiment paths: `/project/aurora/dev-raw` and
+  `/data/aurora/dev-products`.
 - Dashboard app: `/opt/aurora-cloud-dashboard`.
 - Public access: `nginx` on `80/443`.
 - Private Panel backend: `127.0.0.1:5006` only.
@@ -20,6 +25,9 @@ hosts on JASMIN Cloud and the DigitalOcean droplet.
 - Static dashboard media route:
   `/wxcam-media` maps to `/data/aurora/products/wxcam` so WXcam MP4 playback
   uses normal HTTP range requests rather than the Panel websocket.
+- Static AURORACam media route:
+  `/auroracam-media` maps to `/project/aurora/raw/auroracam` so MX4 JPEGs load
+  through normal HTTP image requests.
 - CL61 raw source: `aurora@100.124.55.22:/home/aurora/data/cl61` pulled into `/project/aurora/raw/cl61`.
 - Cloud radar raw source: `aurora@100.124.55.22:/home/aurora/data/rpgfmcw94` pulled into `/project/aurora/raw/rpgfmcw94`.
 - Vaisala met raw source: `aurora@100.124.55.22:/home/aurora/data/vaisalamet` pulled into `/project/aurora/raw/vaisalamet`.
@@ -28,6 +36,9 @@ hosts on JASMIN Cloud and the DigitalOcean droplet.
 - ASFS fast-gas CRD raw source: `aurora@100.124.55.22:/home/aurora/data/asfs/raw/crd` pulled into `/project/aurora/raw/asfs/crd`.
 - Power raw source: `aurora@100.81.226.30:/data/power/level1` pulled into `/project/aurora/raw/power/level1`.
 - WXcam raw source: `aurora@100.124.55.22:/home/aurora/data/wxcam` pulled into `/project/aurora/raw/wxcam`.
+- MX4 camera FTP ingest: four MOBOTIX M24 cameras write one QXGA JPEG per
+  minute to `ass-proxmox-linux:/home/aurora/data/mx4/<camera>/YYYY-MM-DD/`.
+- AURORACam raw source: `aurora@100.124.55.22:/home/aurora/data/mx4` pulled into `/project/aurora/raw/auroracam`.
 - GWS backup/sync: rsync via JASMIN transfer hosts to `/gws/ssde/j25b/gamb2le`.
 
 ## Current ASS/APS Edge IPs
@@ -63,6 +74,7 @@ The deployed host separates raw mirrored inputs from processed products.
   - `/project/aurora/raw/asfs/crd`
   - `/project/aurora/raw/power/level1`
   - `/project/aurora/raw/wxcam`
+  - `/project/aurora/raw/auroracam`
 - Storage type: shared Ceph network filesystem
 - Current filesystem size on `2026-05-18`: `4.0T`
 - Current used on `2026-05-18`: `41G`
@@ -78,12 +90,14 @@ So `/project/aurora` is the raw landing and mirror area.
   - quicklook PNGs
   - WXcam catalog SQLite
   - WXcam daily videos and thumbnails
+  - AURORACam metadata Zarr
   - performance logs and other dashboard products
 - Examples:
   - `/data/aurora/products/cl61/...zarr`
   - `/data/aurora/products/rpgfmcw94/cloud_radar.zarr`
   - `/data/aurora/products/quicklooks/...`
   - `/data/aurora/products/wxcam/...`
+  - `/data/aurora/products/auroracam/auroracam.zarr`
 - Storage type: local disk on `/dev/vdb`
 - Current filesystem size on `2026-05-18`: `983G`
 - Current used on `2026-05-18`: `197G`
@@ -115,34 +129,27 @@ uv run ansible-playbook playbooks/site.yml --check --diff
 
 Do not run `playbooks/site.yml` without `--check` until the old production Git changes have been preserved and transfer/Tailscale secrets have been put in Ansible Vault.
 
-## Parallel Endpoints and Failover
+## Production, Development, and Failover
 
 The inventory now includes `aurora-cloud-droplet` at `167.172.54.82`. The
-intended public split is:
+public split is:
 
-- `https://data.gamb2le.co.uk`: the legacy JASMIN `aurora-cloud` endpoint.
-- `https://data-ocean.gamb2le.co.uk`: the DigitalOcean droplet endpoint.
+- `https://data.gamb2le.co.uk`: production JASMIN `aurora-cloud` endpoint.
+- `https://data-ocean.gamb2le.co.uk`: public development DigitalOcean endpoint.
 
-During the July 2026 JASMIN shutdown window, the droplet can run as the live
-processing host on `data-ocean.gamb2le.co.uk` while `data.gamb2le.co.uk`
-continues to identify the JASMIN host. Keep only one host running writer timers
-at a time. `aurora_failover_role` controls writer behavior:
+Production is the authoritative writer. Development mirrors production with
+`aurora-dev-live-pull.timer` and should not run normal production-path writer
+timers. `aurora_site_env` controls writer behavior:
 
-- `primary` enables source sync, product processing, quicklook, operations, and
-  GWS timers.
-- `standby` installs the same dashboard stack but keeps writer timers disabled
-  and enables `aurora-standby-pull.timer` to pull raw, product, internal, and
-  state data from the primary.
-
-As of `2026-07-06`, `aurora-cloud-droplet` is committed as `primary` on
-`data-ocean.gamb2le.co.uk`; the standby pull timer is disabled there. Source
-pulls to ASS and APS require a Tailscale SSH `accept` policy for Linux user
-`aurora`, not an interactive `check` policy. CL61 source sync uses the ASS Linux
-data path at `100.124.55.22:/home/aurora/data/cl61` over Tailscale SSH.
+- `production` enables source sync, product processing, quicklook, operations,
+  alert, and GWS timers.
+- `development` installs the same dashboard stack but keeps writer timers
+  disabled and enables `aurora-dev-live-pull.timer` to pull raw, product,
+  internal, and state data from production.
 
 The current droplet has a 1TB-class data disk shared by `/data` and `/project`.
-The last checked size was still `4 vCPU` and `7.8 GiB` RAM with no swap; for
-sustained live processing, either resize to `8 vCPU / 16 GiB` or add swap.
+It should use development-only paths for experiments and must not write to
+normal production product paths.
 
 The live primary audit on `2026-06-19` measured roughly `95G` under
 `/project/aurora/raw`, `457G` under `/data/aurora/products`, and `949M` under
@@ -153,7 +160,9 @@ Full failover is optional. It moves `data.gamb2le.co.uk` to `167.172.54.82`
 and runs the droplet with `aurora_domain=data.gamb2le.co.uk` and
 `aurora_failover_role=primary`.
 
-See `docs/FAILOVER.md` for deployment, promotion, and failback steps.
+See `docs/PRODUCTION_DEVELOPMENT.md` for host roles, release policy, staging
+checks, and rollback rules. See `docs/FAILOVER.md` for emergency promotion
+history and troubleshooting.
 
 ## AURORA-LASSO Operational Timer
 
@@ -210,6 +219,9 @@ and excludes wind-named variables before writing the Zarr product.
 The wxcam source sync retains only HDR JPG and MP4 files for the FISH and PANO
 streams under `/project/aurora/raw/wxcam`. AUTO/LONG/SHORT files stay on the
 camera host and are not cataloged, Zarr-appended, or archived from this VM.
+The MX4 camera ingest is source-side FTP on `ass-proxmox-linux`, separate from
+the CL61 SSH/SFTP path. It uses `vsftpd` on `192.168.1.2:21`, chrooted FTP user
+`mx`, and per-camera day folders under `/home/aurora/data/mx4`.
 
 Before enabling this live, confirm SSH from the target works:
 
@@ -232,6 +244,9 @@ The power source stores flat `power_data_*.csv` files in `/data/power/level1`.
 The wxcam source stores nested `FISH/` and `PANO/` trees under
 `/home/aurora/data/wxcam`; the deployed sync filters that tree to FISH HDR and
 PANO HDR JPG/MP4 files only.
+The MX4 cameras write directly to `/home/aurora/data/mx4` through the local
+FTP endpoint on the ASS Linux VM; see `docs/MX4_CAMERA_FTP.md` for camera IPs,
+FTP directory templates, exposure settings, and verification commands.
 
 The legacy source-side `cl61sync.timer` on `celine-edge-1` pushes to the old
 `aurora-cloud:/mnt/data/cl61` location and prunes local files older than 21 days

@@ -1,5 +1,17 @@
 # Aurora Cloud Failover
 
+The current standard operating model is documented in
+[`Production and Development`](PRODUCTION_DEVELOPMENT.md):
+
+- `data.gamb2le.co.uk` on JASMIN is production and owns authoritative writers.
+- `data-ocean.gamb2le.co.uk` on DigitalOcean is public development and mirrors
+  production with `aurora-dev-live-pull.timer`.
+- Full failover is manual and should not be confused with the development live
+  mirror.
+
+The notes below are retained for emergency promotion and historical outage
+context.
+
 This deployment supports a droplet mirror for `data.gamb2le.co.uk`. The
 intended public split is:
 

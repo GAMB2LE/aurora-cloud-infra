@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Aurora AURORACam metadata Zarr index
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec={{ auroracam_index_interval }}
+Persistent=true
+RandomizedDelaySec={{ auroracam_index_randomized_delay }}
+Unit=aurora-auroracam-index.service
+
+[Install]
+WantedBy=timers.target

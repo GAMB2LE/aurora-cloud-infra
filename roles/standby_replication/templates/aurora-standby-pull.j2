@@ -1,20 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "{{ aurora_failover_role }}" != "standby" ]]; then
-  echo "Standby pull skipped because aurora_failover_role={{ aurora_failover_role }}."
+if [[ "{{ 'true' if aurora_standby_replication_enabled | bool else 'false' }}" != "true" ]]; then
+  echo "Development live pull skipped because aurora_standby_replication_enabled=false."
   exit 0
 fi
 
+site_env={{ aurora_site_env | quote }}
 source_user={{ aurora_standby_primary_user | quote }}
 source_host={{ aurora_standby_primary_host | quote }}
 proxy_jump={{ aurora_standby_primary_proxy_jump | default("") | quote }}
 ssh_key={{ aurora_standby_replication_ssh_private_key | quote }}
 known_hosts=/home/{{ aurora_service_user }}/.ssh/known_hosts
 state_root={{ aurora_standby_replication_state_root | quote }}
+public_stamp={{ aurora_dev_live_mirror_stamp | quote }}
 rsync_path={{ aurora_standby_replication_rsync_path | quote }}
 
-mkdir -p "$state_root" "$(dirname "$known_hosts")"
+mkdir -p "$state_root" "$(dirname "$known_hosts")" "$(dirname "$public_stamp")"
 touch "$known_hosts"
 chown {{ aurora_service_user | quote }}:{{ aurora_service_group | quote }} "$known_hosts"
 chmod 0644 "$known_hosts"
@@ -26,7 +28,7 @@ fi
 
 exec 9>/run/aurora-standby-pull.lock
 if ! flock -n 9; then
-  echo "Another aurora-standby-pull run is still active."
+  echo "Another Aurora development live pull run is still active."
   exit 0
 fi
 
@@ -82,6 +84,7 @@ rsync_common=(
   --human-readable
   --stats
   --timeout=120
+  --delay-updates
 {% if aurora_standby_replication_delete | bool %}
   --delete
   --delete-delay
@@ -119,4 +122,14 @@ replicate_path() {
 replicate_path {{ path.name | quote }} {{ path.source | quote }} {{ path.destination | quote }}{% for exclude in path.exclude | default([]) %} --exclude={{ exclude | quote }}{% endfor %}{{ '\n' }}
 {% endfor %}
 
-date -u +"%Y-%m-%dT%H:%M:%SZ" > "$state_root/last_success_utc"
+success_utc=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+printf '%s\n' "$success_utc" > "$state_root/last_success_utc"
+stamp_tmp="${public_stamp}.tmp.$$"
+printf '{"last_success_utc":"%s","site_env":"%s","source_host":"%s","source_user":"%s","paths_replicated":%d,"rsync_exit_code":0}\n' \
+  "$success_utc" \
+  "$site_env" \
+  "$source_host" \
+  "$source_user" \
+  {{ aurora_standby_replication_paths | length }} \
+  > "$stamp_tmp"
+mv "$stamp_tmp" "$public_stamp"

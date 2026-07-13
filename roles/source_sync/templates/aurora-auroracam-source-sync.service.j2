@@ -1,0 +1,14 @@
+[Unit]
+Description=Aurora mirror AURORACam MX4 JPEG tree over Tailscale SSH
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+ExecStart=/usr/local/bin/aurora-auroracam-sync
+TimeoutStartSec=20min
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6

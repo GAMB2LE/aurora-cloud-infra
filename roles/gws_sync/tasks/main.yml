@@ -146,6 +146,27 @@
     - gws_sync_enabled | bool
     - not ansible_check_mode
 
+- name: Enable optional SSHFS mount
+  ansible.builtin.systemd:
+    name: mnt-gws-gamb2le.mount
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - gws_sshfs_enabled | bool
+    - (gws_sync_ready | default(false)) | bool
+    - not ansible_check_mode
+
+- name: Disable optional SSHFS mount when not requested
+  ansible.builtin.systemd:
+    name: mnt-gws-gamb2le.mount
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  when:
+    - not gws_sshfs_enabled | bool
+    - not ansible_check_mode
+
 - name: Enable GWS rsync timers
   ansible.builtin.systemd:
     name: "aurora-gws-rsync-{{ item.name }}.timer"

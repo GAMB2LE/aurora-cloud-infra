@@ -6,7 +6,7 @@
     owner: "{{ aurora_service_user }}"
     group: "{{ aurora_service_group }}"
     mode: "0755"
-  when: cl61_source_sync_enabled | bool or radar_source_sync_enabled | bool or hatpro_source_sync_enabled | bool or vaisalamet_source_sync_enabled | bool or asfs_logger_source_sync_enabled | bool or asfs_fast_sonic_source_sync_enabled | bool or asfs_fast_gas_source_sync_enabled | bool or power_source_sync_enabled | bool or pdu_source_sync_enabled | bool or wxcam_source_sync_enabled | bool
+  when: cl61_source_sync_enabled | bool or radar_source_sync_enabled | bool or hatpro_source_sync_enabled | bool or vaisalamet_source_sync_enabled | bool or asfs_logger_source_sync_enabled | bool or asfs_fast_sonic_source_sync_enabled | bool or asfs_fast_gas_source_sync_enabled | bool or power_source_sync_enabled | bool or pdu_source_sync_enabled | bool or wxcam_source_sync_enabled | bool or auroracam_source_sync_enabled | bool
 
 - name: Ensure Aurora SSH directory exists
   ansible.builtin.file:
@@ -15,7 +15,7 @@
     owner: "{{ aurora_service_user }}"
     group: "{{ aurora_service_group }}"
     mode: "0700"
-  when: cl61_source_sync_enabled | bool or radar_source_sync_enabled | bool or hatpro_source_sync_enabled | bool or vaisalamet_source_sync_enabled | bool or asfs_logger_source_sync_enabled | bool or asfs_fast_sonic_source_sync_enabled | bool or asfs_fast_gas_source_sync_enabled | bool or power_source_sync_enabled | bool or pdu_source_sync_enabled | bool or wxcam_source_sync_enabled | bool
+  when: cl61_source_sync_enabled | bool or radar_source_sync_enabled | bool or hatpro_source_sync_enabled | bool or vaisalamet_source_sync_enabled | bool or asfs_logger_source_sync_enabled | bool or asfs_fast_sonic_source_sync_enabled | bool or asfs_fast_gas_source_sync_enabled | bool or power_source_sync_enabled | bool or pdu_source_sync_enabled | bool or wxcam_source_sync_enabled | bool or auroracam_source_sync_enabled | bool
 
 - name: Install CL61 source SSH private key when provided by vault
   ansible.builtin.copy:
@@ -498,4 +498,46 @@
     daemon_reload: true
   when:
     - not wxcam_source_sync_enabled | bool or not wxcam_source_sync_timer_enabled | bool
+    - not ansible_check_mode
+
+- name: Install AURORACam source sync script
+  ansible.builtin.template:
+    src: aurora-auroracam-sync.j2
+    dest: /usr/local/bin/aurora-auroracam-sync
+    owner: root
+    group: root
+    mode: "0755"
+  when: auroracam_source_sync_enabled | bool
+
+- name: Install AURORACam source sync systemd units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - aurora-auroracam-source-sync.service
+    - aurora-auroracam-source-sync.timer
+  when: auroracam_source_sync_enabled | bool
+
+- name: Enable AURORACam source sync timer
+  ansible.builtin.systemd:
+    name: aurora-auroracam-source-sync.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - auroracam_source_sync_enabled | bool
+    - auroracam_source_sync_timer_enabled | bool
+    - not ansible_check_mode
+
+- name: Disable AURORACam source sync timer when requested
+  ansible.builtin.systemd:
+    name: aurora-auroracam-source-sync.timer
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  when:
+    - not auroracam_source_sync_enabled | bool or not auroracam_source_sync_timer_enabled | bool
     - not ansible_check_mode
