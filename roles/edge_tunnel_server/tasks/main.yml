@@ -4,6 +4,17 @@
     msg: "edge_tunnel_server_enabled is false; no data-ocean tunnel server changes made."
   when: not edge_tunnel_server_enabled | bool
 
+- name: Require data-ocean tunnel server host when enabled
+  ansible.builtin.assert:
+    that:
+      - inventory_hostname in edge_tunnel_server_allowed_inventory_hosts
+    fail_msg: >-
+      edge_tunnel_server_enabled is true for {{ inventory_hostname }}, but this
+      role is only allowed for {{ edge_tunnel_server_allowed_inventory_hosts | join(', ') }}.
+      Override edge_tunnel_server_allowed_inventory_hosts only when intentionally
+      moving the tunnel server endpoint.
+  when: edge_tunnel_server_enabled | bool
+
 - name: Require authorized edge tunnel keys when enabled
   ansible.builtin.assert:
     that:
@@ -45,6 +56,7 @@
 - name: Install authorized edge tunnel keys
   ansible.posix.authorized_key:
     user: "{{ edge_tunnel_server_user }}"
+    path: "{{ edge_tunnel_server_home }}/.ssh/authorized_keys"
     key: "{{ item.key }}"
     key_options: "{{ (item.key_options | default(edge_tunnel_server_default_key_options)) | join(',') }}"
     comment: "{{ item.name | default(omit) }}"
@@ -61,8 +73,14 @@
     owner: root
     group: root
     mode: "0644"
-    validate: /usr/sbin/sshd -t -f %s
   notify: Reload sshd
+  when:
+    - edge_tunnel_server_enabled | bool
+    - edge_tunnel_server_manage_sshd_config | bool
+
+- name: Validate sshd configuration after optional edge tunnel config
+  ansible.builtin.command: /usr/sbin/sshd -t
+  changed_when: false
   when:
     - edge_tunnel_server_enabled | bool
     - edge_tunnel_server_manage_sshd_config | bool

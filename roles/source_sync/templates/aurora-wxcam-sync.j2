@@ -3,21 +3,13 @@ set -euo pipefail
 
 source_user={{ wxcam_source_user | quote }}
 source_host={{ wxcam_source_host | quote }}
+source_port={{ wxcam_source_port | int }}
 source_path={{ wxcam_source_path | quote }}
 destination={{ wxcam_source_destination | quote }}
+source_auth={{ wxcam_source_auth | default('tailscale') | quote }}
+ssh_key={{ wxcam_source_ssh_key_path | quote }}
 known_hosts=/home/{{ aurora_service_user }}/.ssh/known_hosts
 lock_file={{ aurora_state_root | quote }}/wxcam-sync.lock
-ssh_opts=(
-  -o BatchMode=yes
-  -o ConnectTimeout=15
-  -o IdentitiesOnly=yes
-  -o IdentityFile=none
-  -o PubkeyAuthentication=no
-  -o ServerAliveInterval=15
-  -o ServerAliveCountMax=4
-  -o StrictHostKeyChecking=accept-new
-  -o UserKnownHostsFile="$known_hosts"
-)
 rsync_base=(rsync -a --partial --timeout=120)
 
 mkdir -p "$destination" "$(dirname "$known_hosts")" "$(dirname "$lock_file")"
@@ -30,6 +22,37 @@ exec 9>"$lock_file"
 if ! flock -n 9; then
   echo "wxcam sync already running; exiting."
   exit 0
+fi
+
+if [[ "$source_auth" == "ssh_key" ]]; then
+  if [[ ! -f "$ssh_key" ]]; then
+    echo "Missing WXcam source SSH key: $ssh_key" >&2
+    exit 1
+  fi
+  ssh_opts=(
+    -p "$source_port"
+    -i "$ssh_key"
+    -o BatchMode=yes
+    -o ConnectTimeout=15
+    -o IdentitiesOnly=yes
+    -o ServerAliveInterval=15
+    -o ServerAliveCountMax=4
+    -o StrictHostKeyChecking=accept-new
+    -o UserKnownHostsFile="$known_hosts"
+  )
+else
+  ssh_opts=(
+    -p "$source_port"
+    -o BatchMode=yes
+    -o ConnectTimeout=15
+    -o IdentitiesOnly=yes
+    -o IdentityFile=none
+    -o PubkeyAuthentication=no
+    -o ServerAliveInterval=15
+    -o ServerAliveCountMax=4
+    -o StrictHostKeyChecking=accept-new
+    -o UserKnownHostsFile="$known_hosts"
+  )
 fi
 
 "${rsync_base[@]}" \

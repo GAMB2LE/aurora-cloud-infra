@@ -3,6 +3,7 @@ set -euo pipefail
 
 source_user={{ cl61_source_user | quote }}
 source_host={{ cl61_source_host | quote }}
+source_port={{ cl61_source_port | int }}
 source_path={{ cl61_source_path | quote }}
 source_pattern={{ cl61_source_pattern | quote }}
 destination={{ cl61_source_destination | quote }}
@@ -34,17 +35,19 @@ if [[ "$source_auth" == "ssh_key" ]]; then
     exit 1
   fi
   ssh_opts=(
+    -p "$source_port"
     -i "$ssh_key"
     -o BatchMode=yes
     -o IdentitiesOnly=yes
     -o StrictHostKeyChecking=yes
     -o UserKnownHostsFile="$known_hosts"
   )
-  rsync_ssh="ssh -i $ssh_key -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$known_hosts"
+  rsync_ssh="ssh -p $source_port -i $ssh_key -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$known_hosts"
 else
   # Tailscale SSH handles authentication on the tailnet. Disable identity keys
   # so the connection does not fall back to file-based SSH authentication.
   ssh_opts=(
+    -p "$source_port"
     -o BatchMode=yes
     -o IdentitiesOnly=yes
     -o IdentityFile=none
@@ -52,7 +55,7 @@ else
     -o StrictHostKeyChecking=accept-new
     -o UserKnownHostsFile="$known_hosts"
   )
-  rsync_ssh="ssh -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityFile=none -o PubkeyAuthentication=no -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$known_hosts"
+  rsync_ssh="ssh -p $source_port -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityFile=none -o PubkeyAuthentication=no -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$known_hosts"
 fi
 
 ssh "${ssh_opts[@]}" "${source_user}@${source_host}" bash -s -- "$source_path" "$source_pattern" "$last_epoch" "$now_epoch" > "$files_from" <<'REMOTE_FIND'

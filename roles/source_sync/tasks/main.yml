@@ -17,6 +17,82 @@
     mode: "0700"
   when: cl61_source_sync_enabled | bool or radar_source_sync_enabled | bool or hatpro_source_sync_enabled | bool or vaisalamet_source_sync_enabled | bool or asfs_logger_source_sync_enabled | bool or asfs_fast_sonic_source_sync_enabled | bool or asfs_fast_gas_source_sync_enabled | bool or power_source_sync_enabled | bool or pdu_source_sync_enabled | bool or wxcam_source_sync_enabled | bool or auroracam_source_sync_enabled | bool
 
+- name: Check edge source-sync SSH key when reverse tunnel transport is enabled
+  ansible.builtin.stat:
+    path: "{{ edge_source_sync_ssh_key_path }}"
+  register: edge_source_sync_ssh_key_stat
+  when: edge_source_sync_use_reverse_tunnels | bool
+
+- name: Require edge source-sync SSH key for reverse tunnel transport
+  ansible.builtin.assert:
+    that:
+      - edge_source_sync_ssh_private_key_content | length > 0
+        or edge_source_sync_ssh_private_key_source | length > 0
+        or edge_source_sync_ssh_key_stat.stat.exists | default(false)
+    fail_msg: >-
+      edge_source_sync_use_reverse_tunnels is true, but no source-sync SSH key
+      is available. Provide edge_source_sync_ssh_private_key_content,
+      edge_source_sync_ssh_private_key_source, or preinstall
+      {{ edge_source_sync_ssh_key_path }} for {{ aurora_service_user }}.
+  when: edge_source_sync_use_reverse_tunnels | bool
+
+- name: Install edge source-sync SSH key from vault content
+  ansible.builtin.copy:
+    content: "{{ edge_source_sync_ssh_private_key_content }}"
+    dest: "{{ edge_source_sync_ssh_key_path }}"
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "0600"
+  no_log: true
+  when:
+    - edge_source_sync_use_reverse_tunnels | bool
+    - edge_source_sync_ssh_private_key_content | length > 0
+
+- name: Install edge source-sync SSH key from controller file
+  ansible.builtin.copy:
+    src: "{{ edge_source_sync_ssh_private_key_source }}"
+    dest: "{{ edge_source_sync_ssh_key_path }}"
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "0600"
+  no_log: true
+  when:
+    - edge_source_sync_use_reverse_tunnels | bool
+    - edge_source_sync_ssh_private_key_source | length > 0
+    - edge_source_sync_ssh_private_key_content | length == 0
+
+- name: Scan edge source-sync tunnel host keys
+  ansible.builtin.command: "ssh-keyscan -T 10 -p {{ item.port }} {{ item.host }}"
+  changed_when: false
+  register: edge_source_sync_keyscan
+  loop: "{{ edge_source_sync_known_hosts }}"
+  when:
+    - edge_source_sync_use_reverse_tunnels | bool
+    - not ansible_check_mode
+
+- name: Trust edge source-sync tunnel host keys
+  ansible.builtin.known_hosts:
+    path: "/home/{{ aurora_service_user }}/.ssh/known_hosts"
+    name: >-
+      {{ '[' ~ item.0.item.host ~ ']:' ~ item.0.item.port if (item.0.item.port | int) != 22 else item.0.item.host }}
+    key: "{{ item.1 }}"
+    state: present
+  loop: "{{ (edge_source_sync_keyscan.results | default([])) | subelements('stdout_lines', skip_missing=True) }}"
+  when:
+    - edge_source_sync_use_reverse_tunnels | bool
+    - not ansible_check_mode
+
+- name: Ensure edge source-sync known_hosts ownership
+  ansible.builtin.file:
+    path: "/home/{{ aurora_service_user }}/.ssh/known_hosts"
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "0644"
+  when:
+    - edge_source_sync_use_reverse_tunnels | bool
+    - edge_source_sync_keyscan.results | default([]) | length > 0
+    - not ansible_check_mode
+
 - name: Install CL61 source SSH private key when provided by vault
   ansible.builtin.copy:
     content: "{{ cl61_source_ssh_private_key_content }}"
@@ -28,6 +104,7 @@
   when:
     - cl61_source_sync_enabled | bool
     - cl61_source_auth | default('tailscale') == 'ssh_key'
+    - not edge_source_sync_use_reverse_tunnels | bool
     - cl61_source_ssh_private_key_content is defined
     - cl61_source_ssh_private_key_content | length > 0
 
@@ -40,6 +117,7 @@
     - cl61_source_sync_enabled | bool
     - cl61_source_sync_timer_enabled | bool
     - cl61_source_auth | default('tailscale') == 'ssh_key'
+    - not edge_source_sync_use_reverse_tunnels | bool
     - cl61_source_generate_ssh_key | bool
     - cl61_source_ssh_private_key_content is not defined or cl61_source_ssh_private_key_content | length == 0
     - not ansible_check_mode
@@ -52,6 +130,7 @@
     - cl61_source_sync_enabled | bool
     - cl61_source_sync_timer_enabled | bool
     - cl61_source_auth | default('tailscale') == 'ssh_key'
+    - not edge_source_sync_use_reverse_tunnels | bool
     - not ansible_check_mode
 
 - name: Trust CL61 source SSH host key for Aurora service user
@@ -65,6 +144,7 @@
     - cl61_source_sync_enabled | bool
     - cl61_source_sync_timer_enabled | bool
     - cl61_source_auth | default('tailscale') == 'ssh_key'
+    - not edge_source_sync_use_reverse_tunnels | bool
     - not ansible_check_mode
 
 - name: Ensure CL61 source known_hosts ownership
@@ -77,6 +157,7 @@
     - cl61_source_sync_enabled | bool
     - cl61_source_sync_timer_enabled | bool
     - cl61_source_auth | default('tailscale') == 'ssh_key'
+    - not edge_source_sync_use_reverse_tunnels | bool
     - not ansible_check_mode
     - cl61_source_keyscan.stdout_lines | default([]) | length > 0
 
