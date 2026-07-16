@@ -156,7 +156,7 @@ aurora_paths:
 
 wxcam_zarr_start_time: "2026-07-04T00:00:00Z"
 wxcam_zarr_gws_path: "{{ gws_path }}/data/output/aurora-cloud/products/wxcam/wxcam.zarr"
-wxcam_zarr_mount_path: "{{ gws_sshfs_mountpoint }}/data/output/aurora-cloud/products/wxcam/wxcam.zarr"
+wxcam_zarr_mount_path: "{{ aurora_product_root }}/wxcam/wxcam.zarr"
 
 aurora_zarr:
   ceilometer: "{{ aurora_product_root }}/cl61/gamb2le_depolarisation_lidar_ceilometer_aurora.zarr"
@@ -555,7 +555,7 @@ gws_sync_jobs:
 
 # SSHFS mount is required for the GWS-only WXcam pixel Zarr. Bulk raw and
 # non-WXcam product mirroring still use the rsync jobs above.
-gws_sshfs_enabled: true
+gws_sshfs_enabled: false
 gws_sshfs_mountpoint: /mnt/gws/gamb2le
 
 # Development live mirror. The data-ocean host pulls from production/JASMIN

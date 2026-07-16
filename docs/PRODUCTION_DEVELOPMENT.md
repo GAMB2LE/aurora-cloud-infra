@@ -85,6 +85,14 @@ changes as a patch/tag, clean the checkout, and deploy the exact inventory ref.
 Controller-side source overlays and in-place edits are not part of the release
 process.
 
+For a code-only staging or production release, use the focused playbook so
+source sync, storage, networking, and replication roles are not changed:
+
+```bash
+uv run ansible-playbook playbooks/dashboard_release.yml --limit <host> --check --diff
+uv run ansible-playbook playbooks/dashboard_release.yml --limit <host>
+```
+
 Do not deploy untagged experimental changes directly to production.
 
 ## Required Approval

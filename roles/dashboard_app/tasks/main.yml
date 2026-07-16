@@ -73,6 +73,15 @@
   become_user: "{{ aurora_service_user }}"
   when: not ansible_check_mode
 
+- name: Ensure virtual environment belongs to the service account
+  ansible.builtin.file:
+    path: "{{ aurora_venv }}"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    recurse: true
+  when: not ansible_check_mode
+
 - name: Install Python dependencies with uv
   ansible.builtin.command: "{{ aurora_uv_bin }} pip install --upgrade -r {{ aurora_app_dir }}/requirements-dashboard.txt --python {{ aurora_venv }}/bin/python"
   environment:
