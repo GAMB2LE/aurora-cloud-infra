@@ -13,6 +13,13 @@ The source sync intentionally rescans a rolling ten-day window on each run.
 That catches in-place updates to recent daily CSV files instead of relying only
 on a single monotonic timestamp cursor.
 
+APS writes the current UTC-day CSV in place. The source sync therefore allows a
+small upper mtime grace window, controlled by
+`power_source_mtime_grace_seconds`, when listing files on the source host. This
+prevents the active file from being skipped because its fractional mtime lands
+just after the sync process sampled its own `now` timestamp. The next rolling
+scan recopies the file if its size or mtime changes.
+
 The dashboard exposes this as **Aurora Power Supply**, with curated science and
 housekeeping plots rather than a freeform plot of every retained numeric
 variable.

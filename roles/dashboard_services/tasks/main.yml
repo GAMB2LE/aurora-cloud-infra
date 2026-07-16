@@ -52,8 +52,14 @@
     - aurora-asfs-fast-sonic-append.timer
     - aurora-asfs-fast-sonic-quicklooks.service
     - aurora-asfs-fast-sonic-quicklooks.timer
+    - aurora-asfs-fast-gas-append.service
+    - aurora-asfs-fast-gas-append.timer
     - aurora-power-append.service
     - aurora-power-append.timer
+    - aurora-pdu-append.service
+    - aurora-pdu-append.timer
+    - aurora-power-soc-forecast.service
+    - aurora-power-soc-forecast.timer
     - aurora-power-quicklooks.service
     - aurora-power-quicklooks.timer
     - aurora-ops-monitor-collect.service
@@ -64,12 +70,16 @@
     - aurora-ops-monitor-alerts.timer
     - aurora-ops-monitor-quicklooks.service
     - aurora-ops-monitor-quicklooks.timer
+    - aurora-les-operational-run.service
+    - aurora-les-operational-run.timer
     - aurora-wxcam-catalog.service
     - aurora-wxcam-catalog.timer
     - aurora-wxcam-daily-videos.service
     - aurora-wxcam-daily-videos.timer
     - aurora-wxcam-append.service
     - aurora-wxcam-append.timer
+    - aurora-auroracam-index.service
+    - aurora-auroracam-index.timer
   notify:
     - Reload systemd
     - Restart dashboard
@@ -102,15 +112,20 @@
     - { unit: aurora-asfs-logger-quicklooks.timer, key: asfs_logger_quicklooks }
     - { unit: aurora-asfs-fast-sonic-append.timer, key: asfs_fast_sonic_append }
     - { unit: aurora-asfs-fast-sonic-quicklooks.timer, key: asfs_fast_sonic_quicklooks }
+    - { unit: aurora-asfs-fast-gas-append.timer, key: asfs_fast_gas_append }
     - { unit: aurora-power-append.timer, key: power_append }
+    - { unit: aurora-pdu-append.timer, key: pdu_append }
+    - { unit: aurora-power-soc-forecast.timer, key: power_soc_forecast }
     - { unit: aurora-power-quicklooks.timer, key: power_quicklooks }
     - { unit: aurora-ops-monitor-collect.timer, key: ops_monitor_collect }
     - { unit: aurora-ops-monitor-append.timer, key: ops_monitor_append }
     - { unit: aurora-ops-monitor-alerts.timer, key: ops_monitor_alerts }
     - { unit: aurora-ops-monitor-quicklooks.timer, key: ops_monitor_quicklooks }
+    - { unit: aurora-les-operational-run.timer, key: les_operational_run }
     - { unit: aurora-wxcam-catalog.timer, key: wxcam_catalog }
     - { unit: aurora-wxcam-daily-videos.timer, key: wxcam_daily_videos }
     - { unit: aurora-wxcam-append.timer, key: wxcam_append }
+    - { unit: aurora-auroracam-index.timer, key: auroracam_index }
   when: not ansible_check_mode
 
 - name: Reset failed data processing service state when timers are disabled
@@ -131,15 +146,56 @@
     - aurora-asfs-logger-quicklooks.service
     - aurora-asfs-fast-sonic-append.service
     - aurora-asfs-fast-sonic-quicklooks.service
+    - aurora-asfs-fast-gas-append.service
     - aurora-power-append.service
+    - aurora-pdu-append.service
+    - aurora-power-soc-forecast.service
     - aurora-power-quicklooks.service
     - aurora-ops-monitor-collect.service
     - aurora-ops-monitor-append.service
     - aurora-ops-monitor-alerts.service
     - aurora-ops-monitor-quicklooks.service
+    - aurora-les-operational-run.service
     - aurora-wxcam-catalog.service
     - aurora-wxcam-daily-videos.service
     - aurora-wxcam-append.service
+    - aurora-auroracam-index.service
   when:
     - not ansible_check_mode
-    - not aurora_enable_processing_timers | bool
+    - not aurora_writer_timers_enabled | bool
+
+- name: Reset failed state for individually disabled data processing timers
+  ansible.builtin.command: systemctl reset-failed {{ item.service }}
+  changed_when: false
+  failed_when: false
+  loop:
+    - { service: aurora-ceilometer-append.service, key: ceilometer_append }
+    - { service: aurora-ceilometer-last24h.service, key: ceilometer_last24h }
+    - { service: aurora-ceilometer-quicklooks.service, key: ceilometer_quicklooks }
+    - { service: aurora-radar-append.service, key: radar_append }
+    - { service: aurora-radar-quicklooks.service, key: radar_quicklooks }
+    - { service: aurora-hatpro-append.service, key: hatpro_append }
+    - { service: aurora-hatpro-quicklooks.service, key: hatpro_quicklooks }
+    - { service: aurora-vaisalamet-append.service, key: vaisalamet_append }
+    - { service: aurora-vaisalamet-quicklooks.service, key: vaisalamet_quicklooks }
+    - { service: aurora-asfs-logger-append.service, key: asfs_logger_append }
+    - { service: aurora-asfs-logger-quicklooks.service, key: asfs_logger_quicklooks }
+    - { service: aurora-asfs-fast-sonic-append.service, key: asfs_fast_sonic_append }
+    - { service: aurora-asfs-fast-sonic-quicklooks.service, key: asfs_fast_sonic_quicklooks }
+    - { service: aurora-asfs-fast-gas-append.service, key: asfs_fast_gas_append }
+    - { service: aurora-power-append.service, key: power_append }
+    - { service: aurora-pdu-append.service, key: pdu_append }
+    - { service: aurora-power-soc-forecast.service, key: power_soc_forecast }
+    - { service: aurora-power-quicklooks.service, key: power_quicklooks }
+    - { service: aurora-ops-monitor-collect.service, key: ops_monitor_collect }
+    - { service: aurora-ops-monitor-append.service, key: ops_monitor_append }
+    - { service: aurora-ops-monitor-alerts.service, key: ops_monitor_alerts }
+    - { service: aurora-ops-monitor-quicklooks.service, key: ops_monitor_quicklooks }
+    - { service: aurora-les-operational-run.service, key: les_operational_run }
+    - { service: aurora-wxcam-catalog.service, key: wxcam_catalog }
+    - { service: aurora-wxcam-daily-videos.service, key: wxcam_daily_videos }
+    - { service: aurora-wxcam-append.service, key: wxcam_append }
+    - { service: aurora-auroracam-index.service, key: auroracam_index }
+  when:
+    - not ansible_check_mode
+    - not (aurora_processing_timers[item.key] | default(aurora_enable_processing_timers) | bool)

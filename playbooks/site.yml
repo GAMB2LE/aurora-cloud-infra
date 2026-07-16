@@ -8,8 +8,10 @@
     - security
     - storage
     - tailscale
+    - edge_tunnel_server
     - source_sync
     - dashboard_app
     - dashboard_services
     - nginx
     - gws_sync
+    - standby_replication

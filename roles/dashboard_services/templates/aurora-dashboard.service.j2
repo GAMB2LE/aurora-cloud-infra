@@ -8,13 +8,13 @@ User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
 WorkingDirectory={{ aurora_app_dir }}
 EnvironmentFile=/etc/aurora-dashboard.env
-ExecStart={{ aurora_venv }}/bin/panel serve app.py \
+ExecStart={{ aurora_venv }}/bin/panel serve app.py model-evaluation.py dart.py \
   --address={{ aurora_panel_host }} \
   --port={{ aurora_panel_port }} \
 {% for origin in aurora_dashboard_allowed_origins %}
   --allow-websocket-origin={{ origin }} \
 {% endfor %}
-  --static-dirs=wxcam-media=/data/aurora/products/wxcam \
+  --static-dirs wxcam-media=/data/aurora/products/wxcam auroracam-media={{ aurora_paths.raw_auroracam }} \
   --keep-alive=15000 \
   --check-unused-sessions=600000 \
   --unused-session-lifetime=3600000 \

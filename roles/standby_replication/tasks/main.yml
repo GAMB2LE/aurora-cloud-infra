@@ -1,0 +1,151 @@
+---
+- name: Ensure standby replication state directory exists
+  ansible.builtin.file:
+    path: "{{ aurora_standby_replication_state_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: aurora_standby_replication_enabled | bool
+
+- name: Ensure Aurora SSH directory exists for standby replication
+  ansible.builtin.file:
+    path: "/home/{{ aurora_service_user }}/.ssh"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "0700"
+  when: aurora_standby_replication_enabled | bool
+
+- name: Scan standby replication SSH host keys
+  ansible.builtin.command: "ssh-keyscan -T 10 {{ item }}"
+  changed_when: false
+  register: aurora_standby_replication_keyscan
+  loop: "{{ aurora_standby_replication_known_hosts }}"
+  when:
+    - aurora_standby_replication_enabled | bool
+    - aurora_standby_replication_known_hosts | length > 0
+    - not ansible_check_mode
+
+- name: Trust standby replication SSH host keys for Aurora service user
+  ansible.builtin.known_hosts:
+    path: "/home/{{ aurora_service_user }}/.ssh/known_hosts"
+    name: "{{ item.0.item }}"
+    key: "{{ item.1 }}"
+    state: present
+  loop: "{{ (aurora_standby_replication_keyscan.results | default([])) | subelements('stdout_lines', skip_missing=True) }}"
+  when:
+    - aurora_standby_replication_enabled | bool
+    - not ansible_check_mode
+
+- name: Ensure standby replication known_hosts ownership
+  ansible.builtin.file:
+    path: "/home/{{ aurora_service_user }}/.ssh/known_hosts"
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "0644"
+  when:
+    - aurora_standby_replication_enabled | bool
+    - aurora_standby_replication_known_hosts | length > 0
+    - not ansible_check_mode
+
+- name: Install standby replication SSH private key when provided by vault
+  ansible.builtin.copy:
+    content: "{{ aurora_standby_replication_ssh_private_key_content }}"
+    dest: "{{ aurora_standby_replication_ssh_private_key }}"
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "0600"
+  no_log: true
+  when:
+    - aurora_standby_replication_enabled | bool
+    - aurora_standby_replication_ssh_private_key_content is defined
+    - aurora_standby_replication_ssh_private_key_content | length > 0
+
+- name: Install standby replication SSH private key from controller file when configured
+  ansible.builtin.copy:
+    src: "{{ aurora_standby_replication_ssh_private_key_source }}"
+    dest: "{{ aurora_standby_replication_ssh_private_key }}"
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "0600"
+  no_log: true
+  when:
+    - aurora_standby_replication_enabled | bool
+    - aurora_standby_replication_ssh_private_key_source is defined
+    - aurora_standby_replication_ssh_private_key_source | length > 0
+    - aurora_standby_replication_ssh_private_key_content | default("") | length == 0
+
+- name: Check standby replication SSH private key
+  ansible.builtin.stat:
+    path: "{{ aurora_standby_replication_ssh_private_key }}"
+  register: aurora_standby_replication_key_stat
+  when: aurora_standby_replication_enabled | bool
+
+- name: Require standby replication SSH key before enabling timer
+  ansible.builtin.assert:
+    that:
+      - aurora_standby_replication_key_stat.stat.exists
+      - aurora_standby_replication_key_stat.stat.readable | default(false)
+    fail_msg: >-
+      Standby replication timer is enabled, but {{ aurora_standby_replication_ssh_private_key }}
+      is not readable on the standby. Provide aurora_standby_replication_ssh_private_key_source
+      or aurora_standby_replication_ssh_private_key_content.
+  when:
+    - aurora_standby_replication_enabled | bool
+    - aurora_standby_replication_timer_enabled | bool
+    - not ansible_check_mode
+
+- name: Install development live pull replication script
+  ansible.builtin.template:
+    src: aurora-standby-pull.j2
+    dest: /usr/local/bin/aurora-dev-live-pull
+    owner: root
+    group: root
+    mode: "0755"
+  when: aurora_standby_replication_enabled | bool
+
+- name: Install development live pull systemd units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - aurora-dev-live-pull.service
+    - aurora-dev-live-pull.timer
+  when: aurora_standby_replication_enabled | bool
+
+- name: Enable development live pull timer
+  ansible.builtin.systemd:
+    name: aurora-dev-live-pull.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - aurora_standby_replication_enabled | bool
+    - aurora_standby_replication_timer_enabled | bool
+    - not ansible_check_mode
+
+- name: Disable development live pull timer when inactive
+  ansible.builtin.systemd:
+    name: aurora-dev-live-pull.timer
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  failed_when: false
+  when:
+    - not (aurora_standby_replication_enabled | bool and aurora_standby_replication_timer_enabled | bool)
+    - not ansible_check_mode
+
+- name: Disable legacy standby replication timer when development mirror is active
+  ansible.builtin.systemd:
+    name: aurora-standby-pull.timer
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  failed_when: false
+  when:
+    - aurora_standby_replication_enabled | bool
+    - not ansible_check_mode

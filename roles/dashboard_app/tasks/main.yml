@@ -13,17 +13,43 @@
     dest: "{{ aurora_app_dir }}"
     version: "{{ aurora_app_version }}"
     update: true
+    force: true
   become_user: "{{ aurora_service_user }}"
   when: not ansible_check_mode
 
-- name: Ensure app ownership
+- name: Ensure app directory ownership
   ansible.builtin.file:
     path: "{{ aurora_app_dir }}"
     state: directory
     owner: "{{ aurora_service_user }}"
     group: "{{ aurora_service_group }}"
-    recurse: true
   when: not ansible_check_mode
+
+- name: Install dashboard compatibility files from controller
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ aurora_app_dir }}/{{ item.dest }}"
+    owner: "{{ item.owner | default(aurora_service_user) }}"
+    group: "{{ item.group | default(aurora_service_group) }}"
+    mode: "{{ item.mode | default('0644') }}"
+  loop: "{{ aurora_dashboard_extra_files }}"
+  when:
+    - not ansible_check_mode
+    - aurora_dashboard_extra_files | length > 0
+  notify: Restart dashboard
+
+- name: Set dashboard default instrument
+  ansible.builtin.lineinfile:
+    path: "{{ aurora_app_dir }}/app.py"
+    regexp: '^CURRENT_INSTRUMENT = '
+    line: "CURRENT_INSTRUMENT = {{ aurora_dashboard_default_instrument | to_json }}"
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "0644"
+  when:
+    - not ansible_check_mode
+    - aurora_dashboard_default_instrument | default('') | length > 0
+  notify: Restart dashboard
 
 - name: Ensure uv cache directory exists
   ansible.builtin.file:
@@ -32,6 +58,7 @@
     owner: "{{ aurora_service_user }}"
     group: "{{ aurora_service_group }}"
     mode: "0755"
+    recurse: true
   when: not ansible_check_mode
 
 - name: Create Python virtual environment with uv

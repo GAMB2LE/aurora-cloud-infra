@@ -5,7 +5,7 @@
 - Catalog: `/data/aurora/products/wxcam/wxcam_catalog.sqlite`
 - Daily videos: `/data/aurora/products/wxcam/daily_videos`
 - Hourly thumbnails: `/data/aurora/products/wxcam/hourly_thumbnails`
-- Pixel Zarr path: `/data/aurora/products/wxcam/wxcam.zarr`
+- Pixel Zarr path: `/mnt/gws/gamb2le/data/output/aurora-cloud/products/wxcam/wxcam.zarr`
 
 The wxcam source contains nested `FISH/` and `PANO/` trees. The deployed sync
 retains HDR JPG and MP4 files from both streams locally. `AUTO`/`LONG`/`SHORT`
@@ -21,8 +21,9 @@ archived from this VM.
 The dashboard uses the SQLite catalog plus daily MP4 and hourly thumbnail
 products for browsing. The science-quicklook grid is driven by the selected
 HDR JPG stream, while the interactive browser uses stitched HDR MP4 products.
-The wxcam pixel Zarr path is built from the retained FISH HDR and PANO HDR JPG
-archives.
+The wxcam pixel Zarr is GWS-only and starts at `2026-07-04T00:00:00Z`.
+Local raw/catalog/video products remain on the processing host, but the
+decoded pixel Zarr is written through the GWS SSHFS mount.
 
 The catalog, daily-video, and pixel-Zarr timers are intentionally allowed to
 run while a long raw backfill is still in progress. Fresh in-flight media are

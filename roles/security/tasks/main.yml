@@ -1,4 +1,14 @@
 ---
+- name: Ensure UFW log file exists for rsyslog omfile
+  ansible.builtin.file:
+    path: /var/log/ufw.log
+    state: touch
+    owner: syslog
+    group: adm
+    mode: "0640"
+  when: aurora_enable_ufw | bool
+  notify: Restart rsyslog
+
 - name: Allow SSH through UFW
   community.general.ufw:
     rule: allow
@@ -27,6 +37,15 @@
     proto: "{{ item.proto }}"
     comment: "{{ item.comment }}"
   loop: "{{ aurora_preserve_existing_listener_ports }}"
+  when: aurora_enable_ufw | bool
+
+- name: Remove stale public listener port allows
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.port }}"
+    proto: "{{ item.proto }}"
+    delete: true
+  loop: "{{ aurora_remove_public_listener_ports | default([]) }}"
   when: aurora_enable_ufw | bool
 
 - name: Explicitly deny direct public Panel port

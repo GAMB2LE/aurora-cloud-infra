@@ -31,10 +31,11 @@ CONFIG = json.loads(
   "streams": [
     {
       "name": "cl61",
+      "enabled": {{ cl61_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ cl61_source_user | to_json }},
       "source_host": {{ cl61_source_host | to_json }},
       "source_root": {{ cl61_source_path | to_json }},
-      "source_auth": "cl61_key",
+      "source_auth": {{ cl61_source_auth | default('tailscale') | to_json }},
       "source_pattern": {{ cl61_source_pattern | to_json }},
       "recursive": false,
       "local_root": {{ aurora_paths.raw_cl61 | to_json }},
@@ -44,6 +45,7 @@ CONFIG = json.loads(
     },
     {
       "name": "rpgfmcw94",
+      "enabled": {{ radar_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ radar_source_user | to_json }},
       "source_host": {{ radar_source_host | to_json }},
       "source_root": {{ radar_source_path | to_json }},
@@ -57,6 +59,7 @@ CONFIG = json.loads(
     },
     {
       "name": "hatprog5",
+      "enabled": {{ hatpro_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ hatpro_source_user | to_json }},
       "source_host": {{ hatpro_source_host | to_json }},
       "source_root": {{ hatpro_source_path | to_json }},
@@ -66,10 +69,12 @@ CONFIG = json.loads(
       "local_root": {{ aurora_paths.raw_hatpro | to_json }},
       "gws_relpath": "hatprog5",
       "product_patterns": ["*.LWP.NC", "*.IWV.NC", "*.IRT.NC", "*.TPC.NC", "*.TPB.NC", "*.MET.NC"],
+      "ignore_flat_legacy": true,
       "required_services": ["aurora-hatpro-append.service"]
     },
     {
       "name": "vaisalamet",
+      "enabled": {{ vaisalamet_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ vaisalamet_source_user | to_json }},
       "source_host": {{ vaisalamet_source_host | to_json }},
       "source_root": {{ vaisalamet_source_path | to_json }},
@@ -83,6 +88,7 @@ CONFIG = json.loads(
     },
     {
       "name": "asfs_logger",
+      "enabled": {{ asfs_logger_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ asfs_logger_source_user | to_json }},
       "source_host": {{ asfs_logger_source_host | to_json }},
       "source_root": {{ asfs_logger_source_path | to_json }},
@@ -96,6 +102,7 @@ CONFIG = json.loads(
     },
     {
       "name": "asfs_fast_sonic",
+      "enabled": {{ asfs_fast_sonic_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ asfs_fast_sonic_source_user | to_json }},
       "source_host": {{ asfs_fast_sonic_source_host | to_json }},
       "source_root": {{ asfs_fast_sonic_source_path | to_json }},
@@ -108,7 +115,22 @@ CONFIG = json.loads(
       "required_services": ["aurora-asfs-fast-sonic-append.service"]
     },
     {
+      "name": "asfs_fast_gas",
+      "enabled": {{ asfs_fast_gas_source_sync_timer_enabled | bool | to_json }},
+      "source_user": {{ asfs_fast_gas_source_user | to_json }},
+      "source_host": {{ asfs_fast_gas_source_host | to_json }},
+      "source_root": {{ asfs_fast_gas_source_path | to_json }},
+      "source_auth": "tailscale",
+      "source_pattern": {{ asfs_fast_gas_source_pattern | to_json }},
+      "recursive": false,
+      "local_root": {{ aurora_paths.raw_asfs_crd | to_json }},
+      "gws_relpath": "asfs/crd",
+      "product_patterns": [{{ asfs_fast_gas_source_pattern | to_json }}],
+      "required_services": ["aurora-asfs-fast-gas-append.service"]
+    },
+    {
       "name": "power",
+      "enabled": {{ power_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ power_source_user | to_json }},
       "source_host": {{ power_source_host | to_json }},
       "source_root": {{ power_source_path | to_json }},
@@ -121,7 +143,22 @@ CONFIG = json.loads(
       "required_services": ["aurora-power-append.service"]
     },
     {
+      "name": "pdu",
+      "enabled": {{ pdu_source_sync_timer_enabled | bool | to_json }},
+      "source_user": {{ pdu_source_user | to_json }},
+      "source_host": {{ pdu_source_host | to_json }},
+      "source_root": {{ pdu_source_path | to_json }},
+      "source_auth": "tailscale",
+      "source_pattern": {{ pdu_source_pattern | to_json }},
+      "recursive": false,
+      "local_root": {{ aurora_paths.raw_pdu | to_json }},
+      "gws_relpath": "pdu",
+      "product_patterns": [{{ pdu_source_pattern | to_json }}],
+      "required_services": ["aurora-pdu-append.service"]
+    },
+    {
       "name": "wxcam",
+      "enabled": {{ wxcam_source_sync_timer_enabled | bool | to_json }},
       "source_user": {{ wxcam_source_user | to_json }},
       "source_host": {{ wxcam_source_host | to_json }},
       "source_root": {{ wxcam_source_path | to_json }},
@@ -143,7 +180,9 @@ CONFIG = json.loads(
       ],
       "required_services": [
         "aurora-wxcam-catalog.service",
+{% if aurora_processing_timers.wxcam_daily_videos | default(aurora_enable_processing_timers) | bool %}
         "aurora-wxcam-daily-videos.service",
+{% endif %}
         "aurora-wxcam-append.service"
       ]
     }
@@ -253,7 +292,7 @@ def sha256_remote(base_cmd: list[str], target: str, root: str, relpath: str) -> 
 
 
 def ssh_base(stream: dict) -> list[str]:
-    return CL61_BASE if stream["source_auth"] == "cl61_key" else TAILSCALE_BASE
+    return CL61_BASE if stream["source_auth"] == "ssh_key" else TAILSCALE_BASE
 
 
 def list_remote_entries(base_cmd: list[str], target: str, root: str, recursive: bool, pattern: str | list[str]) -> dict[str, dict]:
@@ -316,6 +355,16 @@ def maybe_add_checksums(entries: dict[str, dict], mode: str, root: str | Path, r
             entry["checksum"] = sha256_local(Path(root) / relpath)
         else:
             entry["checksum"] = sha256_remote(remote_base, remote_target, str(root), relpath)
+
+
+def normalize_entries(stream: dict, entries: dict[str, dict]) -> dict[str, dict]:
+    if not stream.get("ignore_flat_legacy"):
+        return entries
+    return {
+        relpath: entry
+        for relpath, entry in entries.items()
+        if "/" in relpath
+    }
 
 
 def write_manifest(path: Path, entries: dict[str, dict]) -> None:
@@ -433,6 +482,13 @@ def main() -> int:
 
     for stream in CONFIG["streams"]:
         name = stream["name"]
+        if not stream.get("enabled", True):
+            summary["streams"][name] = {
+                "planned_offline": True,
+                "prune_ready": False,
+                "prune_candidate_count": 0,
+            }
+            continue
         stream_dir = history_dir / name
         ensure_dir(stream_dir)
         try:
@@ -445,6 +501,7 @@ def main() -> int:
                 stream["source_pattern"],
             )
             local_entries = list_local_entries(Path(stream["local_root"]), bool(stream["recursive"]), stream["source_pattern"])
+            local_entries = normalize_entries(stream, local_entries)
             maybe_add_checksums(source_entries, CONFIG["checksum_mode"], stream["source_root"], ssh_base(stream), source_target)
             maybe_add_checksums(local_entries, CONFIG["checksum_mode"], Path(stream["local_root"]))
 
@@ -456,6 +513,7 @@ def main() -> int:
                     bool(stream["recursive"]),
                     stream["source_pattern"],
                 )
+                gws_entries = normalize_entries(stream, gws_entries)
                 maybe_add_checksums(
                     gws_entries,
                     CONFIG["checksum_mode"],

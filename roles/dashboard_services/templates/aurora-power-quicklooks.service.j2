@@ -1,6 +1,6 @@
 [Unit]
 Description=Aurora power quicklooks
-After=aurora-power-append.service
+After=aurora-power-append.service aurora-pdu-append.service aurora-power-soc-forecast.service
 
 [Service]
 Type=oneshot

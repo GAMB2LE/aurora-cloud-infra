@@ -1,0 +1,17 @@
+[Unit]
+Description=Aurora AURORACam metadata Zarr index
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+WorkingDirectory={{ aurora_app_dir }}
+EnvironmentFile=/etc/aurora-dashboard.env
+ExecCondition=/usr/bin/test -d {{ aurora_paths.raw_auroracam }}
+ExecStart={{ aurora_venv }}/bin/python index_auroracam_zarr.py --root {{ aurora_paths.raw_auroracam }} --zarr {{ aurora_zarr.auroracam }} --rebuild
+TimeoutStartSec=10min
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6

@@ -1,24 +1,148 @@
 ---
-aurora_domain: data.gamb2le.co.uk
+# Site role and public endpoint model. Production/JASMIN owns authoritative
+# writers; development/data-ocean serves a public live mirror.
+aurora_failover_domain: data.gamb2le.co.uk
+aurora_standby_domain: data-ocean.gamb2le.co.uk
+aurora_domain: "{{ aurora_failover_domain }}"
 aurora_public_ip: 130.246.212.116
+
+aurora_site_env: production
+aurora_failover_role: primary
+aurora_is_primary: "{{ aurora_failover_role | default('primary') == 'primary' }}"
+aurora_is_production: "{{ aurora_site_env | default('production') == 'production' }}"
+aurora_is_development: "{{ aurora_site_env | default('production') == 'development' }}"
+aurora_writer_timers_enabled: "{{ aurora_is_production }}"
+aurora_certbot_enabled: "{{ aurora_is_primary }}"
 
 aurora_service_user: aurora
 aurora_service_group: aurora
+aurora_service_uid: 56781
+aurora_service_gid: 56781
+aurora_timezone: UTC
+aurora_ntp_servers:
+  # Keep these DNS-free so hosts with broken resolver state can still sync.
+  - 162.159.200.1
+  - 162.159.200.123
+  - 129.6.15.28
+  - 129.6.15.29
+
+# Current ASS/APS edge addressing, checked 2026-07-06 UTC. Keep source-sync
+# hosts pointed at these entries instead of repeating literal Tailscale IPs.
+aurora_edge_hosts:
+  ass:
+    proxmox:
+      tailscale_ip: 100.123.149.9
+      uplink_ip: 192.168.1.219
+      lan_bridge_ip: 192.168.1.254
+      wan_bridge_ip: 10.0.0.254
+    linux:
+      tailscale_ip: 100.124.55.22
+      lan_ip: 192.168.1.2
+      secondary_lan_ip: 192.168.2.1
+      wan_ip: 10.0.0.2
+      wifi_ip: 192.168.10.2
+    windows:
+      tailscale_ip: 100.121.25.32
+      lan_ip: 192.168.1.3
+      wan_ip: 10.0.0.3
+    pbs:
+      tailscale_ip: 100.104.16.48
+      wan_ip: 10.0.0.253
+  aps:
+    proxmox:
+      tailscale_ip: 100.125.60.40
+      uplink_ip: 192.168.99.195
+      lan_bridge_ip: 192.168.0.254
+      wan_bridge_ip: 10.0.0.254
+    linux:
+      tailscale_ip: 100.81.226.30
+      lan_ip: 192.168.0.8
+      wan_ip: 10.0.0.8
+      wifi_ip: 192.168.10.8
+    windows:
+      tailscale_ip: 100.92.179.9
+      lan_ip: 192.168.0.9
+      wan_ip: 10.0.0.3
+    pbs:
+      tailscale_ip: ""
+      wan_ip: 10.0.0.253
+
 aurora_app_dir: /opt/aurora-cloud-dashboard
 aurora_app_repo: git@github-dashboard:GAMB2LE/aurora_cloud_dashboard.git
-aurora_app_version: main
+aurora_app_version: 4bfcd9c89acb824d45f33445801cf91c08617134
+aurora_dashboard_extra_files:
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/app.py"
+    dest: app.py
+    mode: "0644"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/collect_operations_snapshot.py"
+    dest: collect_operations_snapshot.py
+    mode: "0644"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/grouped_timeseries.py"
+    dest: grouped_timeseries.py
+    mode: "0644"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/generate_power_display_summary.py"
+    dest: generate_power_display_summary.py
+    mode: "0755"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/generate_power_soc_forecast.py"
+    dest: generate_power_soc_forecast.py
+    mode: "0755"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/append_new_pdu_to_zarr.py"
+    dest: append_new_pdu_to_zarr.py
+    mode: "0755"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/rebuild_cutoff.py"
+    dest: rebuild_cutoff.py
+    mode: "0644"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/model-evaluation.py"
+    dest: model-evaluation.py
+    owner: root
+    group: root
+    mode: "0644"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/dart.py"
+    dest: dart.py
+    owner: root
+    group: root
+    mode: "0644"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/wxcam_catalog.py"
+    dest: wxcam_catalog.py
+    mode: "0644"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/auroracam_catalog.py"
+    dest: auroracam_catalog.py
+    mode: "0644"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/radar_colormaps.py"
+    dest: radar_colormaps.py
+    mode: "0644"
+  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/index_auroracam_zarr.py"
+    dest: index_auroracam_zarr.py
+    mode: "0755"
+aurora_dashboard_default_instrument: Ceilometer
 aurora_infra_repo_dir: /tmp/aurora-cloud-infra-codex
 aurora_python: /usr/bin/python3
 aurora_venv: "{{ aurora_app_dir }}/venv"
 aurora_uv_bin: /usr/local/bin/uv
 aurora_uv_cache_dir: "{{ aurora_data_root }}/uv-cache"
+aurora_les_root: "{{ aurora_data_root }}/les"
+aurora_les_campaign_root: "{{ aurora_les_root }}/campaigns"
+aurora_model_evaluation_campaign_root: "{{ aurora_data_root }}/model-evaluation/campaigns/aurora_iceland_model_evaluation_v1"
+aurora_les_runtime_root: "{{ aurora_les_root }}/runtimes"
+aurora_les_runtime_dir: "{{ aurora_les_runtime_root }}/aurora-les-operational-current"
+aurora_les_python: "{{ aurora_data_root }}/les/runtimes/cloudnetpy-model-eval/bin/python3"
+aurora_les_campaign_config: configs/campaigns/aurora_leeds_operational_20260521_rolling.yaml
+aurora_les_target: latest-ready
+aurora_les_skip_completed: true
+aurora_les_era5_lag_days: 5
+aurora_les_run_timeout_seconds: 86400
 aurora_panel_host: 127.0.0.1
 aurora_panel_port: 5006
+aurora_nginx_disabled_sites: []
 
 # JASMIN target already has /data on a 999G volume and /project on a 4T Ceph mount.
 aurora_data_root: /data/aurora
 aurora_product_root: "{{ aurora_data_root }}/products"
 aurora_raw_root: /project/aurora/raw
+aurora_dev_product_root: "{{ aurora_data_root }}/dev-products"
+aurora_dev_raw_root: /project/aurora/dev-raw
+aurora_dev_live_mirror_stamp: "{{ aurora_data_root }}/internal/dev-live-mirror/last_success.json"
+aurora_dev_live_mirror_recent_minutes: 7.5
 aurora_log_root: /var/log/aurora-cloud
 aurora_state_root: /var/lib/aurora-cloud
 
@@ -31,7 +155,9 @@ aurora_paths:
   raw_asfs_logger: "{{ aurora_raw_root }}/asfs/loggernet"
   raw_asfs_crd: "{{ aurora_raw_root }}/asfs/crd"
   raw_power: "{{ aurora_raw_root }}/power/level1"
+  raw_pdu: "{{ aurora_raw_root }}/pdu"
   raw_wxcam: "{{ aurora_raw_root }}/wxcam"
+  raw_auroracam: "{{ aurora_raw_root }}/auroracam"
   raw_ops_monitor: "{{ aurora_raw_root }}/ops_monitor"
   products_cl61: "{{ aurora_product_root }}/cl61"
   products_radar: "{{ aurora_product_root }}/rpgfmcw94"
@@ -39,12 +165,19 @@ aurora_paths:
   products_vaisalamet: "{{ aurora_product_root }}/vaisalamet"
   products_asfs_logger: "{{ aurora_product_root }}/asfs_logger"
   products_asfs_fast_sonic: "{{ aurora_product_root }}/asfs_fast_sonic"
+  products_asfs_fast_gas: "{{ aurora_product_root }}/asfs_fast_gas"
   products_power: "{{ aurora_product_root }}/power"
+  products_power_ecmwf_solar_forecast: "{{ aurora_product_root }}/power/ecmwf_solar_forecast"
   products_ops_monitor: "{{ aurora_product_root }}/ops_monitor"
   products_ops_monitor_health: "{{ aurora_product_root }}/ops_monitor/health"
   products_wxcam: "{{ aurora_product_root }}/wxcam"
   products_wxcam_daily_videos: "{{ aurora_product_root }}/wxcam/daily_videos"
+  products_auroracam: "{{ aurora_product_root }}/auroracam"
   quicklooks: "{{ aurora_product_root }}/quicklooks"
+
+wxcam_zarr_start_time: "2026-07-04T00:00:00Z"
+wxcam_zarr_gws_path: "{{ gws_path }}/data/output/aurora-cloud/products/wxcam/wxcam.zarr"
+wxcam_zarr_mount_path: "{{ gws_sshfs_mountpoint }}/data/output/aurora-cloud/products/wxcam/wxcam.zarr"
 
 aurora_zarr:
   ceilometer: "{{ aurora_product_root }}/cl61/gamb2le_depolarisation_lidar_ceilometer_aurora.zarr"
@@ -53,9 +186,13 @@ aurora_zarr:
   vaisalamet: "{{ aurora_product_root }}/vaisalamet/vaisalamet.zarr"
   asfs_logger: "{{ aurora_product_root }}/asfs_logger/asfs_logger.zarr"
   asfs_fast_sonic: "{{ aurora_product_root }}/asfs_fast_sonic/asfs_fast_sonic.zarr"
+  asfs_fast_gas: "{{ aurora_product_root }}/asfs_fast_gas/asfs_fast_gas.zarr"
   power: "{{ aurora_product_root }}/power/power.zarr"
+  pdu: "{{ aurora_product_root }}/power/pdu.zarr"
+  power_soc_forecast: "{{ aurora_product_root }}/power/power_soc_forecast.zarr"
   ops_monitor: "{{ aurora_product_root }}/ops_monitor/ops_monitor.zarr"
-  wxcam: "{{ aurora_product_root }}/wxcam/wxcam.zarr"
+  wxcam: "{{ wxcam_zarr_mount_path }}"
+  auroracam: "{{ aurora_product_root }}/auroracam/auroracam.zarr"
 
 aurora_catalogs:
   wxcam: "{{ aurora_paths.products_wxcam }}/wxcam_catalog.sqlite"
@@ -83,34 +220,42 @@ aurora_quicklook_latest:
 aurora_dashboard_allowed_origins:
   - "{{ aurora_domain }}"
   - "{{ aurora_domain }}:443"
+  - "{{ aurora_public_ip }}"
+  - "{{ aurora_public_ip }}:80"
+  - "{{ aurora_public_ip }}:443"
 
 # Backward-compatible global default for any timer not listed below.
-aurora_enable_processing_timers: false
+aurora_enable_processing_timers: "{{ aurora_writer_timers_enabled }}"
 aurora_processing_timers:
   # CL61 is the first fresh pipeline to enable. The append script now
   # bootstraps the Zarr from recent raw files when the store is absent.
-  ceilometer_append: true
-  ceilometer_last24h: true
-  ceilometer_quicklooks: true
-  radar_append: true
-  radar_quicklooks: true
-  hatpro_append: true
-  hatpro_quicklooks: true
-  vaisalamet_append: true
-  vaisalamet_quicklooks: true
-  asfs_logger_append: true
-  asfs_logger_quicklooks: true
-  asfs_fast_sonic_append: true
-  asfs_fast_sonic_quicklooks: true
-  power_append: true
-  power_quicklooks: true
-  ops_monitor_collect: true
-  ops_monitor_append: true
-  ops_monitor_alerts: true
-  ops_monitor_quicklooks: true
-  wxcam_catalog: true
-  wxcam_append: true
-  wxcam_daily_videos: true
+  ceilometer_append: "{{ aurora_writer_timers_enabled }}"
+  ceilometer_last24h: "{{ aurora_writer_timers_enabled }}"
+  ceilometer_quicklooks: "{{ aurora_writer_timers_enabled }}"
+  radar_append: "{{ aurora_writer_timers_enabled }}"
+  radar_quicklooks: "{{ aurora_writer_timers_enabled }}"
+  hatpro_append: "{{ aurora_writer_timers_enabled }}"
+  hatpro_quicklooks: "{{ aurora_writer_timers_enabled }}"
+  vaisalamet_append: "{{ aurora_writer_timers_enabled }}"
+  vaisalamet_quicklooks: "{{ aurora_writer_timers_enabled }}"
+  asfs_logger_append: "{{ aurora_writer_timers_enabled }}"
+  asfs_logger_quicklooks: "{{ aurora_writer_timers_enabled }}"
+  asfs_fast_sonic_append: "{{ aurora_writer_timers_enabled }}"
+  asfs_fast_sonic_quicklooks: "{{ aurora_writer_timers_enabled }}"
+  asfs_fast_gas_append: "{{ aurora_writer_timers_enabled }}"
+  power_append: "{{ aurora_writer_timers_enabled }}"
+  pdu_append: "{{ aurora_writer_timers_enabled }}"
+  power_soc_forecast: "{{ aurora_writer_timers_enabled }}"
+  power_quicklooks: "{{ aurora_writer_timers_enabled }}"
+  ops_monitor_collect: "{{ aurora_writer_timers_enabled }}"
+  ops_monitor_append: "{{ aurora_writer_timers_enabled }}"
+  ops_monitor_alerts: "{{ aurora_writer_timers_enabled }}"
+  ops_monitor_quicklooks: "{{ aurora_writer_timers_enabled }}"
+  les_operational_run: "{{ aurora_writer_timers_enabled }}"
+  wxcam_catalog: "{{ aurora_writer_timers_enabled }}"
+  wxcam_append: "{{ aurora_writer_timers_enabled }}"
+  wxcam_daily_videos: "{{ aurora_writer_timers_enabled }}"
+  auroracam_index: "{{ aurora_writer_timers_enabled }}"
 
 ops_alert_recipients:
   - gamb2le@ncas.ac.uk
@@ -124,13 +269,16 @@ ops_alert_smtp_starttls: true
 ops_alert_smtp_ssl: false
 
 cl61_source_sync_enabled: true
-cl61_source_sync_timer_enabled: true
-cl61_source_generate_ssh_key: true
+cl61_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
+cl61_source_auth: tailscale
+cl61_source_generate_ssh_key: false
 cl61_source_user: aurora
-cl61_source_host: 100.117.101.84
+cl61_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
 cl61_source_path: /home/aurora/data/cl61
 cl61_source_pattern: "gamb2le_depolarisation_lidar_ceilometer_aurora_*.nc"
 cl61_source_destination: "{{ aurora_paths.raw_cl61 }}"
+# Retained for the retired celine-edge-1 key-auth mode; unused when
+# cl61_source_auth is tailscale.
 cl61_source_ssh_key_path: /home/aurora/.ssh/id_ed25519_celine
 cl61_source_state_file: "{{ aurora_state_root }}/cl61-sync.last"
 cl61_source_sync_interval: 2min
@@ -139,9 +287,9 @@ cl61_source_sync_randomized_delay: 30
 cl61_source_start_fresh: false
 
 radar_source_sync_enabled: true
-radar_source_sync_timer_enabled: true
+radar_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 radar_source_user: aurora
-radar_source_host: 100.124.55.22
+radar_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
 radar_source_path: /home/aurora/data/rpgfmcw94
 radar_source_pattern: "*LV1.NC"
 radar_source_destination: "{{ aurora_paths.raw_radar }}"
@@ -152,9 +300,9 @@ radar_source_sync_randomized_delay: 30
 radar_source_start_fresh: false
 
 hatpro_source_sync_enabled: true
-hatpro_source_sync_timer_enabled: true
+hatpro_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 hatpro_source_user: aurora
-hatpro_source_host: 100.124.55.22
+hatpro_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
 hatpro_source_path: /home/aurora/data/hatprog5
 hatpro_source_pattern: "HATPROG5-AURORA-ICELAND_*"
 hatpro_source_destination: "{{ aurora_paths.raw_hatpro }}"
@@ -165,9 +313,9 @@ hatpro_source_sync_randomized_delay: 30
 hatpro_source_start_fresh: false
 
 vaisalamet_source_sync_enabled: true
-vaisalamet_source_sync_timer_enabled: true
+vaisalamet_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 vaisalamet_source_user: aurora
-vaisalamet_source_host: 100.124.55.22
+vaisalamet_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
 vaisalamet_source_path: /home/aurora/data/vaisalamet
 vaisalamet_source_pattern: "vaisala_met_level0_*.dat"
 vaisalamet_source_destination: "{{ aurora_paths.raw_vaisalamet }}"
@@ -178,9 +326,9 @@ vaisalamet_source_sync_randomized_delay: 30
 vaisalamet_source_start_fresh: false
 
 asfs_logger_source_sync_enabled: true
-asfs_logger_source_sync_timer_enabled: true
+asfs_logger_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 asfs_logger_source_user: aurora
-asfs_logger_source_host: 100.124.55.22
+asfs_logger_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
 asfs_logger_source_path: /home/aurora/data/asfs/raw/crd
 asfs_logger_source_pattern: "aurora_asfs_data_sci_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].dat"
 asfs_logger_source_destination: "{{ aurora_paths.raw_asfs_crd }}"
@@ -193,9 +341,9 @@ asfs_logger_source_lookback_days: 10
 asfs_logger_source_start_fresh: false
 
 asfs_fast_sonic_source_sync_enabled: true
-asfs_fast_sonic_source_sync_timer_enabled: true
+asfs_fast_sonic_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 asfs_fast_sonic_source_user: aurora
-asfs_fast_sonic_source_host: 100.124.55.22
+asfs_fast_sonic_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
 asfs_fast_sonic_source_path: /home/aurora/data/asfs/raw/crd
 asfs_fast_sonic_source_pattern: "aurora_asfs_data_fast_sonic_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].dat"
 asfs_fast_sonic_source_destination: "{{ aurora_paths.raw_asfs_crd }}"
@@ -206,10 +354,24 @@ asfs_fast_sonic_source_lookback_days: 10
 # False means the first timer run pulls all existing matching source files.
 asfs_fast_sonic_source_start_fresh: false
 
+asfs_fast_gas_source_sync_enabled: true
+asfs_fast_gas_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
+asfs_fast_gas_source_user: aurora
+asfs_fast_gas_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
+asfs_fast_gas_source_path: /home/aurora/data/asfs/raw/crd
+asfs_fast_gas_source_pattern: "aurora_asfs_data_fast_gas_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].dat"
+asfs_fast_gas_source_destination: "{{ aurora_paths.raw_asfs_crd }}"
+asfs_fast_gas_source_state_file: "{{ aurora_state_root }}/asfs-fast-gas-sync.last"
+asfs_fast_gas_source_sync_interval: 2min
+asfs_fast_gas_source_sync_randomized_delay: 30
+asfs_fast_gas_source_lookback_days: 10
+# False means the first timer run pulls all existing matching source files.
+asfs_fast_gas_source_start_fresh: false
+
 power_source_sync_enabled: true
-power_source_sync_timer_enabled: true
+power_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 power_source_user: aurora
-power_source_host: 100.81.226.30
+power_source_host: "{{ aurora_edge_hosts.aps.linux.tailscale_ip }}"
 power_source_path: /data/power/level1
 power_source_pattern: "power_data_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].csv"
 power_source_destination: "{{ aurora_paths.raw_power }}"
@@ -217,13 +379,29 @@ power_source_state_file: "{{ aurora_state_root }}/power-sync.last"
 power_source_sync_interval: 2min
 power_source_sync_randomized_delay: 30
 power_source_lookback_days: 10
+power_source_mtime_grace_seconds: 300
 # False means the first timer run pulls all existing matching source files.
 power_source_start_fresh: false
 
+pdu_source_sync_enabled: true
+pdu_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
+pdu_source_user: aurora
+pdu_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
+pdu_source_path: /home/aurora/data/pdu
+pdu_source_pattern: "pdu_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].csv"
+pdu_source_destination: "{{ aurora_paths.raw_pdu }}"
+pdu_source_state_file: "{{ aurora_state_root }}/pdu-sync.last"
+pdu_source_sync_interval: 2min
+pdu_source_sync_randomized_delay: 30
+pdu_source_lookback_days: 10
+pdu_source_mtime_grace_seconds: 300
+# False means the first timer run pulls all existing matching source files.
+pdu_source_start_fresh: false
+
 wxcam_source_sync_enabled: true
-wxcam_source_sync_timer_enabled: true
+wxcam_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 wxcam_source_user: aurora
-wxcam_source_host: 100.124.55.22
+wxcam_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
 wxcam_source_path: /home/aurora/data/wxcam
 # The deployed raw sync retains only HDR JPG and MP4 assets for the FISH and
 # PANO camera streams. AUTO/LONG/SHORT files remain on the camera host.
@@ -237,11 +415,24 @@ wxcam_full_raw_mirror: false
 # False means the first timer run can pull the retained WXcam HDR archive locally.
 wxcam_source_start_fresh: false
 
-wxcam_zarr_state_file: "{{ aurora_state_root }}/wxcam-zarr-state.json"
+wxcam_zarr_state_file: "{{ aurora_state_root }}/wxcam-zarr-state-20260704.json"
+
+auroracam_source_sync_enabled: true
+auroracam_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
+auroracam_source_user: aurora
+auroracam_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
+auroracam_source_path: /home/aurora/data/mx4
+auroracam_source_destination: "{{ aurora_paths.raw_auroracam }}"
+auroracam_source_sync_interval: 2min
+auroracam_source_sync_randomized_delay: 30
+auroracam_index_interval: 2min
+auroracam_index_randomized_delay: 30
 
 aurora_enable_ufw: true
-aurora_preserve_existing_listener_ports:
-  # Existing target services the user asked to leave in place.
+aurora_preserve_existing_listener_ports: []
+aurora_remove_public_listener_ports:
+  # Previously preserved on the JASMIN-era host. The active droplet has no
+  # current listeners on these ports, so remove public allows if present.
   - { port: "5901", proto: tcp, comment: "existing VNC" }
   - { port: "9100", proto: tcp, comment: "existing node_exporter" }
   - { port: "111", proto: tcp, comment: "existing rpcbind" }
@@ -250,6 +441,7 @@ aurora_preserve_existing_listener_ports:
 aurora_apt_packages:
   - ca-certificates
   - certbot
+  - chrony
   - curl
   - fail2ban
   - ffmpeg
@@ -271,6 +463,9 @@ aurora_python_requirements:
   - cftime==1.6.5
   - dask==2025.10.0
   - distributed==2025.10.0
+  - cfgrib
+  - eccodes
+  - ecmwf-opendata
   - h5netcdf==1.7.3
   - h5py==3.15.1
   - holoviews==1.21.0
@@ -291,9 +486,31 @@ tailscale_enabled: true
 # or override this variable from an Ansible Vault file.
 tailscale_authkey: "{{ lookup('env', 'TAILSCALE_AUTHKEY') | default('', true) }}"
 
+# Optional ASS/APS edge reverse-tunnel server on data-ocean. Disabled by
+# default; enabling this creates only the restricted SSH tunnel account unless
+# edge_tunnel_server_manage_sshd_config is also set.
+edge_tunnel_server_enabled: false
+edge_tunnel_server_user: aurora-tunnel
+edge_tunnel_server_group: aurora-tunnel
+edge_tunnel_server_home: /var/lib/aurora-tunnel
+edge_tunnel_server_shell: /usr/sbin/nologin
+edge_tunnel_server_authorized_keys: []
+edge_tunnel_server_default_key_options:
+  - restrict
+  - port-forwarding
+  - no-agent-forwarding
+  - no-X11-forwarding
+  - no-pty
+  - permitlisten="127.0.0.1:2201"
+  - permitlisten="127.0.0.1:2202"
+edge_tunnel_server_manage_sshd_config: false
+edge_tunnel_server_listen_ports:
+  - 127.0.0.1:2201
+  - 127.0.0.1:2202
+
 # Prefer rsync via JASMIN transfer servers for reliable GWS sync.
 gws_sync_enabled: true
-gws_sync_timer_enabled: true
+gws_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 gws_transfer_hosts:
   - xfer-vm-03.jasmin.ac.uk
   - xfer-vm-01.jasmin.ac.uk
@@ -313,7 +530,7 @@ gws_manifest_history_keep: 48
 gws_manifest_checksum_mode: none
 gws_manifest_spot_modulus: 20
 gws_verification_enabled: true
-gws_verification_timer_enabled: true
+gws_verification_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 gws_sync_randomized_delay_sec: 60
 gws_sync_timeout_start_sec: 6h
 gws_verification_randomized_delay_sec: 60
@@ -334,11 +551,65 @@ gws_sync_jobs:
     destination: "{{ gws_products_root }}/wxcam/"
     schedule: "*:07/30"
     timeout_start_sec: 12h
+    exclude:
+      - /wxcam.zarr
+      - /wxcam.zarr/**
   - name: manifests
     source: "{{ gws_manifest_root }}/"
     destination: "{{ gws_internal_root }}/manifests/"
     schedule: "*:06/10"
 
-# SSHFS mount is optional convenience, not the primary sync path.
-gws_sshfs_enabled: false
+# SSHFS mount is required for the GWS-only WXcam pixel Zarr. Bulk raw and
+# non-WXcam product mirroring still use the rsync jobs above.
+gws_sshfs_enabled: true
 gws_sshfs_mountpoint: /mnt/gws/gamb2le
+
+# Development live mirror. The data-ocean host pulls from production/JASMIN
+# while writer timers stay disabled. Manual failover is still a separate,
+# explicit promotion event.
+aurora_standby_replication_enabled: "{{ aurora_is_development }}"
+aurora_standby_replication_timer_enabled: "{{ aurora_standby_replication_enabled }}"
+aurora_standby_primary_host: 130.246.212.116
+aurora_standby_primary_user: azimuth
+aurora_standby_primary_proxy_jump: ""
+aurora_standby_primary_ssh_extra_args: []
+aurora_standby_replication_known_hosts:
+  - "{{ aurora_standby_primary_host }}"
+aurora_standby_replication_ssh_private_key: /home/aurora/.ssh/id_rsa_jasmin_20200514
+aurora_standby_replication_ssh_private_key_source: ""
+aurora_standby_replication_ssh_private_key_content: ""
+aurora_standby_replication_rsync_path: sudo rsync
+aurora_standby_replication_interval: 5min
+aurora_standby_replication_randomized_delay_sec: 60
+aurora_standby_replication_timeout_start_sec: 12h
+aurora_standby_replication_delete: true
+aurora_standby_replication_state_root: "{{ aurora_state_root }}/dev-live-mirror"
+aurora_standby_replication_paths:
+  - name: raw
+    source: "{{ aurora_raw_root }}/"
+    destination: "{{ aurora_raw_root }}/"
+    exclude:
+      - "*.lock"
+      - "*.tmp"
+  - name: products
+    source: "{{ aurora_product_root }}/"
+    destination: "{{ aurora_product_root }}/"
+    exclude:
+      - ".zarr-rebuild-backups/**"
+      - "*.lock"
+      - "*.tmp"
+  - name: internal
+    source: "{{ aurora_data_root }}/internal/"
+    destination: "{{ aurora_data_root }}/internal/"
+    exclude:
+      - dev-live-mirror/**
+      - "*.lock"
+      - "*.tmp"
+  - name: state
+    source: "{{ aurora_state_root }}/"
+    destination: "{{ aurora_state_root }}/"
+    exclude:
+      - standby-replication/**
+      - dev-live-mirror/**
+      - "*.lock"
+      - "*.tmp"

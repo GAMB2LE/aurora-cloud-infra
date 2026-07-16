@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule Aurora AURORACam source sync
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec={{ auroracam_source_sync_interval }}
+Persistent=true
+RandomizedDelaySec={{ auroracam_source_sync_randomized_delay }}
+Unit=aurora-auroracam-source-sync.service
+
+[Install]
+WantedBy=timers.target

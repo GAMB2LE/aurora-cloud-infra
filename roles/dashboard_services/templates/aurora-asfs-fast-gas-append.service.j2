@@ -1,0 +1,14 @@
+[Unit]
+Description=Aurora ASFS fast-gas Zarr append
+After=aurora-asfs-fast-gas-source-sync.service
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+WorkingDirectory={{ aurora_app_dir }}
+EnvironmentFile=/etc/aurora-dashboard.env
+ExecStart={{ aurora_venv }}/bin/python append_new_asfs_fast_gas_to_zarr.py --root {{ aurora_paths.raw_asfs }} --zarr {{ aurora_zarr.asfs_fast_gas }} --chunk-time 24000
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6

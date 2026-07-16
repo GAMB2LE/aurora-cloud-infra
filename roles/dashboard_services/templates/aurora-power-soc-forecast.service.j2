@@ -1,0 +1,13 @@
+[Unit]
+Description=Aurora power SOC forecast from ECMWF solar data
+After=network-online.target aurora-power-append.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+WorkingDirectory={{ aurora_app_dir }}
+EnvironmentFile=/etc/aurora-dashboard.env
+ExecStart={{ aurora_venv }}/bin/python generate_power_soc_forecast.py --power-zarr {{ aurora_zarr.power }} --output-zarr {{ aurora_zarr.power_soc_forecast }} --cache-dir {{ aurora_paths.products_power_ecmwf_solar_forecast }} --state {{ aurora_paths.products_power }}/power_soc_forecast_state.json --horizon-hours 48
+Nice=10

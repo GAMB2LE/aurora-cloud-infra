@@ -2,6 +2,10 @@
 Description=Aurora wxcam pixel-Zarr append
 After=network-online.target aurora-wxcam-catalog.service
 Wants=network-online.target
+{% if gws_sshfs_enabled | default(false) | bool %}
+After=mnt-gws-gamb2le.mount
+RequiresMountsFor={{ gws_sshfs_mountpoint }}
+{% endif %}
 
 [Service]
 Type=oneshot
@@ -10,5 +14,5 @@ Group={{ aurora_service_group }}
 WorkingDirectory={{ aurora_app_dir }}
 EnvironmentFile=/etc/aurora-dashboard.env
 ExecCondition=/usr/bin/test -f {{ aurora_catalogs.wxcam }}
-ExecStart={{ aurora_venv }}/bin/python append_new_wxcam_to_zarr.py --catalog {{ aurora_catalogs.wxcam }} --zarr {{ aurora_zarr.wxcam }} --state {{ wxcam_zarr_state_file }} --batch-size 4
+ExecStart={{ aurora_venv }}/bin/python append_new_wxcam_to_zarr.py --catalog {{ aurora_catalogs.wxcam }} --zarr {{ aurora_zarr.wxcam }} --state {{ wxcam_zarr_state_file }} --batch-size 4 --from-time {{ wxcam_zarr_start_time }}
 Nice=10

@@ -1,0 +1,14 @@
+[Unit]
+Description=Aurora development live mirror pull
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/local/bin/aurora-dev-live-pull
+TimeoutStartSec={{ aurora_standby_replication_timeout_start_sec }}
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6

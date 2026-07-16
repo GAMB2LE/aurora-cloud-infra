@@ -1,12 +1,19 @@
 # Aurora Cloud Infrastructure
 
-Ansible configuration for rebuilding the Aurora cloud dashboard host on the existing JASMIN Cloud VM.
+Ansible configuration for building and operating the Aurora cloud dashboard
+hosts on JASMIN Cloud and the DigitalOcean droplet.
 
 ## Current Contract
 
-- Public hostname: `data.gamb2le.co.uk`.
+- Production public hostname: `data.gamb2le.co.uk` on JASMIN.
+- Development public hostname: `data-ocean.gamb2le.co.uk` on DigitalOcean.
+- Production is the authoritative live writer.
+- Development stays live from `aurora-dev-live-pull.timer`, which mirrors
+  production about every five minutes.
 - Raw data: `/project/aurora/raw`.
 - Dashboard products: `/data/aurora/products`.
+- Development experiment paths: `/project/aurora/dev-raw` and
+  `/data/aurora/dev-products`.
 - Dashboard app: `/opt/aurora-cloud-dashboard`.
 - Public access: `nginx` on `80/443`.
 - Private Panel backend: `127.0.0.1:5006` only.
@@ -18,14 +25,38 @@ Ansible configuration for rebuilding the Aurora cloud dashboard host on the exis
 - Static dashboard media route:
   `/wxcam-media` maps to `/data/aurora/products/wxcam` so WXcam MP4 playback
   uses normal HTTP range requests rather than the Panel websocket.
-- CL61 raw source: `aurora@100.117.101.84:/home/aurora/data/cl61` pulled into `/project/aurora/raw/cl61`.
+- Static AURORACam media route:
+  `/auroracam-media` maps to `/project/aurora/raw/auroracam` so MX4 JPEGs load
+  through normal HTTP image requests.
+- CL61 raw source: `aurora@100.124.55.22:/home/aurora/data/cl61` pulled into `/project/aurora/raw/cl61`.
 - Cloud radar raw source: `aurora@100.124.55.22:/home/aurora/data/rpgfmcw94` pulled into `/project/aurora/raw/rpgfmcw94`.
 - Vaisala met raw source: `aurora@100.124.55.22:/home/aurora/data/vaisalamet` pulled into `/project/aurora/raw/vaisalamet`.
 - ASFS Logger CRD raw source: `aurora@100.124.55.22:/home/aurora/data/asfs/raw/crd` pulled into `/project/aurora/raw/asfs/crd`.
 - ASFS fast-sonic CRD raw source: `aurora@100.124.55.22:/home/aurora/data/asfs/raw/crd` pulled into `/project/aurora/raw/asfs/crd`.
+- ASFS fast-gas CRD raw source: `aurora@100.124.55.22:/home/aurora/data/asfs/raw/crd` pulled into `/project/aurora/raw/asfs/crd`.
 - Power raw source: `aurora@100.81.226.30:/data/power/level1` pulled into `/project/aurora/raw/power/level1`.
 - WXcam raw source: `aurora@100.124.55.22:/home/aurora/data/wxcam` pulled into `/project/aurora/raw/wxcam`.
+- MX4 camera FTP ingest: four MOBOTIX M24 cameras write one QXGA JPEG per
+  minute to `ass-proxmox-linux:/home/aurora/data/mx4/<camera>/YYYY-MM-DD/`.
+- AURORACam raw source: `aurora@100.124.55.22:/home/aurora/data/mx4` pulled into `/project/aurora/raw/auroracam`.
 - GWS backup/sync: rsync via JASMIN transfer hosts to `/gws/ssde/j25b/gamb2le`.
+
+## Current ASS/APS Edge IPs
+
+The canonical Ansible copy is `aurora_edge_hosts` in
+`inventory/group_vars/aurora_cloud.yml`. It was checked against live hosts on
+`2026-07-06` UTC.
+
+| Host | Tailscale | LAN | WAN | Other |
+| --- | --- | --- | --- | --- |
+| `ass-proxmox` | `100.123.149.9` | `192.168.1.254` bridge, `192.168.1.219` uplink | `10.0.0.254` bridge | |
+| `ass-proxmox-linux` | `100.124.55.22` | `192.168.1.2`, `192.168.2.1` | `10.0.0.2` | Wi-Fi `192.168.10.2` |
+| `ass-proxmox-windows` | `100.121.25.32` | `192.168.1.3` | `10.0.0.3` | |
+| `ass-proxmox-pbs` | `100.104.16.48` | | `10.0.0.253` | |
+| `aps-proxmox` | `100.125.60.40` | `192.168.0.254` bridge, `192.168.99.195` uplink | `10.0.0.254` bridge | |
+| `aps-proxmox-linux` | `100.81.226.30` | `192.168.0.8` | `10.0.0.8` | Wi-Fi `192.168.10.8` |
+| `aps-proxmox-windows` | `100.92.179.9` | `192.168.0.9` | `10.0.0.3` | |
+| `aps-proxmox-pbs` | none running | | `10.0.0.253` | |
 
 ## Storage layout
 
@@ -43,6 +74,7 @@ The deployed host separates raw mirrored inputs from processed products.
   - `/project/aurora/raw/asfs/crd`
   - `/project/aurora/raw/power/level1`
   - `/project/aurora/raw/wxcam`
+  - `/project/aurora/raw/auroracam`
 - Storage type: shared Ceph network filesystem
 - Current filesystem size on `2026-05-18`: `4.0T`
 - Current used on `2026-05-18`: `41G`
@@ -58,12 +90,14 @@ So `/project/aurora` is the raw landing and mirror area.
   - quicklook PNGs
   - WXcam catalog SQLite
   - WXcam daily videos and thumbnails
+  - AURORACam metadata Zarr
   - performance logs and other dashboard products
 - Examples:
   - `/data/aurora/products/cl61/...zarr`
   - `/data/aurora/products/rpgfmcw94/cloud_radar.zarr`
   - `/data/aurora/products/quicklooks/...`
   - `/data/aurora/products/wxcam/...`
+  - `/data/aurora/products/auroracam/auroracam.zarr`
 - Storage type: local disk on `/dev/vdb`
 - Current filesystem size on `2026-05-18`: `983G`
 - Current used on `2026-05-18`: `197G`
@@ -95,6 +129,72 @@ uv run ansible-playbook playbooks/site.yml --check --diff
 
 Do not run `playbooks/site.yml` without `--check` until the old production Git changes have been preserved and transfer/Tailscale secrets have been put in Ansible Vault.
 
+## Production, Development, and Failover
+
+The inventory now includes `aurora-cloud-droplet` at `167.172.54.82`. The
+public split is:
+
+- `https://data.gamb2le.co.uk`: production JASMIN `aurora-cloud` endpoint.
+- `https://data-ocean.gamb2le.co.uk`: public development DigitalOcean endpoint.
+
+Production is the authoritative writer. Development mirrors production with
+`aurora-dev-live-pull.timer` and should not run normal production-path writer
+timers. `aurora_site_env` controls writer behavior:
+
+- `production` enables source sync, product processing, quicklook, operations,
+  alert, and GWS timers.
+- `development` installs the same dashboard stack but keeps writer timers
+  disabled and enables `aurora-dev-live-pull.timer` to pull raw, product,
+  internal, and state data from production.
+
+The current droplet has a 1TB-class data disk shared by `/data` and `/project`.
+It should use development-only paths for experiments and must not write to
+normal production product paths.
+
+The live primary audit on `2026-06-19` measured roughly `95G` under
+`/project/aurora/raw`, `457G` under `/data/aurora/products`, and `949M` under
+`/data/aurora/internal`. A full warm standby therefore needs a 1TB-class data
+disk before replication is enabled.
+
+Full failover is optional. It moves `data.gamb2le.co.uk` to `167.172.54.82`
+and runs the droplet with `aurora_domain=data.gamb2le.co.uk` and
+`aurora_failover_role=primary`.
+
+See `docs/PRODUCTION_DEVELOPMENT.md` for host roles, release policy, staging
+checks, and rollback rules. See `docs/FAILOVER.md` for emergency promotion
+history and troubleshooting.
+
+## AURORA-LASSO Operational Timer
+
+`aurora-les-operational-run.timer` runs the Cloudnet-centred AURORA-LASSO
+daily workflow from the deployed science runtime at
+`/data/aurora/les/runtimes/aurora-les-operational-current`.
+
+The managed service uses:
+
+```bash
+python -m aurora_les.cli campaign operational-run \
+  --campaign configs/campaigns/aurora_leeds_operational_20260521_rolling.yaml \
+  --target latest-ready \
+  --era5-lag-days 5 \
+  --skip-completed \
+  --execute \
+  --timeout-seconds 86400
+```
+
+This selects the newest configured campaign day whose required ERA5 and
+observation inputs are present, skips days already recorded as successfully run,
+executes the configured command plan, writes the operational summary, writes the
+AURORA-LASSO bundle, runs `lasso-check`, and refreshes the campaign index. The
+service uses the `cloudnetpy-model-eval` Python runtime because it includes
+`xarray` and can validate the MODF/MMDF NetCDF metadata.
+
+Manual dry-run check:
+
+```bash
+sudo -u aurora bash -lc 'cd /data/aurora/les/runtimes/aurora-les-operational-current && PYTHONPATH=src /data/aurora/les/runtimes/cloudnetpy-model-eval/bin/python3 -m aurora_les.cli campaign operational-run --campaign configs/campaigns/aurora_leeds_operational_20260521_rolling.yaml --target latest-ready --era5-lag-days 5 --skip-completed --json'
+```
+
 ## Source Syncs
 
 All configured source syncs now initialize from epoch `0` when their state file
@@ -119,19 +219,19 @@ and excludes wind-named variables before writing the Zarr product.
 The wxcam source sync retains only HDR JPG and MP4 files for the FISH and PANO
 streams under `/project/aurora/raw/wxcam`. AUTO/LONG/SHORT files stay on the
 camera host and are not cataloged, Zarr-appended, or archived from this VM.
+The MX4 camera ingest is source-side FTP on `ass-proxmox-linux`, separate from
+the CL61 SSH/SFTP path. It uses `vsftpd` on `192.168.1.2:21`, chrooted FTP user
+`mx`, and per-camera day folders under `/home/aurora/data/mx4`.
 
 Before enabling this live, confirm SSH from the target works:
 
 ```bash
-sudo -u aurora ssh -i /home/aurora/.ssh/id_ed25519_celine aurora@100.117.101.84 true
 sudo -u aurora ssh -o IdentityFile=none -o PubkeyAuthentication=no aurora@100.124.55.22 true
 ```
 
-The current audit found Tailscale reachability to `100.117.101.84`
-(`celine-edge-1`) and passwordless SSH now works from the `aurora` service user
-on `azimuth` using `/home/aurora/.ssh/id_ed25519_celine`. The source contains
-fresh files in `/home/aurora/data/cl61`. The radar source at `100.124.55.22`
-uses Tailscale SSH without private keys and stores `*LV1.NC` files under a
+The CL61 source now uses the shared ASS Linux data path at `100.124.55.22` and
+Tailscale SSH without private keys, matching the radar, HATPRO, Vaisala, ASFS,
+and WXcam source pulls. The radar source stores `*LV1.NC` files under a
 recursive `/home/aurora/data/rpgfmcw94/Yyyyy/Mmm/Ddd/` tree.
 The Vaisala met source at the same tailnet IP stores flat
 `vaisala_met_level0_*.dat` files in `/home/aurora/data/vaisalamet`.
@@ -144,6 +244,9 @@ The power source stores flat `power_data_*.csv` files in `/data/power/level1`.
 The wxcam source stores nested `FISH/` and `PANO/` trees under
 `/home/aurora/data/wxcam`; the deployed sync filters that tree to FISH HDR and
 PANO HDR JPG/MP4 files only.
+The MX4 cameras write directly to `/home/aurora/data/mx4` through the local
+FTP endpoint on the ASS Linux VM; see `docs/MX4_CAMERA_FTP.md` for camera IPs,
+FTP directory templates, exposure settings, and verification commands.
 
 The legacy source-side `cl61sync.timer` on `celine-edge-1` pushes to the old
 `aurora-cloud:/mnt/data/cl61` location and prunes local files older than 21 days
@@ -256,6 +359,22 @@ The relevant timers are:
 - `aurora-ops-monitor-append.timer` every 5 minutes
 - `aurora-ops-monitor-quicklooks.timer` every 10 minutes
 - `aurora-mirror-verify.timer` every 10 minutes
+
+## Time Baseline
+
+Aurora cloud hosts are UTC-only systems. The Ansible base role installs
+`chrony`, writes `/etc/chrony/sources.d/gamb2le-ntp.sources`, sets timezone
+`UTC`, keeps `LocalRTC=no`, enables NTP, and asks chrony to step after source
+changes.
+
+Required live verification:
+
+```bash
+timedatectl show -p Timezone -p LocalRTC -p NTPSynchronized --value
+chronyc tracking
+```
+
+Expected values are `UTC`, `no`, and `yes`.
 
 ## Secrets
 
