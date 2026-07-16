@@ -2,8 +2,20 @@
 - name: Deploy an exact Aurora dashboard runtime release
   hosts: aurora_cloud
   become: true
+  pre_tasks:
+    - name: Ensure dashboard runtime raw directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ aurora_service_user }}"
+        group: "{{ aurora_service_group }}"
+        mode: "02775"
+      loop:
+        - "{{ aurora_paths.raw_pdu }}"
+        - "{{ aurora_paths.raw_menapia }}"
+        - "{{ aurora_paths.raw_auroracam }}"
+        - "{{ aurora_dev_raw_root }}"
   roles:
-    - storage
     - source_sync
     - dashboard_app
     - dashboard_services
