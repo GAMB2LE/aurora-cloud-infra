@@ -94,6 +94,8 @@
     - aurora-power-soc-forecast-learn.timer
     - aurora-power-soc-ensemble.service
     - aurora-power-soc-ensemble.timer
+    - aurora-ecmwf-provider-shadow.service
+    - aurora-ecmwf-provider-shadow.timer
     - aurora-power-quicklooks.service
     - aurora-power-quicklooks.timer
     - aurora-ops-monitor-collect.service
@@ -132,6 +134,14 @@
     name: aurora-mobile-api.service
     enabled: true
     state: started
+    daemon_reload: true
+  when: not ansible_check_mode
+
+- name: Manage development Earthkit shadow comparison timer
+  ansible.builtin.systemd:
+    name: aurora-ecmwf-provider-shadow.timer
+    enabled: "{{ aurora_ecmwf_shadow_enabled | bool }}"
+    state: "{{ 'started' if aurora_ecmwf_shadow_enabled | bool else 'stopped' }}"
     daemon_reload: true
   when: not ansible_check_mode
 

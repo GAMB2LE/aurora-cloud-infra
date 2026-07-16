@@ -65,6 +65,13 @@ required service state about every five minutes. It uses rsync locking,
 `--partial`, `--delay-updates`, and `--delete-delay` so incomplete transfers do
 not replace complete products.
 
+Development also runs `aurora-ecmwf-provider-shadow.timer`. This performs a
+read-only comparison of the latest mirrored deterministic ECMWF GRIB with the
+legacy and Earthkit decoders. It writes only
+`/data/aurora/dev-products/power/ecmwf_provider_shadow.json`; it does not run a
+forecast writer or modify mirrored production products. Production remains on
+`AURORA_ECMWF_PROVIDER=legacy` until the parity and resource gates pass.
+
 ## Release Policy
 
 Branches and tags:

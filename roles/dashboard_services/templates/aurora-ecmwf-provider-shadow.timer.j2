@@ -1,0 +1,11 @@
+[Unit]
+Description=Compare Earthkit and legacy ECMWF decoding every three hours
+
+[Timer]
+OnCalendar=00/3:35
+RandomizedDelaySec=10min
+Persistent=true
+Unit=aurora-ecmwf-provider-shadow.service
+
+[Install]
+WantedBy=timers.target

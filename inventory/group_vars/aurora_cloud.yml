@@ -123,6 +123,12 @@ aurora_dev_product_root: "{{ aurora_data_root }}/dev-products"
 aurora_dev_raw_root: /project/aurora/dev-raw
 aurora_dev_live_mirror_stamp: "{{ aurora_data_root }}/internal/dev-live-mirror/last_success.json"
 aurora_dev_live_mirror_recent_minutes: 7.5
+aurora_ecmwf_provider: legacy
+aurora_ecmwf_shadow_enabled: "{{ aurora_is_development }}"
+aurora_ecmwf_shadow_report_path: >-
+  {{ (aurora_dev_product_root ~ '/power/ecmwf_provider_shadow.json')
+     if aurora_is_development
+     else (aurora_product_root ~ '/power/ecmwf_provider_shadow.json') }}
 aurora_log_root: /var/log/aurora-cloud
 aurora_state_root: /var/lib/aurora-cloud
 
