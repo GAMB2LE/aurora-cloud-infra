@@ -8,6 +8,15 @@
     mode: "02775"
   when: aurora_ecmwf_shadow_enabled | bool
 
+- name: Ensure development operating-plan product directory exists
+  ansible.builtin.file:
+    path: "{{ aurora_power_operating_root }}"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "02775"
+  when: aurora_power_operating_enabled | bool
+
 - name: Install dashboard environment file
   ansible.builtin.template:
     src: aurora-dashboard.env.j2
@@ -105,6 +114,10 @@
     - aurora-power-soc-ensemble.timer
     - aurora-ecmwf-provider-shadow.service
     - aurora-ecmwf-provider-shadow.timer
+    - aurora-power-soc-planning-forecast.service
+    - aurora-power-soc-planning-forecast.timer
+    - aurora-power-operating-scenarios.service
+    - aurora-power-operating-scenarios.timer
     - aurora-power-quicklooks.service
     - aurora-power-quicklooks.timer
     - aurora-ops-monitor-collect.service
@@ -151,6 +164,22 @@
     name: aurora-ecmwf-provider-shadow.timer
     enabled: "{{ aurora_ecmwf_shadow_enabled | bool }}"
     state: "{{ 'started' if aurora_ecmwf_shadow_enabled | bool else 'stopped' }}"
+    daemon_reload: true
+  when: not ansible_check_mode
+
+- name: Manage development long-range planning forecast timer
+  ansible.builtin.systemd:
+    name: aurora-power-soc-planning-forecast.timer
+    enabled: "{{ aurora_power_operating_enabled | bool }}"
+    state: "{{ 'started' if aurora_power_operating_enabled | bool else 'stopped' }}"
+    daemon_reload: true
+  when: not ansible_check_mode
+
+- name: Manage development operating-state scenario timer
+  ansible.builtin.systemd:
+    name: aurora-power-operating-scenarios.timer
+    enabled: "{{ aurora_power_operating_enabled | bool }}"
+    state: "{{ 'started' if aurora_power_operating_enabled | bool else 'stopped' }}"
     daemon_reload: true
   when: not ansible_check_mode
 

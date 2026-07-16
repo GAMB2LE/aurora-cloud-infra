@@ -1,0 +1,15 @@
+[Unit]
+Description=Development 240-hour ECMWF SOC planning forecast
+After=network-online.target aurora-dev-live-pull.service
+Wants=network-online.target
+ConditionPathExists={{ aurora_zarr.power }}
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+WorkingDirectory={{ aurora_app_dir }}
+EnvironmentFile=/etc/aurora-dashboard.env
+ExecStart={{ aurora_venv }}/bin/python generate_power_soc_forecast.py --power-zarr {{ aurora_zarr.power }} --pdu-zarr {{ aurora_zarr.pdu }} --output-zarr {{ aurora_power_planning_forecast_path }} --cache-dir {{ aurora_power_planning_forecast_cache }} --state {{ aurora_power_planning_forecast_state }} --archive-zarr {{ aurora_power_planning_forecast_archive }} --skill-zarr {{ aurora_power_planning_forecast_skill }} --hindcast-zarr {{ aurora_power_planning_hindcast }} --horizon-hours 240 --ecmwf-cycle-hour auto --provider {{ aurora_ecmwf_provider }}
+Nice=10
+TimeoutStartSec=1800

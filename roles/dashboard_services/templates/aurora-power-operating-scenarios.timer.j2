@@ -1,0 +1,11 @@
+[Unit]
+Description=Update development learned APS operating plans every five minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=5min
+RandomizedDelaySec=30
+Unit=aurora-power-operating-scenarios.service
+
+[Install]
+WantedBy=timers.target

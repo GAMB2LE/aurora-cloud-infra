@@ -129,6 +129,23 @@ aurora_ecmwf_shadow_report_path: >-
   {{ (aurora_dev_product_root ~ '/power/ecmwf_provider_shadow.json')
      if aurora_is_development
      else (aurora_product_root ~ '/power/ecmwf_provider_shadow.json') }}
+aurora_power_operating_enabled: "{{ aurora_is_development }}"
+aurora_power_operating_root: >-
+  {{ (aurora_dev_product_root ~ '/power')
+     if aurora_is_development
+     else (aurora_product_root ~ '/power') }}
+aurora_power_planning_forecast_path: "{{ aurora_power_operating_root }}/power_soc_planning_forecast.zarr"
+aurora_power_planning_forecast_cache: "{{ aurora_power_operating_root }}/ecmwf_solar_planning"
+aurora_power_planning_forecast_state: "{{ aurora_power_operating_root }}/power_soc_planning_state.json"
+aurora_power_planning_forecast_archive: "{{ aurora_power_operating_root }}/power_soc_planning_archive.zarr"
+aurora_power_planning_forecast_skill: "{{ aurora_power_operating_root }}/power_soc_planning_skill.zarr"
+aurora_power_planning_hindcast: "{{ aurora_power_operating_root }}/power_soc_planning_hindcast.zarr"
+aurora_power_operating_state_path: "{{ aurora_power_operating_root }}/power_operating_state.zarr"
+aurora_power_operating_scenarios_path: "{{ aurora_power_operating_root }}/power_operating_scenarios.zarr"
+aurora_power_operating_model_state_path: "{{ aurora_power_operating_root }}/power_operating_model_state.json"
+aurora_power_operating_recommendations_path: "{{ aurora_power_operating_root }}/power_operating_recommendations.json"
+aurora_power_display_summary_path: "{{ aurora_power_operating_root }}/power_display_summary.zarr"
+aurora_power_display_energy_path: "{{ aurora_power_operating_root }}/power_display_energy.zarr"
 aurora_log_root: /var/log/aurora-cloud
 aurora_state_root: /var/lib/aurora-cloud
 

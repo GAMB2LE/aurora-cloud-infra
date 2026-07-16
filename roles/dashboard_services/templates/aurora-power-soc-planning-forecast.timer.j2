@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh development 240-hour ECMWF planning forecast twice daily
+
+[Timer]
+OnCalendar=*-*-* 08,20:25:00
+RandomizedDelaySec=10min
+Persistent=true
+Unit=aurora-power-soc-planning-forecast.service
+
+[Install]
+WantedBy=timers.target
