@@ -92,7 +92,7 @@ edge_source_sync_known_hosts:
 
 aurora_app_dir: /opt/aurora-cloud-dashboard
 aurora_app_repo: https://github.com/GAMB2LE/aurora_cloud_dashboard.git
-aurora_app_version: 7a2e530
+aurora_app_version: 352f2bd
 aurora_infra_repo_dir: /tmp/aurora-cloud-infra-codex
 aurora_python: /usr/bin/python3
 aurora_venv: "{{ aurora_app_dir }}/venv"
