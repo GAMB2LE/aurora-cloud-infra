@@ -1,0 +1,8 @@
+---
+- name: Deploy Aurora mobile API without changing data-ingest schedules
+  hosts: aurora_cloud
+  become: true
+  roles:
+    - dashboard_app
+    - dashboard_services
+    - nginx
