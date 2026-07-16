@@ -6,7 +6,9 @@
     owner: root
     group: root
     mode: "0644"
-  notify: Restart dashboard
+  notify:
+    - Restart dashboard
+    - Restart mobile API
 
 - name: Install Aurora service user msmtp config for ops alerts
   ansible.builtin.template:
@@ -17,6 +19,15 @@
     mode: "0600"
   when: ops_alert_smtp_host | default('') | length > 0
 
+- name: Generate mobile API bearer token once per host
+  ansible.builtin.shell: |
+    umask 077
+    openssl rand -hex 32 > /etc/aurora-mobile-api.token
+  args:
+    creates: /etc/aurora-mobile-api.token
+  no_log: true
+  when: not ansible_check_mode
+
 - name: Install systemd service and timer units
   ansible.builtin.template:
     src: "{{ item }}.j2"
@@ -26,6 +37,7 @@
     mode: "0644"
   loop:
     - aurora-dashboard.service
+    - aurora-mobile-api.service
     - aurora-ceilometer-append.service
     - aurora-ceilometer-append.timer
     - aurora-ceilometer-last24h.service
@@ -87,10 +99,19 @@
   notify:
     - Reload systemd
     - Restart dashboard
+    - Restart mobile API
 
 - name: Enable dashboard service
   ansible.builtin.systemd:
     name: aurora-dashboard.service
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: not ansible_check_mode
+
+- name: Enable mobile API service
+  ansible.builtin.systemd:
+    name: aurora-mobile-api.service
     enabled: true
     state: started
     daemon_reload: true

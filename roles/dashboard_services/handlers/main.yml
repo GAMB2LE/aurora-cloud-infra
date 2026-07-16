@@ -11,3 +11,11 @@
   when:
     - not ansible_check_mode
     - ansible_facts.service_mgr == "systemd"
+
+- name: Restart mobile API
+  ansible.builtin.systemd:
+    name: aurora-mobile-api.service
+    state: restarted
+  when:
+    - not ansible_check_mode
+    - ansible_facts.service_mgr == "systemd"
