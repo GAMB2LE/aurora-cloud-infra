@@ -1,0 +1,49 @@
+name: validate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ansible:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install locked control environment
+        run: uv sync --locked
+      - name: Install Ansible collections
+        run: uv run ansible-galaxy collection install -r requirements.yml
+      - name: Check recent commits for whitespace errors
+        run: git log --check --oneline -n 40
+      - name: Validate inventory
+        run: uv run ansible-inventory --list >/dev/null
+      - name: Validate playbooks
+        run: |
+          uv run ansible-playbook playbooks/site.yml --syntax-check
+          uv run ansible-playbook playbooks/audit.yml --syntax-check
+          uv run ansible-playbook playbooks/edge_tunnel_server.yml --syntax-check
+
+  documentation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-docs.txt
+      - name: Install documentation dependencies
+        run: python -m pip install -r requirements-docs.txt
+      - name: Build documentation strictly
+        run: python -m mkdocs build --strict

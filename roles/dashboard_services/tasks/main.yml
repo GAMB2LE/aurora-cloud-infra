@@ -60,6 +60,10 @@
     - aurora-pdu-append.timer
     - aurora-power-soc-forecast.service
     - aurora-power-soc-forecast.timer
+    - aurora-power-soc-forecast-learn.service
+    - aurora-power-soc-forecast-learn.timer
+    - aurora-power-soc-ensemble.service
+    - aurora-power-soc-ensemble.timer
     - aurora-power-quicklooks.service
     - aurora-power-quicklooks.timer
     - aurora-ops-monitor-collect.service
@@ -116,6 +120,8 @@
     - { unit: aurora-power-append.timer, key: power_append }
     - { unit: aurora-pdu-append.timer, key: pdu_append }
     - { unit: aurora-power-soc-forecast.timer, key: power_soc_forecast }
+    - { unit: aurora-power-soc-forecast-learn.timer, key: power_soc_forecast }
+    - { unit: aurora-power-soc-ensemble.timer, key: power_soc_ensemble }
     - { unit: aurora-power-quicklooks.timer, key: power_quicklooks }
     - { unit: aurora-ops-monitor-collect.timer, key: ops_monitor_collect }
     - { unit: aurora-ops-monitor-append.timer, key: ops_monitor_append }
@@ -150,6 +156,8 @@
     - aurora-power-append.service
     - aurora-pdu-append.service
     - aurora-power-soc-forecast.service
+    - aurora-power-soc-forecast-learn.service
+    - aurora-power-soc-ensemble.service
     - aurora-power-quicklooks.service
     - aurora-ops-monitor-collect.service
     - aurora-ops-monitor-append.service
@@ -186,6 +194,8 @@
     - { service: aurora-power-append.service, key: power_append }
     - { service: aurora-pdu-append.service, key: pdu_append }
     - { service: aurora-power-soc-forecast.service, key: power_soc_forecast }
+    - { service: aurora-power-soc-forecast-learn.service, key: power_soc_forecast }
+    - { service: aurora-power-soc-ensemble.service, key: power_soc_ensemble }
     - { service: aurora-power-quicklooks.service, key: power_quicklooks }
     - { service: aurora-ops-monitor-collect.service, key: ops_monitor_collect }
     - { service: aurora-ops-monitor-append.service, key: ops_monitor_append }

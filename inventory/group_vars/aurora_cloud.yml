@@ -91,53 +91,8 @@ edge_source_sync_known_hosts:
     port: "{{ aurora_edge_tunnel_endpoints.aps.port }}"
 
 aurora_app_dir: /opt/aurora-cloud-dashboard
-aurora_app_repo: git@github-dashboard:GAMB2LE/aurora_cloud_dashboard.git
-aurora_app_version: 4bfcd9c89acb824d45f33445801cf91c08617134
-aurora_dashboard_extra_files:
-  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/app.py"
-    dest: app.py
-    mode: "0644"
-  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/collect_operations_snapshot.py"
-    dest: collect_operations_snapshot.py
-    mode: "0644"
-  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/grouped_timeseries.py"
-    dest: grouped_timeseries.py
-    mode: "0644"
-  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/generate_power_display_summary.py"
-    dest: generate_power_display_summary.py
-    mode: "0755"
-  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/generate_power_soc_forecast.py"
-    dest: generate_power_soc_forecast.py
-    mode: "0755"
-  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/append_new_pdu_to_zarr.py"
-    dest: append_new_pdu_to_zarr.py
-    mode: "0755"
-  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/rebuild_cutoff.py"
-    dest: rebuild_cutoff.py
-    mode: "0644"
-  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/model-evaluation.py"
-    dest: model-evaluation.py
-    owner: root
-    group: root
-    mode: "0644"
-  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/dart.py"
-    dest: dart.py
-    owner: root
-    group: root
-    mode: "0644"
-  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/wxcam_catalog.py"
-    dest: wxcam_catalog.py
-    mode: "0644"
-  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/auroracam_catalog.py"
-    dest: auroracam_catalog.py
-    mode: "0644"
-  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/radar_colormaps.py"
-    dest: radar_colormaps.py
-    mode: "0644"
-  - src: "{{ inventory_dir }}/../../aurora_cloud_dashboard/index_auroracam_zarr.py"
-    dest: index_auroracam_zarr.py
-    mode: "0755"
-aurora_dashboard_default_instrument: Ceilometer
+aurora_app_repo: https://github.com/GAMB2LE/aurora_cloud_dashboard.git
+aurora_app_version: c8053e2e3365dd40527487eecee737ebb9659efe
 aurora_infra_repo_dir: /tmp/aurora-cloud-infra-codex
 aurora_python: /usr/bin/python3
 aurora_venv: "{{ aurora_app_dir }}/venv"
@@ -191,6 +146,7 @@ aurora_paths:
   products_asfs_fast_gas: "{{ aurora_product_root }}/asfs_fast_gas"
   products_power: "{{ aurora_product_root }}/power"
   products_power_ecmwf_solar_forecast: "{{ aurora_product_root }}/power/ecmwf_solar_forecast"
+  products_power_ecmwf_solar_ensemble: "{{ aurora_product_root }}/power/ecmwf_solar_ensemble"
   products_ops_monitor: "{{ aurora_product_root }}/ops_monitor"
   products_ops_monitor_health: "{{ aurora_product_root }}/ops_monitor/health"
   products_wxcam: "{{ aurora_product_root }}/wxcam"
@@ -213,6 +169,12 @@ aurora_zarr:
   power: "{{ aurora_product_root }}/power/power.zarr"
   pdu: "{{ aurora_product_root }}/power/pdu.zarr"
   power_soc_forecast: "{{ aurora_product_root }}/power/power_soc_forecast.zarr"
+  power_soc_forecast_archive: "{{ aurora_product_root }}/power/power_soc_forecast_archive.zarr"
+  power_soc_forecast_skill: "{{ aurora_product_root }}/power/power_soc_forecast_skill.zarr"
+  power_soc_hindcast: "{{ aurora_product_root }}/power/power_soc_hindcast.zarr"
+  power_soc_ensemble: "{{ aurora_product_root }}/power/power_soc_ensemble_forecast.zarr"
+  power_soc_ensemble_archive: "{{ aurora_product_root }}/power/power_soc_ensemble_archive.zarr"
+  power_soc_ensemble_skill: "{{ aurora_product_root }}/power/power_soc_ensemble_skill.zarr"
   ops_monitor: "{{ aurora_product_root }}/ops_monitor/ops_monitor.zarr"
   wxcam: "{{ wxcam_zarr_mount_path }}"
   auroracam: "{{ aurora_product_root }}/auroracam/auroracam.zarr"
@@ -269,6 +231,7 @@ aurora_processing_timers:
   power_append: "{{ aurora_writer_timers_enabled }}"
   pdu_append: "{{ aurora_writer_timers_enabled }}"
   power_soc_forecast: "{{ aurora_writer_timers_enabled }}"
+  power_soc_ensemble: "{{ aurora_writer_timers_enabled }}"
   power_quicklooks: "{{ aurora_writer_timers_enabled }}"
   ops_monitor_collect: "{{ aurora_writer_timers_enabled }}"
   ops_monitor_append: "{{ aurora_writer_timers_enabled }}"
@@ -508,29 +471,6 @@ aurora_apt_packages:
   - sshfs
   - ufw
   - unattended-upgrades
-
-aurora_python_requirements:
-  - bokeh==3.8.0
-  - cftime==1.6.5
-  - dask==2025.10.0
-  - distributed==2025.10.0
-  - cfgrib
-  - eccodes
-  - ecmwf-opendata
-  - h5netcdf==1.7.3
-  - h5py==3.15.1
-  - holoviews==1.21.0
-  - hvplot==0.12.1
-  - matplotlib==3.10.7
-  - netcdf4==1.7.3
-  - numcodecs==0.13.1
-  - numpy==2.2.6
-  - pandas==2.3.3
-  - panel==1.8.2
-  - plotly==6.3.1
-  - scipy==1.15.3
-  - xarray==2025.6.1
-  - zarr==2.18.3
 
 tailscale_enabled: true
 # Do not commit the auth key. Export TAILSCALE_AUTHKEY before running site.yml,

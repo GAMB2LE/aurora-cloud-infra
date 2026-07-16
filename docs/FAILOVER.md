@@ -85,19 +85,9 @@ from Ansible Vault. It also needs that key accepted by `login.jasmin.ac.uk` and
 the primary host. The replication script uses `sudo rsync` on the primary so it
 can read the product and state trees.
 
-The inventory pins the dashboard checkout to commit
-`b91dfa5f9b5185de7ae63e46af7b395850d79d0d`, which includes the failover
-endpoint checks, read-only standby catalog handling, APS output-axis split, and
-UTC quicklook-window fixes. Controller-based rollouts still overlay the
-compatibility files listed in `aurora_dashboard_extra_files` so the running host
-receives the locally audited dashboard entrypoints.
-
-The current live droplet checkout has also been normalized onto
-`codex/droplet-live-dashboard-20260706` at
-`aaa96bf Persist droplet dashboard deployment state`. That branch records the
-on-host deployment state and prevents a normal manual `git pull` in
-`/opt/aurora-cloud-dashboard` from reverting the APS axis fix back to the older
-detached checkout.
+Inventory pins each dashboard checkout to an exact commit or annotated
+`prod-*` tag. Deployments contain only files from that Git ref; the playbook
+does not overlay controller files or rewrite tracked source in place.
 
 The standby can replicate from the primary without Tailscale, but promotion
 requires the droplet to reach instrument source hosts. Provide `TAILSCALE_AUTHKEY`
@@ -111,8 +101,7 @@ provide that key through vault/configuration or authorize the droplet-generated
 The standby dashboard should be usable at
 `https://data-ocean.gamb2le.co.uk/app` while `data.gamb2le.co.uk` remains on
 the primary. The expected first view is the `AURORA Data Viewer` with
-`Instrument = Ceilometer`, because CL61 is the currently active Aurora data
-stream.
+`Instrument = Aurora Power Supply`, providing the quickest operational check.
 
 Check the standby web path after every dashboard or replication change:
 
@@ -149,10 +138,8 @@ The durable fix is in the dashboard repository:
   back to `mode=ro&immutable=1` for replicated standby catalogs where SQLite
   would otherwise try to create recovery or WAL metadata files
 
-This file is included in the pinned dashboard commit
-`b91dfa5f9b5185de7ae63e46af7b395850d79d0d` and is also deployed through
-`aurora_dashboard_extra_files` during controller-based rollout, so the patched
-`wxcam_catalog.py` lands under `/opt/aurora-cloud-dashboard/` on both hosts.
+This behavior is part of the pinned dashboard Git ref deployed identically to
+both hosts.
 
 The standby may log this non-fatal line because the product tree is replicated
 read-only for the `aurora` service user:

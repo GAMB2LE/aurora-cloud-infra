@@ -7,13 +7,42 @@
     group: "{{ aurora_service_group }}"
     mode: "0755"
 
+- name: Inspect existing dashboard checkout
+  ansible.builtin.stat:
+    path: "{{ aurora_app_dir }}/.git"
+  register: aurora_dashboard_git_dir
+
+- name: Check existing dashboard checkout is clean
+  ansible.builtin.command:
+    argv:
+      - git
+      - -C
+      - "{{ aurora_app_dir }}"
+      - status
+      - --porcelain
+      - --untracked-files=all
+  become_user: "{{ aurora_service_user }}"
+  register: aurora_dashboard_git_status
+  changed_when: false
+  check_mode: false
+  when: aurora_dashboard_git_dir.stat.exists
+
+- name: Refuse to overwrite an unpreserved dashboard checkout
+  ansible.builtin.assert:
+    that:
+      - aurora_dashboard_git_status.stdout | trim == ''
+    fail_msg: >-
+      {{ aurora_app_dir }} has tracked or untracked changes. Preserve them as a
+      patch/tag and clean the checkout before deploying {{ aurora_app_version }}.
+  when: aurora_dashboard_git_dir.stat.exists
+
 - name: Check out dashboard application
   ansible.builtin.git:
     repo: "{{ aurora_app_repo }}"
     dest: "{{ aurora_app_dir }}"
     version: "{{ aurora_app_version }}"
     update: true
-    force: true
+    force: false
   become_user: "{{ aurora_service_user }}"
   when: not ansible_check_mode
 
@@ -24,32 +53,6 @@
     owner: "{{ aurora_service_user }}"
     group: "{{ aurora_service_group }}"
   when: not ansible_check_mode
-
-- name: Install dashboard compatibility files from controller
-  ansible.builtin.copy:
-    src: "{{ item.src }}"
-    dest: "{{ aurora_app_dir }}/{{ item.dest }}"
-    owner: "{{ item.owner | default(aurora_service_user) }}"
-    group: "{{ item.group | default(aurora_service_group) }}"
-    mode: "{{ item.mode | default('0644') }}"
-  loop: "{{ aurora_dashboard_extra_files }}"
-  when:
-    - not ansible_check_mode
-    - aurora_dashboard_extra_files | length > 0
-  notify: Restart dashboard
-
-- name: Set dashboard default instrument
-  ansible.builtin.lineinfile:
-    path: "{{ aurora_app_dir }}/app.py"
-    regexp: '^CURRENT_INSTRUMENT = '
-    line: "CURRENT_INSTRUMENT = {{ aurora_dashboard_default_instrument | to_json }}"
-    owner: "{{ aurora_service_user }}"
-    group: "{{ aurora_service_group }}"
-    mode: "0644"
-  when:
-    - not ansible_check_mode
-    - aurora_dashboard_default_instrument | default('') | length > 0
-  notify: Restart dashboard
 
 - name: Ensure uv cache directory exists
   ansible.builtin.file:
@@ -70,17 +73,8 @@
   become_user: "{{ aurora_service_user }}"
   when: not ansible_check_mode
 
-- name: Write pinned requirements
-  ansible.builtin.template:
-    src: requirements.txt.j2
-    dest: "{{ aurora_app_dir }}/requirements.txt"
-    owner: "{{ aurora_service_user }}"
-    group: "{{ aurora_service_group }}"
-    mode: "0644"
-  when: not ansible_check_mode
-
 - name: Install Python dependencies with uv
-  ansible.builtin.command: "{{ aurora_uv_bin }} pip install --upgrade -r {{ aurora_app_dir }}/requirements.txt --python {{ aurora_venv }}/bin/python"
+  ansible.builtin.command: "{{ aurora_uv_bin }} pip install --upgrade -r {{ aurora_app_dir }}/requirements-dashboard.txt --python {{ aurora_venv }}/bin/python"
   environment:
     UV_CACHE_DIR: "{{ aurora_uv_cache_dir }}"
   become_user: "{{ aurora_service_user }}"

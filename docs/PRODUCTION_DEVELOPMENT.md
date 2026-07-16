@@ -69,7 +69,6 @@ not replace complete products.
 Branches and tags:
 
 - `main`: staging/development branch for data-ocean.
-- `production`: stable production branch for JASMIN.
 - `prod-YYYYMMDD.N`: annotated production release tags.
 
 Promotion sequence:
@@ -77,10 +76,14 @@ Promotion sequence:
 1. Deploy the candidate to data-ocean.
 2. Run smoke tests on `https://data-ocean.gamb2le.co.uk/app`.
 3. Confirm data-ocean shows the development banner and live mirror lag.
-4. Merge or fast-forward the candidate into `production`.
-5. Create an annotated `prod-*` tag.
-6. Deploy exactly that production branch or tag to JASMIN.
-7. Smoke-test `https://data.gamb2le.co.uk/app`.
+4. Create an annotated `prod-*` tag on the validated `main` commit.
+5. Deploy exactly that tag to JASMIN.
+6. Smoke-test `https://data.gamb2le.co.uk/app`.
+
+Ansible refuses to deploy over a dirty checkout. Preserve unexpected host
+changes as a patch/tag, clean the checkout, and deploy the exact inventory ref.
+Controller-side source overlays and in-place edits are not part of the release
+process.
 
 Do not deploy untagged experimental changes directly to production.
 
@@ -150,7 +153,7 @@ Expected result:
 - app returns the full dashboard document
 - no development banner
 - checkout is clean
-- branch is `production` or HEAD is an approved `prod-*` tag
+- HEAD is an approved `prod-*` tag
 - writer timers are active after cutover
 - no failed systemd units
 - active streams show green freshness
