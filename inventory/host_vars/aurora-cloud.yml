@@ -2,4 +2,4 @@
 aurora_site_env: production
 aurora_failover_role: primary
 aurora_public_ip: 130.246.212.116
-aurora_app_version: prod-20260716.1
+aurora_app_version: f2a0c1f
