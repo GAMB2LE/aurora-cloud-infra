@@ -1,4 +1,13 @@
 ---
+- name: Ensure Earthkit shadow report directory exists
+  ansible.builtin.file:
+    path: "{{ aurora_ecmwf_shadow_report_path | dirname }}"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "02775"
+  when: aurora_ecmwf_shadow_enabled | bool
+
 - name: Install dashboard environment file
   ansible.builtin.template:
     src: aurora-dashboard.env.j2
