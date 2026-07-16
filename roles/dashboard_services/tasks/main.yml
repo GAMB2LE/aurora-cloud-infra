@@ -28,6 +28,24 @@
   no_log: true
   when: not ansible_check_mode
 
+- name: Allow the mobile API service account to read its bearer token
+  ansible.builtin.file:
+    path: /etc/aurora-mobile-api.token
+    owner: root
+    group: "{{ aurora_service_group }}"
+    mode: "0640"
+  no_log: true
+  when: not ansible_check_mode
+
+- name: Create bounded mobile API preview cache
+  ansible.builtin.file:
+    path: /var/cache/aurora-mobile-api/auroracam
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "0750"
+  when: not ansible_check_mode
+
 - name: Install systemd service and timer units
   ansible.builtin.template:
     src: "{{ item }}.j2"
