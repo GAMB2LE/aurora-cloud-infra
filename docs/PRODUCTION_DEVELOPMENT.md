@@ -93,6 +93,20 @@ uv run ansible-playbook playbooks/dashboard_release.yml --limit <host> --check -
 uv run ansible-playbook playbooks/dashboard_release.yml --limit <host>
 ```
 
+Use the runtime release playbook when preparing or repairing the complete
+dashboard service set, including source sync, GWS, nginx, and development
+mirror units. Keep writers disabled while preparing a production host:
+
+```bash
+uv run ansible-playbook playbooks/dashboard_runtime_release.yml --limit <host> --check --diff -e aurora_writer_timers_enabled=false
+uv run ansible-playbook playbooks/dashboard_runtime_release.yml --limit <host> -e aurora_writer_timers_enabled=false
+```
+
+The runtime playbook assumes the host baseline, storage, and network roles have
+already been provisioned. Run `playbooks/site.yml` separately for those host
+baseline changes; its check mode can report package/service ordering failures
+when a package is absent and would only be installed during the same run.
+
 Do not deploy untagged experimental changes directly to production.
 
 ## Required Approval

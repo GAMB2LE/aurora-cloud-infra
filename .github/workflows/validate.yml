@@ -31,6 +31,7 @@ jobs:
         run: |
           uv run ansible-playbook playbooks/site.yml --syntax-check
           uv run ansible-playbook playbooks/dashboard_release.yml --syntax-check
+          uv run ansible-playbook playbooks/dashboard_runtime_release.yml --syntax-check
           uv run ansible-playbook playbooks/audit.yml --syntax-check
           uv run ansible-playbook playbooks/edge_tunnel_server.yml --syntax-check
 
