@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source_user={{ uas_source_user | quote }}
+source_host={{ uas_source_host | quote }}
+source_port={{ uas_source_port | int }}
+source_path={{ uas_source_path | quote }}
+destination={{ uas_source_destination | quote }}
+known_hosts=/home/{{ aurora_service_user }}/.ssh/known_hosts
+
+mkdir -p "$(dirname "$destination")" "$(dirname "$known_hosts")"
+
+export RSYNC_RSH="ssh -p $source_port -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityFile=none -o PubkeyAuthentication=no -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$known_hosts"
+rsync -a --partial "${source_user}@${source_host}:${source_path}" "$destination"

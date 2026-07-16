@@ -16,6 +16,7 @@
     - "{{ aurora_paths.raw_asfs_crd }}"
     - "{{ aurora_paths.raw_power }}"
     - "{{ aurora_paths.raw_pdu }}"
+    - "{{ aurora_paths.raw_menapia }}"
     - "{{ aurora_paths.raw_ops_monitor }}"
     - "{{ aurora_paths.raw_wxcam }}"
     - "{{ aurora_paths.raw_auroracam }}"

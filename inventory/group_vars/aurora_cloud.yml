@@ -134,6 +134,7 @@ aurora_paths:
   raw_asfs_crd: "{{ aurora_raw_root }}/asfs/crd"
   raw_power: "{{ aurora_raw_root }}/power/level1"
   raw_pdu: "{{ aurora_raw_root }}/pdu"
+  raw_menapia: "{{ aurora_raw_root }}/menapia"
   raw_wxcam: "{{ aurora_raw_root }}/wxcam"
   raw_auroracam: "{{ aurora_raw_root }}/auroracam"
   raw_ops_monitor: "{{ aurora_raw_root }}/ops_monitor"
@@ -408,6 +409,16 @@ pdu_source_lookback_days: 10
 pdu_source_mtime_grace_seconds: 300
 # False means the first timer run pulls all existing matching source files.
 pdu_source_start_fresh: false
+
+uas_source_sync_enabled: true
+uas_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
+uas_source_user: aurora
+uas_source_host: "{{ edge_source_sync_ass_host }}"
+uas_source_port: "{{ edge_source_sync_ass_port }}"
+uas_source_path: /home/aurora/data/menapia/menapia_mqtt.log
+uas_source_destination: "{{ aurora_paths.raw_menapia }}/menapia_mqtt.log"
+uas_source_sync_interval: 30s
+uas_source_sync_randomized_delay: 10
 
 wxcam_source_sync_enabled: true
 wxcam_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"

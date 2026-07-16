@@ -44,6 +44,7 @@ Production owns:
 - `/project/aurora/raw`
 - `/data/aurora/products`
 - source-sync timers
+- UAS Menapia MQTT source-sync timer
 - append/build timers
 - quicklook timers
 - Operations monitor and alert timers
