@@ -124,6 +124,9 @@ replicate_path {{ path.name | quote }} {{ path.source | quote }} {{ path.destina
 
 success_utc=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 printf '%s\n' "$success_utc" > "$state_root/last_success_utc"
+# The mirrored internal tree may not contain this development-only directory,
+# so --delete can remove the empty directory created before replication.
+mkdir -p "$(dirname "$public_stamp")"
 stamp_tmp="${public_stamp}.tmp.$$"
 printf '{"last_success_utc":"%s","site_env":"%s","source_host":"%s","source_user":"%s","paths_replicated":%d,"rsync_exit_code":0}\n' \
   "$success_utc" \
