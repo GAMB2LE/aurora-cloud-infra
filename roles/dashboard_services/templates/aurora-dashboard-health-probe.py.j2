@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 import urllib.request
 from datetime import datetime, timezone
@@ -37,6 +38,44 @@ def read_json(path: Path) -> dict:
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def read_history(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    records: list[dict] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            records.append(payload)
+    return records
+
+
+def percentile(values: list[float], quantile: float) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    return ordered[max(0, math.ceil(quantile * len(ordered)) - 1)]
+
+
+def rolling_latency_summary(records: list[dict], observed_at: datetime) -> dict:
+    cutoff = observed_at.timestamp() - 24 * 60 * 60
+    recent = [record for record in records if (timestamp := parse_timestamp(record.get("observed_at_utc"))) and timestamp.timestamp() >= cutoff]
+    development = [float(record["probes"]["development"]["elapsed_seconds"]) for record in recent if record.get("probes", {}).get("development", {}).get("ok")]
+    production = [float(record["probes"]["production"]["elapsed_seconds"]) for record in recent if record.get("probes", {}).get("production", {}).get("ok")]
+    deltas = [float(record["development_minus_production_seconds"]) for record in recent if record.get("probes", {}).get("development", {}).get("ok") and record.get("probes", {}).get("production", {}).get("ok")]
+    return {
+        "window_hours": 24,
+        "sample_count": len(recent),
+        "development_median_seconds": percentile(development, 0.5),
+        "development_p95_seconds": percentile(development, 0.95),
+        "production_median_seconds": percentile(production, 0.5),
+        "production_p95_seconds": percentile(production, 0.95),
+        "development_minus_production_median_seconds": percentile(deltas, 0.5),
+    }
 
 
 def probe(name: str, url: str) -> dict:
@@ -75,6 +114,8 @@ def main() -> int:
         alerts.append("development_mirror_stale")
     if shadow and shadow.get("shadow_status") != "compared":
         alerts.append("earthkit_shadow_decoder_failure")
+    history_path = ROOT / "history.jsonl"
+    history = read_history(history_path)
     payload = {
         "observed_at_utc": observed_at.replace(microsecond=0).isoformat(),
         "probes": probes,
@@ -85,11 +126,12 @@ def main() -> int:
         "alerts": alerts,
     }
     ROOT.mkdir(parents=True, exist_ok=True)
+    payload["rolling_latency_24h"] = rolling_latency_summary(history + [payload], observed_at)
     latest = ROOT / "latest.json"
     temporary = latest.with_suffix(".json.tmp")
     temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     temporary.replace(latest)
-    with (ROOT / "history.jsonl").open("a", encoding="utf-8") as handle:
+    with history_path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(payload, sort_keys=True) + "\n")
     print(json.dumps(payload, sort_keys=True))
     return 1 if alerts else 0
