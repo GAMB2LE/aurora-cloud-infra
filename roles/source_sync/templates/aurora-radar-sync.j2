@@ -6,8 +6,10 @@ source_host={{ radar_source_host | quote }}
 source_port={{ radar_source_port | int }}
 source_path={{ radar_source_path | quote }}
 source_pattern={{ radar_source_pattern | quote }}
+source_scope={{ radar_source_scope_version | quote }}
 destination={{ radar_source_destination | quote }}
 state_file={{ radar_source_state_file | quote }}
+scope_file="${state_file}.scope"
 source_auth={{ radar_source_auth | default('tailscale') | quote }}
 ssh_key={{ radar_source_ssh_key_path | quote }}
 start_fresh={{ '1' if radar_source_start_fresh | bool else '0' }}
@@ -18,6 +20,7 @@ mkdir -p "$destination" "$(dirname "$state_file")" "$(dirname "$known_hosts")"
 if [[ ! -f "$state_file" ]]; then
   if [[ "$start_fresh" == "1" ]]; then
     date +%s > "$state_file"
+    printf '%s\n' "$source_scope" > "$scope_file"
     echo "Initialized fresh radar sync state at $(cat "$state_file"); no historical files pulled."
     exit 0
   fi
@@ -26,6 +29,12 @@ fi
 
 last_epoch="$(cat "$state_file")"
 now_epoch="$(date +%s)"
+
+if [[ ! -f "$scope_file" ]] || [[ "$(cat "$scope_file")" != "$source_scope" ]]; then
+  last_epoch=0
+  echo "Radar source scope changed to ${source_scope}; scheduling a complete idempotent backfill."
+fi
+
 files_from="$(mktemp)"
 trap 'rm -f "$files_from"' EXIT
 
@@ -68,6 +77,7 @@ REMOTE_FIND
 
 if [[ ! -s "$files_from" ]]; then
   echo "$now_epoch" > "$state_file"
+  printf '%s\n' "$source_scope" > "$scope_file"
   echo "No new radar files found."
   exit 0
 fi
@@ -75,3 +85,4 @@ fi
 export RSYNC_RSH="$rsync_ssh"
 rsync -a --partial --from0 --files-from="$files_from" "${source_user}@${source_host}:${source_path%/}/" "${destination%/}/"
 echo "$now_epoch" > "$state_file"
+printf '%s\n' "$source_scope" > "$scope_file"
