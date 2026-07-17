@@ -109,6 +109,7 @@ replicate_path() {
 
   mkdir -p "$destination_path"
   echo "Replicating $name from ${source_user}@${source_host}:${source_path} to ${destination_path}"
+  set +e
   rsync \
     "${rsync_common[@]}" \
     "$@" \
@@ -116,6 +117,15 @@ replicate_path() {
     -e "$ssh_wrapper" \
     "${source_user}@${source_host}:${source_path}" \
     "$destination_path"
+  local rsync_status=$?
+  set -e
+  if [[ "$rsync_status" -eq 24 ]]; then
+    # Source-side SQLite WAL/SHM rotation can make an already transferred file
+    # vanish during rsync's final scan. The next pull will reconcile it.
+    echo "Replication $name completed with transient vanished source files (rsync 24)."
+    return 0
+  fi
+  return "$rsync_status"
 }
 
 {% for path in aurora_standby_replication_paths %}
