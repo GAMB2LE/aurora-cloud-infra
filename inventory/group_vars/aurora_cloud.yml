@@ -326,7 +326,11 @@ radar_source_host: "{{ edge_source_sync_ass_host }}"
 radar_source_port: "{{ edge_source_sync_ass_port }}"
 radar_source_ssh_key_path: "{{ edge_source_sync_ssh_key_path }}"
 radar_source_path: /home/aurora/data/rpgfmcw94
-radar_source_pattern: "*LV1.NC"
+# Preserve the complete native RPG tree in cloud raw storage and on GWS.
+# Processing remains restricted to LV1 NetCDF through radar_product_pattern.
+radar_source_pattern: "*"
+radar_product_pattern: "*LV1.NC"
+radar_source_scope_version: all-native-files-v1
 radar_source_destination: "{{ aurora_paths.raw_radar }}"
 radar_source_state_file: "{{ aurora_state_root }}/radar-sync.last"
 radar_source_sync_interval: 2min
@@ -484,8 +488,9 @@ wxcam_source_lookback_days: 2
 wxcam_source_overlap_seconds: 600
 wxcam_source_mtime_grace_seconds: 300
 wxcam_full_raw_mirror: false
+wxcam_source_scope_version: final-hdr-media-all-history-v1
 # Keep live ingestion independent from historical recovery. Missing or stale
-# checkpoints resume at the live edge; archive gaps use a separate backfill.
+# checkpoints resume at the live edge after the versioned archive backfill.
 wxcam_source_start_fresh: true
 
 wxcam_zarr_state_file: "{{ aurora_state_root }}/wxcam-zarr-state-20260704.json"
@@ -502,6 +507,7 @@ auroracam_source_sync_randomized_delay: 30
 auroracam_source_lookback_days: 2
 auroracam_source_overlap_seconds: 600
 auroracam_source_mtime_grace_seconds: 300
+auroracam_source_scope_version: all-jpg-history-v1
 auroracam_source_start_fresh: true
 auroracam_index_interval: 2min
 auroracam_index_randomized_delay: 30
@@ -598,6 +604,7 @@ gws_sync_jobs:
     source: "{{ aurora_raw_root }}/"
     destination: "{{ gws_raw_root }}/"
     schedule: "*:01/5"
+    timeout_start_sec: 48h
   - name: products
     source: "{{ aurora_product_root }}/"
     destination: "{{ gws_products_root }}/"

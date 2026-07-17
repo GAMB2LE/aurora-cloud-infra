@@ -7,6 +7,8 @@ source_port={{ wxcam_source_port | int }}
 source_path={{ wxcam_source_path | quote }}
 destination={{ wxcam_source_destination | quote }}
 state_file={{ wxcam_source_state_file | quote }}
+source_scope={{ wxcam_source_scope_version | quote }}
+scope_file="${state_file}.scope"
 source_auth={{ wxcam_source_auth | default('tailscale') | quote }}
 ssh_key={{ wxcam_source_ssh_key_path | quote }}
 start_fresh={{ '1' if wxcam_source_start_fresh | bool else '0' }}
@@ -27,8 +29,16 @@ fi
 
 now_epoch="$(date +%s)"
 lookback_epoch=$(( now_epoch - lookback_days * 86400 ))
+full_backfill=0
+
+if [[ ! -f "$scope_file" ]] || [[ "$(cat "$scope_file")" != "$source_scope" ]]; then
+  full_backfill=1
+  echo "WXcam source scope changed to ${source_scope}; scheduling a complete final-media backfill."
+fi
+
 initialize_fresh() {
   echo "$now_epoch" > "$state_file"
+  printf '%s\n' "$source_scope" > "$scope_file"
   echo "Initialized WXcam sync at the live edge ($now_epoch); historical gaps require a separate backfill."
   exit 0
 }
@@ -36,20 +46,20 @@ initialize_fresh() {
 if [[ -f "$state_file" ]]; then
   last_epoch="$(cat "$state_file")"
 else
-  if [[ "$start_fresh" == "1" ]]; then
+  if [[ "$start_fresh" == "1" ]] && [[ "$full_backfill" == "0" ]]; then
     initialize_fresh
   fi
   last_epoch="$lookback_epoch"
 fi
 
 if [[ ! "$last_epoch" =~ ^[0-9]+$ ]]; then
-  if [[ "$start_fresh" == "1" ]]; then
+  if [[ "$start_fresh" == "1" ]] && [[ "$full_backfill" == "0" ]]; then
     initialize_fresh
   fi
   echo "Invalid WXcam sync checkpoint; resetting to the lookback window." >&2
   last_epoch="$lookback_epoch"
 fi
-if [[ "$start_fresh" == "1" ]] && (( last_epoch < lookback_epoch )); then
+if [[ "$start_fresh" == "1" ]] && [[ "$full_backfill" == "0" ]] && (( last_epoch < lookback_epoch )); then
   initialize_fresh
 fi
 scan_epoch=$(( last_epoch - overlap_seconds ))
@@ -92,12 +102,13 @@ else
 fi
 
 ssh "${ssh_opts[@]}" "${source_user}@${source_host}" bash -s -- \
-  "$source_path" "$scan_epoch" "$mtime_grace_seconds" "$lookback_days" > "$files_from" <<'REMOTE_FIND'
+  "$source_path" "$scan_epoch" "$mtime_grace_seconds" "$lookback_days" "$full_backfill" > "$files_from" <<'REMOTE_FIND'
 set -euo pipefail
 source_path="$1"
 scan_epoch="$2"
 mtime_grace_seconds="$3"
 lookback_days="$4"
+full_backfill="$5"
 fish_jpg_pattern={{ wxcam_source_fish_pattern | quote }}
 pano_jpg_pattern={{ wxcam_source_pano_pattern | quote }}
 fish_mp4_pattern="${fish_jpg_pattern%.jpg}.mp4"
@@ -106,6 +117,17 @@ pano_mp4_pattern="${pano_jpg_pattern%.jpg}.mp4"
 cd "$source_path"
 source_now_epoch="$(date +%s)"
 upper_epoch=$(( source_now_epoch - mtime_grace_seconds ))
+
+if [[ "$full_backfill" == "1" ]]; then
+  find FISH PANO -type f ! -newermt "@${upper_epoch}" \
+    \( \
+      -path "FISH/*/${fish_jpg_pattern}" -o \
+      -path "FISH/*/${fish_mp4_pattern}" -o \
+      -path "PANO/*/${pano_jpg_pattern}" -o \
+      -path "PANO/*/${pano_mp4_pattern}" \
+    \) -printf '%p\0'
+  exit 0
+fi
 
 for (( offset = 0; offset < lookback_days; offset++ )); do
   day="$(date -u -d "-${offset} day" +%Y%m%d)"
@@ -129,6 +151,7 @@ REMOTE_FIND
 
 if [[ ! -s "$files_from" ]]; then
   echo "$now_epoch" > "$state_file"
+  printf '%s\n' "$source_scope" > "$scope_file"
   echo "No new WXcam files found."
   exit 0
 fi
@@ -138,4 +161,5 @@ fi
   "${source_user}@${source_host}:${source_path%/}/" \
   "${destination%/}/"
 echo "$now_epoch" > "$state_file"
+printf '%s\n' "$source_scope" > "$scope_file"
 echo "WXcam sync checkpoint advanced to $now_epoch."

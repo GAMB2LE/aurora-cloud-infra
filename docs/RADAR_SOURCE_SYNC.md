@@ -8,7 +8,19 @@
 - Quicklooks: `/data/aurora/products/quicklooks/cloud_radar`
 
 The source stores hourly radar files under a recursive `Yyyyy/Mmm/Ddd/` tree.
-The sync pulls `*LV1.NC` files only and preserves relative paths.
+The sync preserves the complete native tree, including LV0/LV1 binaries,
+LV0/LV1 NetCDF, and instrument JPG files. Relative paths are unchanged from
+edge to cloud raw storage and GWS:
+
+```text
+/home/aurora/data/rpgfmcw94/Yyyyy/Mmm/Ddd/...
+  -> /project/aurora/raw/rpgfmcw94/Yyyyy/Mmm/Ddd/...
+  -> /gws/ssde/j25b/gamb2le/data/incoming/aurora-cloud/raw/rpgfmcw94/Yyyyy/Mmm/Ddd/...
+```
+
+Only `*LV1.NC` files feed the dashboard Zarr and its processing-watermark
+gate. The other native file classes are archived and verified without being
+passed to the LV1 processor.
 
 ## Authentication
 
@@ -27,6 +39,11 @@ With the current deployment variables, when
 `/var/lib/aurora-cloud/radar-sync.last` does not exist the script writes `0`,
 pulls the full current source history, and then advances the state marker on
 later runs.
+
+The companion `/var/lib/aurora-cloud/radar-sync.last.scope` marker records the
+deployed source-scope version. Expanding the configured scope automatically
+performs an idempotent historical backfill before the marker is advanced, so
+files excluded by an older deployment cannot be silently skipped.
 
 If you deliberately want the old fresh-start behavior again, set
 `radar_source_start_fresh: true` and redeploy. In that mode the script writes

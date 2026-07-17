@@ -58,7 +58,7 @@ CONFIG = json.loads(
       "recursive": true,
       "local_root": {{ aurora_paths.raw_radar | to_json }},
       "gws_relpath": "rpgfmcw94",
-      "product_patterns": [{{ radar_source_pattern | to_json }}],
+      "product_patterns": [{{ radar_product_pattern | to_json }}],
       "required_services": ["aurora-radar-append.service"]
     },
     {
@@ -171,6 +171,22 @@ CONFIG = json.loads(
       "gws_relpath": "pdu",
       "product_patterns": [{{ pdu_source_pattern | to_json }}],
       "required_services": ["aurora-pdu-append.service"]
+    },
+    {
+      "name": "auroracam",
+      "enabled": {{ auroracam_source_sync_timer_enabled | bool | to_json }},
+      "source_user": {{ auroracam_source_user | to_json }},
+      "source_host": {{ auroracam_source_host | to_json }},
+      "source_port": 22,
+      "source_root": {{ auroracam_source_path | to_json }},
+      "source_auth": "tailscale",
+      "source_ssh_key": {{ edge_source_sync_ssh_key_path | to_json }},
+      "source_pattern": "*.jpg",
+      "recursive": true,
+      "local_root": {{ aurora_paths.raw_auroracam | to_json }},
+      "gws_relpath": "auroracam",
+      "product_patterns": ["*.jpg"],
+      "required_services": ["aurora-auroracam-index.service"]
     },
     {
       "name": "wxcam",

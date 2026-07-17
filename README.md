@@ -231,8 +231,13 @@ sudo -u aurora ssh -o IdentityFile=none -o PubkeyAuthentication=no aurora@100.12
 
 The CL61 source now uses the shared ASS Linux data path at `100.124.55.22` and
 Tailscale SSH without private keys, matching the radar, HATPRO, Vaisala, ASFS,
-and WXcam source pulls. The radar source stores `*LV1.NC` files under a
-recursive `/home/aurora/data/rpgfmcw94/Yyyyy/Mmm/Ddd/` tree.
+and WXcam source pulls. The radar source preserves the complete native file
+set under the recursive `/home/aurora/data/rpgfmcw94/Yyyyy/Mmm/Ddd/` tree;
+only `*LV1.NC` files are passed to dashboard processing.
+
+Versioned source-scope markers also guarantee one-time historical recovery of
+the expected WXcam HDR media and all AURORACam JPG files before those feeds
+return to their normal short-lookback incremental cadence.
 The Vaisala met source at the same tailnet IP stores flat
 `vaisala_met_level0_*.dat` files in `/home/aurora/data/vaisalamet`.
 The ASFS Logger source stores chunked CRD TOA5 files in
