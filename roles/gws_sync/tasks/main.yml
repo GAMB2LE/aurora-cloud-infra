@@ -157,6 +157,14 @@
     - (gws_sync_ready | default(false)) | bool
     - not ansible_check_mode
 
+- name: Check whether the optional SSHFS mount unit is installed
+  ansible.builtin.stat:
+    path: /etc/systemd/system/mnt-gws-gamb2le.mount
+  register: gws_sshfs_mount_unit
+  when:
+    - not gws_sshfs_enabled | bool
+    - not ansible_check_mode
+
 - name: Disable optional SSHFS mount when not requested
   ansible.builtin.systemd:
     name: mnt-gws-gamb2le.mount
@@ -165,6 +173,7 @@
     daemon_reload: true
   when:
     - not gws_sshfs_enabled | bool
+    - gws_sshfs_mount_unit.stat.exists | default(false)
     - not ansible_check_mode
 
 - name: Enable GWS rsync timers
