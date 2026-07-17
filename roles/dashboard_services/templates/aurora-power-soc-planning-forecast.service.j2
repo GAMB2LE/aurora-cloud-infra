@@ -16,4 +16,7 @@ CPUQuota=25%
 CPUWeight=10
 MemoryHigh=1G
 MemoryMax=2G
-TimeoutStartSec=900
+# The ECMWF attempt is bounded above at ten minutes.  Leave a separate,
+# deterministic budget for cache re-anchoring a 240-hour product; it can take
+# several minutes on the constrained development host.
+TimeoutStartSec=1200
