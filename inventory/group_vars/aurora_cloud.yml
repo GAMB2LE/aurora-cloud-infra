@@ -645,6 +645,7 @@ aurora_standby_replication_paths:
     destination: "{{ aurora_data_root }}/internal/"
     exclude:
       - dev-live-mirror/**
+      - dashboard-probe/**
       - "*.lock"
       - "*.tmp"
   - name: state
