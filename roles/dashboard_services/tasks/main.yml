@@ -8,6 +8,24 @@
     mode: "02775"
   when: aurora_ecmwf_shadow_enabled | bool
 
+- name: Ensure dashboard probe state directory exists
+  ansible.builtin.file:
+    path: "{{ aurora_dashboard_probe_root }}"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "02775"
+  when: aurora_dashboard_probe_enabled | bool
+
+- name: Install dashboard health probe
+  ansible.builtin.template:
+    src: aurora-dashboard-health-probe.py.j2
+    dest: /usr/local/bin/aurora-dashboard-health-probe
+    owner: root
+    group: root
+    mode: "0755"
+  when: aurora_dashboard_probe_enabled | bool
+
 - name: Ensure development operating-plan product directory exists
   ansible.builtin.file:
     path: "{{ aurora_power_operating_root }}"
@@ -114,6 +132,10 @@
     - aurora-power-soc-ensemble.timer
     - aurora-ecmwf-provider-shadow.service
     - aurora-ecmwf-provider-shadow.timer
+    - aurora-ecmwf-provider-gate.service
+    - aurora-ecmwf-provider-gate.timer
+    - aurora-dashboard-health-probe.service
+    - aurora-dashboard-health-probe.timer
     - aurora-power-soc-planning-forecast.service
     - aurora-power-soc-planning-forecast.timer
     - aurora-power-operating-scenarios.service
@@ -164,6 +186,22 @@
     name: aurora-ecmwf-provider-shadow.timer
     enabled: "{{ aurora_ecmwf_shadow_enabled | bool }}"
     state: "{{ 'started' if aurora_ecmwf_shadow_enabled | bool else 'stopped' }}"
+    daemon_reload: true
+  when: not ansible_check_mode
+
+- name: Manage Earthkit shadow promotion gate timer
+  ansible.builtin.systemd:
+    name: aurora-ecmwf-provider-gate.timer
+    enabled: "{{ aurora_ecmwf_shadow_enabled | bool }}"
+    state: "{{ 'started' if aurora_ecmwf_shadow_enabled | bool else 'stopped' }}"
+    daemon_reload: true
+  when: not ansible_check_mode
+
+- name: Manage development dashboard health probe timer
+  ansible.builtin.systemd:
+    name: aurora-dashboard-health-probe.timer
+    enabled: "{{ aurora_dashboard_probe_enabled | bool }}"
+    state: "{{ 'started' if aurora_dashboard_probe_enabled | bool else 'stopped' }}"
     daemon_reload: true
   when: not ansible_check_mode
 

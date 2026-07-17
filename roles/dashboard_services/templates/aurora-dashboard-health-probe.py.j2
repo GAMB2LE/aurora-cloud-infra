@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""Record development and production dashboard availability and comparison data."""
+
+from __future__ import annotations
+
+import json
+import time
+import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path("{{ aurora_dashboard_probe_root }}")
+MIRROR_STAMP = Path("{{ aurora_dev_live_mirror_stamp }}")
+SHADOW_REPORT = Path("{{ aurora_ecmwf_shadow_report_path }}")
+WARN_SECONDS = float("{{ aurora_dashboard_probe_warn_seconds }}")
+DELTA_SECONDS = float("{{ aurora_dashboard_probe_compare_delta_seconds }}")
+TARGETS = {
+    "development": "https://{{ aurora_standby_domain }}/app",
+    "production": "https://{{ aurora_failover_domain }}/app",
+}
+
+
+def now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def parse_timestamp(value: object) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def read_json(path: Path) -> dict:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def probe(name: str, url: str) -> dict:
+    started = time.perf_counter()
+    try:
+        request = urllib.request.Request(url, headers={"User-Agent": "aurora-dashboard-health-probe/1"})
+        with urllib.request.urlopen(request, timeout=30) as response:
+            status = response.status
+            response.read(4096)
+        return {"name": name, "url": url, "status": status, "elapsed_seconds": round(time.perf_counter() - started, 3), "ok": 200 <= status < 400}
+    except Exception as exc:
+        return {"name": name, "url": url, "elapsed_seconds": round(time.perf_counter() - started, 3), "ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+def main() -> int:
+    observed_at = now()
+    probes = {name: probe(name, url) for name, url in TARGETS.items()}
+    mirror = read_json(MIRROR_STAMP)
+    mirror_time = parse_timestamp(mirror.get("last_success_utc") or mirror.get("completed_at_utc"))
+    mirror_age_minutes = round((observed_at - mirror_time).total_seconds() / 60.0, 3) if mirror_time else None
+    shadow = read_json(SHADOW_REPORT)
+    alerts: list[str] = []
+    development = probes["development"]
+    production = probes["production"]
+    if not development["ok"]:
+        alerts.append("development_endpoint_unavailable")
+    elif development["elapsed_seconds"] > WARN_SECONDS:
+        alerts.append("development_endpoint_slow")
+    if not production["ok"]:
+        alerts.append("production_endpoint_unavailable")
+    elif production["elapsed_seconds"] > WARN_SECONDS:
+        alerts.append("production_endpoint_slow")
+    if development["ok"] and production["ok"] and development["elapsed_seconds"] - production["elapsed_seconds"] > DELTA_SECONDS:
+        alerts.append("development_slower_than_production")
+    if mirror_age_minutes is None or mirror_age_minutes > 7.5:
+        alerts.append("development_mirror_stale")
+    if shadow and shadow.get("shadow_status") != "compared":
+        alerts.append("earthkit_shadow_decoder_failure")
+    payload = {
+        "observed_at_utc": observed_at.replace(microsecond=0).isoformat(),
+        "probes": probes,
+        "development_minus_production_seconds": round(development.get("elapsed_seconds", 0.0) - production.get("elapsed_seconds", 0.0), 3),
+        "mirror_age_minutes": mirror_age_minutes,
+        "earthkit_shadow_status": shadow.get("shadow_status", "not_yet_observed"),
+        "status": "alert" if alerts else "ok",
+        "alerts": alerts,
+    }
+    ROOT.mkdir(parents=True, exist_ok=True)
+    latest = ROOT / "latest.json"
+    temporary = latest.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temporary.replace(latest)
+    with (ROOT / "history.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, sort_keys=True) + "\n")
+    print(json.dumps(payload, sort_keys=True))
+    return 1 if alerts else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,11 @@
+[Unit]
+Description=Evaluate Earthkit shadow promotion readiness daily
+
+[Timer]
+OnCalendar=*-*-* 12:10:00
+RandomizedDelaySec=10min
+Persistent=true
+Unit=aurora-ecmwf-provider-gate.service
+
+[Install]
+WantedBy=timers.target

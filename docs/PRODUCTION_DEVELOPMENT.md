@@ -68,9 +68,14 @@ not replace complete products.
 Development also runs `aurora-ecmwf-provider-shadow.timer`. This performs a
 read-only comparison of the latest mirrored deterministic ECMWF GRIB with the
 legacy and Earthkit decoders. It writes only
-`/data/aurora/dev-products/power/ecmwf_provider_shadow.json`; it does not run a
-forecast writer or modify mirrored production products. Production remains on
-`AURORA_ECMWF_PROVIDER=legacy` until the parity and resource gates pass.
+`/data/aurora/dev-products/power/ecmwf_provider_shadow.json`, appends a shadow
+history, and writes a daily promotion-gate report. The gate requires seven days
+and 50 clean comparisons before it can be reviewed; it never changes the
+configured provider. `aurora-dashboard-health-probe.timer` also compares public
+development and production response times every five minutes and records mirror
+age. It does not run a forecast writer or modify mirrored production products.
+Production remains on `AURORA_ECMWF_PROVIDER=legacy` until the parity and
+resource gates pass.
 
 ## Release Policy
 

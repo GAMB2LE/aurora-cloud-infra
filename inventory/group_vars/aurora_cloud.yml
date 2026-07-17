@@ -129,6 +129,18 @@ aurora_ecmwf_shadow_report_path: >-
   {{ (aurora_dev_product_root ~ '/power/ecmwf_provider_shadow.json')
      if aurora_is_development
      else (aurora_product_root ~ '/power/ecmwf_provider_shadow.json') }}
+aurora_ecmwf_shadow_history_path: >-
+  {{ (aurora_dev_product_root ~ '/power/ecmwf_provider_shadow_history.jsonl')
+     if aurora_is_development
+     else (aurora_product_root ~ '/power/ecmwf_provider_shadow_history.jsonl') }}
+aurora_ecmwf_shadow_gate_path: >-
+  {{ (aurora_dev_product_root ~ '/power/ecmwf_provider_promotion_gate.json')
+     if aurora_is_development
+     else (aurora_product_root ~ '/power/ecmwf_provider_promotion_gate.json') }}
+aurora_dashboard_probe_enabled: "{{ aurora_is_development }}"
+aurora_dashboard_probe_root: "{{ aurora_data_root }}/internal/dashboard-probe"
+aurora_dashboard_probe_warn_seconds: 4.0
+aurora_dashboard_probe_compare_delta_seconds: 2.0
 aurora_power_operating_enabled: "{{ aurora_is_development }}"
 aurora_power_operating_root: >-
   {{ (aurora_dev_product_root ~ '/power')
