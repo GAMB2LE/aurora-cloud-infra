@@ -1,9 +1,9 @@
 [Unit]
-Description=Run Aurora power SOC forecast learning update every 15 minutes
+Description=Fallback fast SOC and operating-mode forecast re-anchor every 10 minutes
 
 [Timer]
-OnCalendar=*:03/15
-RandomizedDelaySec=2min
+OnUnitInactiveSec=10min
+RandomizedDelaySec=30s
 Persistent=true
 Unit=aurora-power-soc-forecast-learn.service
 

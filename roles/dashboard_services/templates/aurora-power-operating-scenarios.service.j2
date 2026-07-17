@@ -1,6 +1,6 @@
 [Unit]
 Description=Development learned APS operating states and SOC plans
-After=aurora-dev-live-pull.service aurora-power-soc-planning-forecast.service
+After=aurora-dev-live-pull.service aurora-power-soc-planning-forecast.service aurora-power-soc-forecast-learn.service
 ConditionPathExists={{ aurora_zarr.power }}
 ConditionPathExists={{ aurora_power_planning_forecast_path }}
 
@@ -10,7 +10,7 @@ User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
 WorkingDirectory={{ aurora_app_dir }}
 EnvironmentFile=/etc/aurora-dashboard.env
-ExecStart={{ aurora_venv }}/bin/python generate_power_operating_scenarios.py --power-zarr {{ aurora_zarr.power }} --pdu-zarr {{ aurora_zarr.pdu }} --forecast-zarr {{ aurora_power_planning_forecast_path }} --ensemble-zarr {{ aurora_zarr.power_soc_ensemble }} --state-output {{ aurora_power_operating_state_path }} --scenario-output {{ aurora_power_operating_scenarios_path }} --model-state {{ aurora_power_operating_model_state_path }} --bootstrap-state {{ aurora_paths.products_power }}/power_soc_forecast_state.json --recommendation-archive {{ aurora_power_operating_recommendations_path }} --planning-hours 240 --optimization-hours 96 --lookback-days 7
+ExecStart={{ aurora_venv }}/bin/python generate_power_operating_scenarios.py --power-zarr {{ aurora_zarr.power }} --pdu-zarr {{ aurora_zarr.pdu }} --forecast-zarr {{ aurora_power_planning_forecast_path }} --ensemble-zarr {{ aurora_zarr.power_soc_ensemble }} --state-output {{ aurora_power_operating_state_path }} --scenario-output {{ aurora_power_operating_scenarios_path }} --model-state {{ aurora_power_operating_model_state_path }} --bootstrap-state {{ aurora_paths.products_power }}/power_soc_forecast_state.json --recommendation-archive {{ aurora_power_operating_recommendations_path }} --planning-hours 240 --optimization-hours 96 --lookback-days 7 --max-power-age-minutes 20
 Nice=15
 CPUQuota=25%
 CPUWeight=10

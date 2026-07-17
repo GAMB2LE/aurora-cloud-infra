@@ -10,10 +10,10 @@ User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
 WorkingDirectory={{ aurora_app_dir }}
 EnvironmentFile=/etc/aurora-dashboard.env
-ExecStart={{ aurora_venv }}/bin/python generate_power_soc_forecast.py --power-zarr {{ aurora_zarr.power }} --pdu-zarr {{ aurora_zarr.pdu }} --output-zarr {{ aurora_power_planning_forecast_path }} --cache-dir {{ aurora_power_planning_forecast_cache }} --state {{ aurora_power_planning_forecast_state }} --archive-zarr {{ aurora_power_planning_forecast_archive }} --skill-zarr {{ aurora_power_planning_forecast_skill }} --hindcast-zarr {{ aurora_power_planning_hindcast }} --horizon-hours 240 --ecmwf-cycle-hour auto --provider {{ aurora_ecmwf_provider }}
+ExecStart=/bin/bash -lc 'if /usr/bin/timeout --signal=TERM --kill-after=30s 10m {{ aurora_venv }}/bin/python generate_power_soc_forecast.py --power-zarr {{ aurora_zarr.power }} --pdu-zarr {{ aurora_zarr.pdu }} --output-zarr {{ aurora_power_planning_forecast_path }} --cache-dir {{ aurora_power_planning_forecast_cache }} --state {{ aurora_power_planning_forecast_state }} --archive-zarr {{ aurora_power_planning_forecast_archive }} --skill-zarr {{ aurora_power_planning_forecast_skill }} --hindcast-zarr {{ aurora_power_planning_hindcast }} --horizon-hours 240 --ecmwf-cycle-hour auto --provider {{ aurora_ecmwf_provider }} --max-power-age-minutes 20; then exit 0; fi; echo "ECMWF planning retrieval failed or timed out; re-anchoring the cached planning cycle" >&2; exec {{ aurora_venv }}/bin/python generate_power_soc_forecast.py --power-zarr {{ aurora_zarr.power }} --pdu-zarr {{ aurora_zarr.pdu }} --output-zarr {{ aurora_power_planning_forecast_path }} --cache-dir {{ aurora_power_planning_forecast_cache }} --state {{ aurora_power_planning_forecast_state }} --archive-zarr {{ aurora_power_planning_forecast_archive }} --skill-zarr {{ aurora_power_planning_forecast_skill }} --hindcast-zarr {{ aurora_power_planning_hindcast }} --horizon-hours 240 --provider {{ aurora_ecmwf_provider }} --refresh-from-cache --no-archive-forecast --max-power-age-minutes 20'
 Nice=15
 CPUQuota=25%
 CPUWeight=10
 MemoryHigh=1G
 MemoryMax=2G
-TimeoutStartSec=1800
+TimeoutStartSec=900

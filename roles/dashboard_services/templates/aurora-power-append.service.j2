@@ -2,6 +2,7 @@
 Description=Aurora power Zarr append
 After=network-online.target
 Wants=network-online.target
+OnSuccess=aurora-power-soc-forecast-learn.service
 
 [Service]
 Type=oneshot

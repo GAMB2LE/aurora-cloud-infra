@@ -1,9 +1,9 @@
 [Unit]
-Description=Update development learned APS operating plans every 30 minutes
+Description=Fallback update for development learned APS operating plans
 
 [Timer]
 OnBootSec=3min
-OnUnitInactiveSec=30min
+OnUnitInactiveSec=10min
 RandomizedDelaySec=30
 Unit=aurora-power-operating-scenarios.service
 

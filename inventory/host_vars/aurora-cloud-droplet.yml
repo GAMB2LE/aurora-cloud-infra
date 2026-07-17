@@ -6,7 +6,7 @@ aurora_failover_role: standby
 aurora_domain: data-ocean.gamb2le.co.uk
 aurora_public_ip: 167.172.54.82
 aurora_app_repo: https://github.com/GAMB2LE/aurora_cloud_dashboard.git
-aurora_app_version: ac5a50f
+aurora_app_version: 33740d8a8495807f57bf71413aa71c1a29f46d32
 
 # The droplet has its own public development hostname. Full public failover is
 # manual and should not be done by changing this development baseline silently.

@@ -92,7 +92,10 @@ edge_source_sync_known_hosts:
 
 aurora_app_dir: /opt/aurora-cloud-dashboard
 aurora_app_repo: https://github.com/GAMB2LE/aurora_cloud_dashboard.git
-aurora_app_version: f40dc26
+# Exact dashboard release containing the fast SOC/mode re-anchor and stale-input
+# guards. Host vars repeat this pin so either environment cannot downgrade the
+# live checkout during a routine deployment.
+aurora_app_version: 33740d8a8495807f57bf71413aa71c1a29f46d32
 aurora_infra_repo_dir: /tmp/aurora-cloud-infra-codex
 aurora_python: /usr/bin/python3
 aurora_venv: "{{ aurora_app_dir }}/venv"
@@ -111,6 +114,10 @@ aurora_les_era5_lag_days: 5
 aurora_les_run_timeout_seconds: 86400
 aurora_panel_host: 127.0.0.1
 aurora_panel_port: 5006
+# Production has 16 CPUs and currently runs the dashboard as a single Panel
+# process. Keep development lean while allowing production requests to avoid
+# queueing behind a long interactive render.
+aurora_dashboard_num_procs: "{{ 2 if aurora_is_production else 1 }}"
 aurora_mobile_api_host: 127.0.0.1
 aurora_mobile_api_port: 8010
 aurora_nginx_disabled_sites: []
