@@ -65,12 +65,12 @@ else
   rsync_ssh="ssh -p $source_port -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityFile=none -o PubkeyAuthentication=no -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$known_hosts"
 fi
 
-ssh "${ssh_opts[@]}" "${source_user}@${source_host}" bash -s -- "$source_path" "$source_pattern" "$last_epoch" "$now_epoch" > "$files_from" <<'REMOTE_FIND'
+ssh "${ssh_opts[@]}" "${source_user}@${source_host}" bash -s -- "$source_path" "$last_epoch" "$now_epoch" > "$files_from" <<'REMOTE_FIND'
 set -euo pipefail
 source_path="$1"
-source_pattern="$2"
-last_epoch="$3"
-now_epoch="$4"
+last_epoch="$2"
+now_epoch="$3"
+source_pattern={{ radar_source_pattern | quote }}
 cd "$source_path"
 find . -type f -name "$source_pattern" -newermt "@${last_epoch}" ! -newermt "@${now_epoch}" -printf '%P\0'
 REMOTE_FIND
