@@ -13,9 +13,12 @@ folders:
 /home/aurora/data/mx4/<camera>/YYYY-MM-DD/<camera>_YYYY-MM-DD_HH-MM.jpg
 ```
 
-The cloud source sync mirrors only the four expected camera folders and only
-files matching that filename shape. Older `NNN-HH-MM-SS.jpg` test files are not
-included and are deleted from the cloud mirror by `--delete-excluded`.
+The cloud source sync copies only the four expected camera folders and files
+matching that filename shape. It scans the current and previous UTC date
+folders, transfers files newer than its checkpoint with a ten-minute overlap,
+and advances the checkpoint only after rsync succeeds. A missing, invalid, or
+older-than-window checkpoint resumes at the live edge; historical gaps use a
+separate backfill. Older `NNN-HH-MM-SS.jpg` test files are not transferred.
 
 ## Cameras
 
@@ -57,4 +60,5 @@ No private key is installed for this source.
 - `aurora-auroracam-index.timer`
 
 The sync script uses `/var/lib/aurora-cloud/auroracam-sync.lock` so overlapping
-rsync timer runs exit cleanly.
+rsync timer runs exit cleanly. Its checkpoint is
+`/var/lib/aurora-cloud/auroracam-sync.last`.

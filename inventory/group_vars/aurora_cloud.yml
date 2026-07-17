@@ -473,9 +473,13 @@ wxcam_source_destination: "{{ aurora_paths.raw_wxcam }}"
 wxcam_source_state_file: "{{ aurora_state_root }}/wxcam-sync.last"
 wxcam_source_sync_interval: 2min
 wxcam_source_sync_randomized_delay: 30
+wxcam_source_lookback_days: 2
+wxcam_source_overlap_seconds: 600
+wxcam_source_mtime_grace_seconds: 300
 wxcam_full_raw_mirror: false
-# False means the first timer run can pull the retained WXcam HDR archive locally.
-wxcam_source_start_fresh: false
+# Keep live ingestion independent from historical recovery. Missing or stale
+# checkpoints resume at the live edge; archive gaps use a separate backfill.
+wxcam_source_start_fresh: true
 
 wxcam_zarr_state_file: "{{ aurora_state_root }}/wxcam-zarr-state-20260704.json"
 
@@ -485,8 +489,13 @@ auroracam_source_user: aurora
 auroracam_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
 auroracam_source_path: /home/aurora/data/mx4
 auroracam_source_destination: "{{ aurora_paths.raw_auroracam }}"
+auroracam_source_state_file: "{{ aurora_state_root }}/auroracam-sync.last"
 auroracam_source_sync_interval: 2min
 auroracam_source_sync_randomized_delay: 30
+auroracam_source_lookback_days: 2
+auroracam_source_overlap_seconds: 600
+auroracam_source_mtime_grace_seconds: 300
+auroracam_source_start_fresh: true
 auroracam_index_interval: 2min
 auroracam_index_randomized_delay: 30
 

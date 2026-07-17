@@ -5,6 +5,11 @@ source_user={{ auroracam_source_user | quote }}
 source_host={{ auroracam_source_host | quote }}
 source_path={{ auroracam_source_path | quote }}
 destination={{ auroracam_source_destination | quote }}
+state_file={{ auroracam_source_state_file | quote }}
+start_fresh={{ '1' if auroracam_source_start_fresh | bool else '0' }}
+lookback_days={{ auroracam_source_lookback_days | int }}
+overlap_seconds={{ auroracam_source_overlap_seconds | int }}
+mtime_grace_seconds={{ auroracam_source_mtime_grace_seconds | int }}
 known_hosts=/home/{{ aurora_service_user }}/.ssh/known_hosts
 lock_file={{ aurora_state_root | quote }}/auroracam-sync.lock
 ssh_opts=(
@@ -20,7 +25,7 @@ ssh_opts=(
 )
 rsync_base=(rsync -a --partial --timeout=120)
 
-mkdir -p "$destination" "$(dirname "$known_hosts")" "$(dirname "$lock_file")"
+mkdir -p "$destination" "$(dirname "$state_file")" "$(dirname "$known_hosts")" "$(dirname "$lock_file")"
 
 exec 9>"$lock_file"
 if ! flock -n 9; then
@@ -28,23 +33,82 @@ if ! flock -n 9; then
   exit 0
 fi
 
-"${rsync_base[@]}" \
-  --prune-empty-dirs \
-  --delete \
-  --delete-excluded \
-  --include='end-south-array-cam/' \
-  --include='end-south-array-cam/**/' \
-  --include='end-south-array-cam/**/end-south-array-cam_[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]_[0-9][0-9]-[0-9][0-9].jpg' \
-  --include='fence-post-cam/' \
-  --include='fence-post-cam/**/' \
-  --include='fence-post-cam/**/fence-post-cam_[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]_[0-9][0-9]-[0-9][0-9].jpg' \
-  --include='radar-cam/' \
-  --include='radar-cam/**/' \
-  --include='radar-cam/**/radar-cam_[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]_[0-9][0-9]-[0-9][0-9].jpg' \
-  --include='mid-south-array-cam/' \
-  --include='mid-south-array-cam/**/' \
-  --include='mid-south-array-cam/**/mid-south-array-cam_[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]_[0-9][0-9]-[0-9][0-9].jpg' \
-  --exclude='*' \
+now_epoch="$(date +%s)"
+lookback_epoch=$(( now_epoch - lookback_days * 86400 ))
+initialize_fresh() {
+  echo "$now_epoch" > "$state_file"
+  echo "Initialized AURORACam sync at the live edge ($now_epoch); historical gaps require a separate backfill."
+  exit 0
+}
+
+if [[ -f "$state_file" ]]; then
+  last_epoch="$(cat "$state_file")"
+else
+  if [[ "$start_fresh" == "1" ]]; then
+    initialize_fresh
+  fi
+  last_epoch="$lookback_epoch"
+fi
+
+if [[ ! "$last_epoch" =~ ^[0-9]+$ ]]; then
+  if [[ "$start_fresh" == "1" ]]; then
+    initialize_fresh
+  fi
+  echo "Invalid AURORACam sync checkpoint; resetting to the lookback window." >&2
+  last_epoch="$lookback_epoch"
+fi
+if [[ "$start_fresh" == "1" ]] && (( last_epoch < lookback_epoch )); then
+  initialize_fresh
+fi
+scan_epoch=$(( last_epoch - overlap_seconds ))
+if (( scan_epoch < lookback_epoch )); then
+  scan_epoch="$lookback_epoch"
+fi
+
+files_from="$(mktemp)"
+trap 'rm -f "$files_from"' EXIT
+
+ssh "${ssh_opts[@]}" "${source_user}@${source_host}" bash -s -- \
+  "$source_path" "$scan_epoch" "$mtime_grace_seconds" "$lookback_days" > "$files_from" <<'REMOTE_FIND'
+set -euo pipefail
+source_path="$1"
+scan_epoch="$2"
+mtime_grace_seconds="$3"
+lookback_days="$4"
+cameras=(
+  end-south-array-cam
+  fence-post-cam
+  radar-cam
+  mid-south-array-cam
+)
+
+cd "$source_path"
+source_now_epoch="$(date +%s)"
+upper_epoch=$(( source_now_epoch - mtime_grace_seconds ))
+
+for (( offset = 0; offset < lookback_days; offset++ )); do
+  day="$(date -u -d "-${offset} day" +%Y-%m-%d)"
+  for camera in "${cameras[@]}"; do
+    camera_dir="${camera}/${day}"
+    if [[ -d "$camera_dir" ]]; then
+      find "$camera_dir" -maxdepth 1 -type f \
+        -newermt "@${scan_epoch}" ! -newermt "@${upper_epoch}" \
+        -name "${camera}_${day}_[0-9][0-9]-[0-9][0-9].jpg" \
+        -printf '%p\0'
+    fi
+  done
+done
+REMOTE_FIND
+
+if [[ ! -s "$files_from" ]]; then
+  echo "$now_epoch" > "$state_file"
+  echo "No new AURORACam files found."
+  exit 0
+fi
+
+"${rsync_base[@]}" --from0 --files-from="$files_from" \
   -e "ssh ${ssh_opts[*]}" \
   "${source_user}@${source_host}:${source_path%/}/" \
   "${destination%/}/"
+echo "$now_epoch" > "$state_file"
+echo "AURORACam sync checkpoint advanced to $now_epoch."

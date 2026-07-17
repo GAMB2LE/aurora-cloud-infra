@@ -12,6 +12,13 @@ retains HDR JPG and MP4 files from both streams locally. `AUTO`/`LONG`/`SHORT`
 files remain on the camera host and are not cataloged, Zarr-appended, or
 archived from this VM.
 
+The operational sync scans only the current and previous UTC date folders. It
+transfers files newer than `/var/lib/aurora-cloud/wxcam-sync.last`, with a
+ten-minute overlap for late writes, and advances that checkpoint only after a
+successful rsync. A missing, invalid, or older-than-window checkpoint resumes
+at the live edge. Historical backfill is a separate manual operation and cannot
+block the two-minute live-data timer.
+
 ## Dashboard behavior
 
 - Dashboard instrument name: `WXcam`
@@ -25,10 +32,8 @@ The wxcam pixel Zarr is GWS-only and starts at `2026-07-04T00:00:00Z`.
 Local raw/catalog/video products remain on the processing host, but the
 decoded pixel Zarr is written through the GWS SSHFS mount.
 
-The catalog, daily-video, and pixel-Zarr timers are intentionally allowed to
-run while a long raw backfill is still in progress. Fresh in-flight media are
-deferred until they have settled, so current products can keep refreshing
-during large archive syncs instead of waiting for the full mirror to finish.
+The catalog, daily-video, and pixel-Zarr timers consume the incrementally
+updated raw mirror. Fresh in-flight media are deferred until they have settled.
 
 ## Authentication
 

@@ -6,23 +6,59 @@ source_host={{ wxcam_source_host | quote }}
 source_port={{ wxcam_source_port | int }}
 source_path={{ wxcam_source_path | quote }}
 destination={{ wxcam_source_destination | quote }}
+state_file={{ wxcam_source_state_file | quote }}
 source_auth={{ wxcam_source_auth | default('tailscale') | quote }}
 ssh_key={{ wxcam_source_ssh_key_path | quote }}
+start_fresh={{ '1' if wxcam_source_start_fresh | bool else '0' }}
+lookback_days={{ wxcam_source_lookback_days | int }}
+overlap_seconds={{ wxcam_source_overlap_seconds | int }}
+mtime_grace_seconds={{ wxcam_source_mtime_grace_seconds | int }}
 known_hosts=/home/{{ aurora_service_user }}/.ssh/known_hosts
 lock_file={{ aurora_state_root | quote }}/wxcam-sync.lock
 rsync_base=(rsync -a --partial --timeout=120)
 
-mkdir -p "$destination" "$(dirname "$known_hosts")" "$(dirname "$lock_file")"
+mkdir -p "$destination" "$(dirname "$state_file")" "$(dirname "$known_hosts")" "$(dirname "$lock_file")"
 
-# The wxcam tree is large enough that overlapping rsync runs are more trouble
-# than help. Exit cleanly if a previous timer run is still working. Only HDR
-# JPG/MP4 assets from the FISH and PANO streams are retained locally; AUTO,
-# LONG, and SHORT products stay on the camera host.
 exec 9>"$lock_file"
 if ! flock -n 9; then
   echo "wxcam sync already running; exiting."
   exit 0
 fi
+
+now_epoch="$(date +%s)"
+lookback_epoch=$(( now_epoch - lookback_days * 86400 ))
+initialize_fresh() {
+  echo "$now_epoch" > "$state_file"
+  echo "Initialized WXcam sync at the live edge ($now_epoch); historical gaps require a separate backfill."
+  exit 0
+}
+
+if [[ -f "$state_file" ]]; then
+  last_epoch="$(cat "$state_file")"
+else
+  if [[ "$start_fresh" == "1" ]]; then
+    initialize_fresh
+  fi
+  last_epoch="$lookback_epoch"
+fi
+
+if [[ ! "$last_epoch" =~ ^[0-9]+$ ]]; then
+  if [[ "$start_fresh" == "1" ]]; then
+    initialize_fresh
+  fi
+  echo "Invalid WXcam sync checkpoint; resetting to the lookback window." >&2
+  last_epoch="$lookback_epoch"
+fi
+if [[ "$start_fresh" == "1" ]] && (( last_epoch < lookback_epoch )); then
+  initialize_fresh
+fi
+scan_epoch=$(( last_epoch - overlap_seconds ))
+if (( scan_epoch < lookback_epoch )); then
+  scan_epoch="$lookback_epoch"
+fi
+
+files_from="$(mktemp)"
+trap 'rm -f "$files_from"' EXIT
 
 if [[ "$source_auth" == "ssh_key" ]]; then
   if [[ ! -f "$ssh_key" ]]; then
@@ -55,19 +91,51 @@ else
   )
 fi
 
-"${rsync_base[@]}" \
-  --prune-empty-dirs \
-  --delete \
-  --delete-excluded \
-  --include='FISH/' \
-  --include='FISH/**/' \
-  --include='FISH/**/HDR_*.jpg' \
-  --include='FISH/**/HDR_*.mp4' \
-  --include='PANO/' \
-  --include='PANO/**/' \
-  --include='PANO/**/HDR_*_PANO.jpg' \
-  --include='PANO/**/HDR_*_PANO.mp4' \
-  --exclude='*' \
+ssh "${ssh_opts[@]}" "${source_user}@${source_host}" bash -s -- \
+  "$source_path" "$scan_epoch" "$mtime_grace_seconds" "$lookback_days" > "$files_from" <<'REMOTE_FIND'
+set -euo pipefail
+source_path="$1"
+scan_epoch="$2"
+mtime_grace_seconds="$3"
+lookback_days="$4"
+fish_jpg_pattern={{ wxcam_source_fish_pattern | quote }}
+pano_jpg_pattern={{ wxcam_source_pano_pattern | quote }}
+fish_mp4_pattern="${fish_jpg_pattern%.jpg}.mp4"
+pano_mp4_pattern="${pano_jpg_pattern%.jpg}.mp4"
+
+cd "$source_path"
+source_now_epoch="$(date +%s)"
+upper_epoch=$(( source_now_epoch - mtime_grace_seconds ))
+
+for (( offset = 0; offset < lookback_days; offset++ )); do
+  day="$(date -u -d "-${offset} day" +%Y%m%d)"
+  fish_dir="FISH/${day}"
+  pano_dir="PANO/${day}"
+
+  if [[ -d "$fish_dir" ]]; then
+    find "$fish_dir" -maxdepth 2 -type f \
+      -newermt "@${scan_epoch}" ! -newermt "@${upper_epoch}" \
+      \( -name "$fish_jpg_pattern" -o -name "$fish_mp4_pattern" \) \
+      -printf '%p\0'
+  fi
+  if [[ -d "$pano_dir" ]]; then
+    find "$pano_dir" -maxdepth 2 -type f \
+      -newermt "@${scan_epoch}" ! -newermt "@${upper_epoch}" \
+      \( -name "$pano_jpg_pattern" -o -name "$pano_mp4_pattern" \) \
+      -printf '%p\0'
+  fi
+done
+REMOTE_FIND
+
+if [[ ! -s "$files_from" ]]; then
+  echo "$now_epoch" > "$state_file"
+  echo "No new WXcam files found."
+  exit 0
+fi
+
+"${rsync_base[@]}" --from0 --files-from="$files_from" \
   -e "ssh ${ssh_opts[*]}" \
   "${source_user}@${source_host}:${source_path%/}/" \
   "${destination%/}/"
+echo "$now_epoch" > "$state_file"
+echo "WXcam sync checkpoint advanced to $now_epoch."
