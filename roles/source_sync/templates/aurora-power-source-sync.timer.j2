@@ -2,7 +2,7 @@
 Description=Schedule Aurora power source sync
 
 [Timer]
-OnBootSec=2min
+OnActiveSec=2min
 OnUnitActiveSec={{ power_source_sync_interval }}
 Persistent=true
 RandomizedDelaySec={{ power_source_sync_randomized_delay }}

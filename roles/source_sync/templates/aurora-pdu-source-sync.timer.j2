@@ -2,7 +2,7 @@
 Description=Schedule Aurora PDU source sync
 
 [Timer]
-OnBootSec=2min
+OnActiveSec=2min
 OnUnitActiveSec={{ pdu_source_sync_interval }}
 Persistent=true
 RandomizedDelaySec={{ pdu_source_sync_randomized_delay }}

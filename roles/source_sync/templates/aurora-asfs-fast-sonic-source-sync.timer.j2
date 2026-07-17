@@ -2,7 +2,7 @@
 Description=Schedule Aurora ASFS fast-sonic source sync
 
 [Timer]
-OnBootSec=2min
+OnActiveSec=2min
 OnUnitActiveSec={{ asfs_fast_sonic_source_sync_interval }}
 Persistent=true
 RandomizedDelaySec={{ asfs_fast_sonic_source_sync_randomized_delay }}
