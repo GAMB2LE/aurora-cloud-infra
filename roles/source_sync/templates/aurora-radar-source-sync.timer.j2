@@ -2,7 +2,7 @@
 Description=Schedule Aurora cloud radar source sync
 
 [Timer]
-OnBootSec=2min
+OnActiveSec=2min
 OnUnitActiveSec={{ radar_source_sync_interval }}
 Persistent=true
 RandomizedDelaySec={{ radar_source_sync_randomized_delay }}
