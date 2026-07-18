@@ -501,14 +501,26 @@ auroracam_source_user: aurora
 auroracam_source_host: "{{ aurora_edge_hosts.ass.linux.tailscale_ip }}"
 auroracam_source_path: /home/aurora/data/mx4
 auroracam_source_destination: "{{ aurora_paths.raw_auroracam }}"
-auroracam_source_state_file: "{{ aurora_state_root }}/auroracam-sync.last"
+# The priority lane has an independent checkpoint so an archive recovery can
+# never delay the latest station frames.
+auroracam_source_state_file: "{{ aurora_state_root }}/auroracam-live-sync.last"
 auroracam_source_sync_interval: 2min
 auroracam_source_sync_randomized_delay: 30
-auroracam_source_lookback_days: 2
+auroracam_source_bootstrap_lookback_seconds: 1800
 auroracam_source_overlap_seconds: 600
 auroracam_source_mtime_grace_seconds: 300
-auroracam_source_scope_version: all-jpg-history-v1
-auroracam_source_start_fresh: true
+auroracam_backfill_enabled: true
+auroracam_backfill_timer_enabled: "{{ aurora_writer_timers_enabled }}"
+auroracam_backfill_state_file: "{{ aurora_state_root }}/auroracam-backfill.cursor"
+auroracam_backfill_scope_file: "{{ aurora_state_root }}/auroracam-backfill.scope"
+auroracam_backfill_scope_version: newest-first-v1
+auroracam_backfill_interval: 3min
+auroracam_backfill_randomized_delay: 45
+# Reserve the most recent hour for the priority lane and process older files
+# newest-first in bounded, lower-priority batches.
+auroracam_backfill_live_guard_seconds: 3600
+auroracam_backfill_batch_size: 100
+auroracam_backfill_rsync_bwlimit_kib: 256
 auroracam_index_interval: 2min
 auroracam_index_randomized_delay: 30
 

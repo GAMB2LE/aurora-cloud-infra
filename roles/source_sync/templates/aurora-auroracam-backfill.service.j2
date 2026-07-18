@@ -1,5 +1,5 @@
 [Unit]
-Description=Aurora priority live AURORACam source sync over Tailscale SSH
+Description=Aurora newest-first AURORACam archive backfill over Tailscale SSH
 After=network-online.target tailscaled.service
 Wants=network-online.target
 
@@ -7,8 +7,8 @@ Wants=network-online.target
 Type=oneshot
 User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
-ExecStart=/usr/local/bin/aurora-auroracam-sync
-TimeoutStartSec=5min
-Nice=0
+ExecStart=/usr/local/bin/aurora-auroracam-backfill
+TimeoutStartSec=10min
+Nice=15
 IOSchedulingClass=best-effort
-IOSchedulingPriority=2
+IOSchedulingPriority=7

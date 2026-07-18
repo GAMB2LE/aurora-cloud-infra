@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Archive lane: bounded batches ordered newest-first.  The recent window is
+# deliberately excluded because aurora-auroracam-sync owns live delivery.
+source_user={{ auroracam_source_user | quote }}
+source_host={{ auroracam_source_host | quote }}
+source_path={{ auroracam_source_path | quote }}
+destination={{ auroracam_source_destination | quote }}
+cursor_file={{ auroracam_backfill_state_file | quote }}
+scope_file={{ auroracam_backfill_scope_file | quote }}
+scope_version={{ auroracam_backfill_scope_version | quote }}
+live_guard_seconds={{ auroracam_backfill_live_guard_seconds | int }}
+batch_size={{ auroracam_backfill_batch_size | int }}
+rsync_bwlimit_kib={{ auroracam_backfill_rsync_bwlimit_kib | int }}
+mtime_grace_seconds={{ auroracam_source_mtime_grace_seconds | int }}
+known_hosts=/home/{{ aurora_service_user }}/.ssh/known_hosts
+lock_file={{ aurora_state_root | quote }}/auroracam-backfill.lock
+ssh_opts=(
+  -o BatchMode=yes
+  -o ConnectTimeout=15
+  -o IdentitiesOnly=yes
+  -o IdentityFile=none
+  -o PubkeyAuthentication=no
+  -o ServerAliveInterval=15
+  -o ServerAliveCountMax=4
+  -o StrictHostKeyChecking=accept-new
+  -o UserKnownHostsFile="$known_hosts"
+)
+
+mkdir -p "$destination" "$(dirname "$cursor_file")" "$(dirname "$known_hosts")" "$(dirname "$lock_file")"
+
+exec 9>"$lock_file"
+if ! flock -n 9; then
+  echo "AURORACam archive backfill already running; exiting."
+  exit 0
+fi
+
+now_epoch="$(date +%s)"
+safe_now_epoch=$(( now_epoch - mtime_grace_seconds ))
+if [[ ! -f "$scope_file" ]] || [[ "$(cat "$scope_file")" != "$scope_version" ]]; then
+  # Begin just outside the live lane.  Existing files are immutable JPEGs and
+  # rsync skips them, so this safely resumes the interrupted broad backfill.
+  echo $(( safe_now_epoch - live_guard_seconds )) > "$cursor_file"
+  rm -f "$scope_file"
+fi
+
+if [[ -f "$cursor_file" ]] && [[ "$(cat "$cursor_file")" =~ ^[0-9]+$ ]]; then
+  cursor_epoch="$(cat "$cursor_file")"
+else
+  cursor_epoch=$(( safe_now_epoch - live_guard_seconds ))
+  echo "$cursor_epoch" > "$cursor_file"
+fi
+
+records="$(mktemp)"
+files_from="$(mktemp)"
+trap 'rm -f "$records" "$files_from"' EXIT
+
+ssh "${ssh_opts[@]}" "${source_user}@${source_host}" bash -s -- \
+  "$source_path" "$cursor_epoch" "$batch_size" > "$records" <<'REMOTE_FIND'
+set -euo pipefail
+source_path="$1"
+cursor_epoch="$2"
+batch_size="$3"
+cd "$source_path"
+find . -type f -name '*.jpg' ! -newermt "@${cursor_epoch}" -printf '%T@\t%P\0' \
+  | sort -znr | head -z -n "$batch_size"
+REMOTE_FIND
+
+if [[ ! -s "$records" ]]; then
+  printf '%s\n' "$scope_version" > "$scope_file"
+  echo "AURORACam newest-first archive backfill is complete."
+  exit 0
+fi
+
+awk -v RS='\0' '{ sub(/^[^\t]*\t/, ""); printf "%s%c", $0, 0 }' "$records" > "$files_from"
+oldest_epoch="$(awk -v RS='\0' -F '\t' 'NF { stamp=$1 } END { if (stamp != "") print int(stamp) }' "$records")"
+if [[ ! "$oldest_epoch" =~ ^[0-9]+$ ]]; then
+  echo "Could not derive AURORACam archive cursor from batch." >&2
+  exit 1
+fi
+
+rsync -a --partial --ignore-existing --timeout=120 --bwlimit="$rsync_bwlimit_kib" \
+  --from0 --files-from="$files_from" -e "ssh ${ssh_opts[*]}" \
+  "${source_user}@${source_host}:${source_path%/}/" \
+  "${destination%/}/"
+
+# The next batch begins just before the oldest selected file.  Re-reading a
+# second around the boundary is harmless because JPEGs are immutable and
+# --ignore-existing makes the operation idempotent.
+echo $(( oldest_epoch - 1 )) > "$cursor_file"
+echo "AURORACam archive backfill cursor moved to $(( oldest_epoch - 1 ))."

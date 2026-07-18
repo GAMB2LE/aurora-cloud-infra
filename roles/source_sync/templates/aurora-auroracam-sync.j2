@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# This is the priority lane.  It only transfers recent frames, and has an
+# independent checkpoint from the archive backfill so the dashboard remains
+# live while historical recovery is in progress.
 source_user={{ auroracam_source_user | quote }}
 source_host={{ auroracam_source_host | quote }}
 source_path={{ auroracam_source_path | quote }}
 destination={{ auroracam_source_destination | quote }}
 state_file={{ auroracam_source_state_file | quote }}
-source_scope={{ auroracam_source_scope_version | quote }}
-scope_file="${state_file}.scope"
-start_fresh={{ '1' if auroracam_source_start_fresh | bool else '0' }}
-lookback_days={{ auroracam_source_lookback_days | int }}
+bootstrap_lookback_seconds={{ auroracam_source_bootstrap_lookback_seconds | int }}
 overlap_seconds={{ auroracam_source_overlap_seconds | int }}
 mtime_grace_seconds={{ auroracam_source_mtime_grace_seconds | int }}
 known_hosts=/home/{{ aurora_service_user }}/.ssh/known_hosts
-lock_file={{ aurora_state_root | quote }}/auroracam-sync.lock
+lock_file={{ aurora_state_root | quote }}/auroracam-live-sync.lock
 ssh_opts=(
   -o BatchMode=yes
   -o ConnectTimeout=15
@@ -25,108 +25,48 @@ ssh_opts=(
   -o StrictHostKeyChecking=accept-new
   -o UserKnownHostsFile="$known_hosts"
 )
-rsync_base=(rsync -a --partial --timeout=120)
 
 mkdir -p "$destination" "$(dirname "$state_file")" "$(dirname "$known_hosts")" "$(dirname "$lock_file")"
 
 exec 9>"$lock_file"
 if ! flock -n 9; then
-  echo "AURORACam sync already running; exiting."
+  echo "AURORACam priority sync already running; exiting."
   exit 0
 fi
 
 now_epoch="$(date +%s)"
-lookback_epoch=$(( now_epoch - lookback_days * 86400 ))
-full_backfill=0
-
-if [[ ! -f "$scope_file" ]] || [[ "$(cat "$scope_file")" != "$source_scope" ]]; then
-  full_backfill=1
-  echo "AURORACam source scope changed to ${source_scope}; scheduling a complete JPG backfill."
-fi
-
-initialize_fresh() {
-  echo "$now_epoch" > "$state_file"
-  printf '%s\n' "$source_scope" > "$scope_file"
-  echo "Initialized AURORACam sync at the live edge ($now_epoch); historical gaps require a separate backfill."
-  exit 0
-}
-
-if [[ -f "$state_file" ]]; then
+if [[ -f "$state_file" ]] && [[ "$(cat "$state_file")" =~ ^[0-9]+$ ]]; then
   last_epoch="$(cat "$state_file")"
 else
-  if [[ "$start_fresh" == "1" ]] && [[ "$full_backfill" == "0" ]]; then
-    initialize_fresh
-  fi
-  last_epoch="$lookback_epoch"
-fi
-
-if [[ ! "$last_epoch" =~ ^[0-9]+$ ]]; then
-  if [[ "$start_fresh" == "1" ]] && [[ "$full_backfill" == "0" ]]; then
-    initialize_fresh
-  fi
-  echo "Invalid AURORACam sync checkpoint; resetting to the lookback window." >&2
-  last_epoch="$lookback_epoch"
-fi
-if [[ "$start_fresh" == "1" ]] && [[ "$full_backfill" == "0" ]] && (( last_epoch < lookback_epoch )); then
-  initialize_fresh
+  last_epoch=$(( now_epoch - bootstrap_lookback_seconds ))
 fi
 scan_epoch=$(( last_epoch - overlap_seconds ))
-if (( scan_epoch < lookback_epoch )); then
-  scan_epoch="$lookback_epoch"
+if (( scan_epoch < 0 )); then
+  scan_epoch=0
 fi
 
 files_from="$(mktemp)"
 trap 'rm -f "$files_from"' EXIT
 
 ssh "${ssh_opts[@]}" "${source_user}@${source_host}" bash -s -- \
-  "$source_path" "$scan_epoch" "$mtime_grace_seconds" "$lookback_days" "$full_backfill" > "$files_from" <<'REMOTE_FIND'
+  "$source_path" "$scan_epoch" "$mtime_grace_seconds" > "$files_from" <<'REMOTE_FIND'
 set -euo pipefail
 source_path="$1"
 scan_epoch="$2"
 mtime_grace_seconds="$3"
-lookback_days="$4"
-full_backfill="$5"
-cameras=(
-  end-south-array-cam
-  fence-post-cam
-  radar-cam
-  mid-south-array-cam
-)
-
 cd "$source_path"
-source_now_epoch="$(date +%s)"
-upper_epoch=$(( source_now_epoch - mtime_grace_seconds ))
-
-if [[ "$full_backfill" == "1" ]]; then
-  find . -type f ! -newermt "@${upper_epoch}" -name '*.jpg' -printf '%P\0'
-  exit 0
-fi
-
-for (( offset = 0; offset < lookback_days; offset++ )); do
-  day="$(date -u -d "-${offset} day" +%Y-%m-%d)"
-  for camera in "${cameras[@]}"; do
-    camera_dir="${camera}/${day}"
-    if [[ -d "$camera_dir" ]]; then
-      find "$camera_dir" -maxdepth 1 -type f \
-        -newermt "@${scan_epoch}" ! -newermt "@${upper_epoch}" \
-        -name "${camera}_${day}_[0-9][0-9]-[0-9][0-9].jpg" \
-        -printf '%p\0'
-    fi
-  done
-done
+upper_epoch=$(( $(date +%s) - mtime_grace_seconds ))
+find . -type f -name '*.jpg' \
+  -newermt "@${scan_epoch}" ! -newermt "@${upper_epoch}" \
+  -printf '%P\0'
 REMOTE_FIND
 
-if [[ ! -s "$files_from" ]]; then
-  echo "$now_epoch" > "$state_file"
-  printf '%s\n' "$source_scope" > "$scope_file"
-  echo "No new AURORACam files found."
-  exit 0
+if [[ -s "$files_from" ]]; then
+  rsync -a --partial --timeout=120 --from0 --files-from="$files_from" \
+    -e "ssh ${ssh_opts[*]}" \
+    "${source_user}@${source_host}:${source_path%/}/" \
+    "${destination%/}/"
 fi
 
-"${rsync_base[@]}" --from0 --files-from="$files_from" \
-  -e "ssh ${ssh_opts[*]}" \
-  "${source_user}@${source_host}:${source_path%/}/" \
-  "${destination%/}/"
 echo "$now_epoch" > "$state_file"
-printf '%s\n' "$source_scope" > "$scope_file"
-echo "AURORACam sync checkpoint advanced to $now_epoch."
+echo "AURORACam priority sync checkpoint advanced to $now_epoch."

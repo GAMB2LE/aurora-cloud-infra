@@ -630,6 +630,7 @@
     owner: root
     group: root
     mode: "0755"
+  register: auroracam_priority_sync_script
   when: auroracam_source_sync_enabled | bool
 
 - name: Install AURORACam source sync systemd units
@@ -642,7 +643,43 @@
   loop:
     - aurora-auroracam-source-sync.service
     - aurora-auroracam-source-sync.timer
+  register: auroracam_priority_sync_units
   when: auroracam_source_sync_enabled | bool
+
+- name: Install AURORACam newest-first archive backfill script
+  ansible.builtin.template:
+    src: aurora-auroracam-backfill.j2
+    dest: /usr/local/bin/aurora-auroracam-backfill
+    owner: root
+    group: root
+    mode: "0755"
+  when:
+    - auroracam_source_sync_enabled | bool
+    - auroracam_backfill_enabled | bool
+
+- name: Stop a running legacy AURORACam all-history sync before priority activation
+  ansible.builtin.systemd:
+    name: aurora-auroracam-source-sync.service
+    state: stopped
+    daemon_reload: true
+  when:
+    - auroracam_source_sync_enabled | bool
+    - auroracam_priority_sync_script.changed | default(false) or auroracam_priority_sync_units.changed | default(false)
+    - not ansible_check_mode
+
+- name: Install AURORACam newest-first archive backfill systemd units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - aurora-auroracam-backfill.service
+    - aurora-auroracam-backfill.timer
+  when:
+    - auroracam_source_sync_enabled | bool
+    - auroracam_backfill_enabled | bool
 
 - name: Enable AURORACam source sync timer
   ansible.builtin.systemd:
@@ -655,6 +692,18 @@
     - auroracam_source_sync_timer_enabled | bool
     - not ansible_check_mode
 
+- name: Enable AURORACam newest-first archive backfill timer
+  ansible.builtin.systemd:
+    name: aurora-auroracam-backfill.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - auroracam_source_sync_enabled | bool
+    - auroracam_backfill_enabled | bool
+    - auroracam_backfill_timer_enabled | bool
+    - not ansible_check_mode
+
 - name: Disable AURORACam source sync timer when requested
   ansible.builtin.systemd:
     name: aurora-auroracam-source-sync.timer
@@ -663,4 +712,14 @@
     daemon_reload: true
   when:
     - not auroracam_source_sync_enabled | bool or not auroracam_source_sync_timer_enabled | bool
+    - not ansible_check_mode
+
+- name: Disable AURORACam newest-first archive backfill timer when requested
+  ansible.builtin.systemd:
+    name: aurora-auroracam-backfill.timer
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  when:
+    - not auroracam_source_sync_enabled | bool or not auroracam_backfill_enabled | bool or not auroracam_backfill_timer_enabled | bool
     - not ansible_check_mode
