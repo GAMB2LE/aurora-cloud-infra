@@ -63,8 +63,13 @@ source_path="$1"
 cursor_epoch="$2"
 batch_size="$3"
 cd "$source_path"
+# head deliberately closes the sorted stream after one batch.  Do not let the
+# resulting SIGPIPE from sort turn a successful bounded selection into a
+# failed systemd run.
+set +o pipefail
 find . -type f -name '*.jpg' ! -newermt "@${cursor_epoch}" -printf '%T@\t%P\0' \
   | sort -znr | head -z -n "$batch_size"
+set -o pipefail
 REMOTE_FIND
 
 if [[ ! -s "$records" ]]; then
