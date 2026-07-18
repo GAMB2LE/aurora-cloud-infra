@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule AURORACam newest-first archive backfill
+
+[Timer]
+OnActiveSec=1min
+OnUnitActiveSec={{ auroracam_backfill_interval }}
+Persistent=true
+RandomizedDelaySec={{ auroracam_backfill_randomized_delay }}
+Unit=aurora-auroracam-backfill.service
+
+[Install]
+WantedBy=timers.target
