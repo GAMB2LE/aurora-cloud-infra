@@ -98,7 +98,7 @@
 
 - name: Start bounded development mirror stage list
   ansible.builtin.set_fact:
-    aurora_standby_replication_effective_paths: "{{ (aurora_standby_replication_paths | rejectattr('name', 'equalto', 'raw') | list) + aurora_standby_raw_stages }}"
+    aurora_standby_replication_effective_paths: "{{ (aurora_standby_replication_paths | rejectattr('name', 'equalto', 'raw') | rejectattr('name', 'equalto', 'products') | list) + aurora_standby_raw_stages + aurora_standby_product_stages }}"
   when: aurora_standby_replication_enabled | bool
 
 - name: Install development live pull replication script
@@ -158,6 +158,28 @@
 - name: Stop an in-flight legacy combined development pull
   ansible.builtin.systemd:
     name: aurora-dev-live-pull.service
+    state: stopped
+  failed_when: false
+  when:
+    - aurora_standby_replication_enabled | bool
+    - aurora_standby_replication_timer_enabled | bool
+    - not ansible_check_mode
+
+- name: Disable obsolete broad product pull timer
+  ansible.builtin.systemd:
+    name: aurora-dev-live-pull-products.timer
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  failed_when: false
+  when:
+    - aurora_standby_replication_enabled | bool
+    - aurora_standby_replication_timer_enabled | bool
+    - not ansible_check_mode
+
+- name: Stop an in-flight obsolete broad product pull
+  ansible.builtin.systemd:
+    name: aurora-dev-live-pull@products.service
     state: stopped
   failed_when: false
   when:

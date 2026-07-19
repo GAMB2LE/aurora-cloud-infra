@@ -47,3 +47,61 @@ aurora_standby_raw_stages:
     source: /project/aurora/raw/wxcam/
     destination: /project/aurora/raw/wxcam/
     exclude: ["*.lock", "*.tmp"]
+
+aurora_standby_product_stages:
+  - name: product-asfs-fast-gas
+    source: /data/aurora/products/asfs_fast_gas/
+    destination: /data/aurora/products/asfs_fast_gas/
+    exclude: ["*.lock", "*.tmp"]
+  - name: product-asfs-fast-sonic
+    source: /data/aurora/products/asfs_fast_sonic/
+    destination: /data/aurora/products/asfs_fast_sonic/
+    exclude: ["*.lock", "*.tmp"]
+  - name: product-asfs-logger
+    source: /data/aurora/products/asfs_logger/
+    destination: /data/aurora/products/asfs_logger/
+    exclude: ["*.lock", "*.tmp"]
+  - name: product-auroracam
+    source: /data/aurora/products/auroracam/
+    destination: /data/aurora/products/auroracam/
+    exclude: ["*.lock", "*.tmp"]
+  - name: product-cl61
+    source: /data/aurora/products/cl61/
+    destination: /data/aurora/products/cl61/
+    exclude: ["*.lock", "*.tmp"]
+  - name: product-cloudnet
+    source: /data/aurora/products/cloudnet/
+    destination: /data/aurora/products/cloudnet/
+    exclude: ["*.lock", "*.tmp"]
+  - name: product-dashboard
+    source: /data/aurora/products/dashboard/
+    destination: /data/aurora/products/dashboard/
+    exclude: ["*.lock", "*.tmp"]
+  - name: product-hatprog5
+    source: /data/aurora/products/hatprog5/
+    destination: /data/aurora/products/hatprog5/
+    exclude: ["*.lock", "*.tmp"]
+  - name: product-ops-monitor
+    source: /data/aurora/products/ops_monitor/
+    destination: /data/aurora/products/ops_monitor/
+    exclude: ["*.lock", "*.tmp"]
+  - name: product-power
+    source: /data/aurora/products/power/
+    destination: /data/aurora/products/power/
+    exclude: ["*.lock", "*.tmp"]
+  - name: product-quicklooks
+    source: /data/aurora/products/quicklooks/
+    destination: /data/aurora/products/quicklooks/
+    exclude: ["*.lock", "*.tmp"]
+  - name: product-rpgfmcw94
+    source: /data/aurora/products/rpgfmcw94/
+    destination: /data/aurora/products/rpgfmcw94/
+    exclude: ["*.lock", "*.tmp"]
+  - name: product-vaisalamet
+    source: /data/aurora/products/vaisalamet/
+    destination: /data/aurora/products/vaisalamet/
+    exclude: ["*.lock", "*.tmp"]
+  - name: product-wxcam
+    source: /data/aurora/products/wxcam/
+    destination: /data/aurora/products/wxcam/
+    exclude: [".zarr-rebuild-backups/**", "*.lock", "*.tmp"]

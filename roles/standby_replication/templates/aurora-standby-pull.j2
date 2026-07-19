@@ -172,7 +172,7 @@ printf '%s\n' "$success_utc" > "$state_root/last_success_utc"
 # The mirrored internal tree may not contain this development-only directory,
 # so --delete can remove the empty directory created before replication.
 mkdir -p "$(dirname "$public_stamp")"
-if [[ "$requested_stage" == "all" || "$requested_stage" == "products" ]]; then
+if [[ "$requested_stage" == "all" || "$requested_stage" == "product-dashboard" ]]; then
   stamp_tmp="${public_stamp}.tmp.$$"
   printf '{"last_success_utc":"%s","site_env":"%s","source_host":"%s","source_user":"%s","stage":"%s","rsync_exit_code":0}\n' \
     "$success_utc" \
