@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule Aurora development live mirror pull ({{ item.name }})
+
+[Timer]
+OnBootSec={{ 120 + (loop_index * 25) }}s
+OnUnitInactiveSec={{ aurora_standby_replication_interval }}
+Persistent=true
+RandomizedDelaySec={{ aurora_standby_replication_randomized_delay_sec }}
+Unit=aurora-dev-live-pull@{{ item.name }}.service
+
+[Install]
+WantedBy=timers.target

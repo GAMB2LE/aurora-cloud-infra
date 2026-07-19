@@ -8,6 +8,7 @@ Type=oneshot
 User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
 ExecStart=/usr/local/bin/aurora-dashboard-health-probe
+SuccessExitStatus=1
 Nice=15
 CPUQuota=10%
 TimeoutStartSec=90

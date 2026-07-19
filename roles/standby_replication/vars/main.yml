@@ -1,0 +1,49 @@
+---
+# Raw instruments are independent synchronization domains. Keeping them
+# separate prevents a large camera archive scan from delaying every other
+# dashboard product.
+aurora_standby_raw_stages:
+  - name: raw-asfs
+    source: /project/aurora/raw/asfs/
+    destination: /project/aurora/raw/asfs/
+    exclude: ["*.lock", "*.tmp"]
+  - name: raw-auroracam
+    source: /project/aurora/raw/auroracam/
+    destination: /project/aurora/raw/auroracam/
+    exclude: ["*.lock", "*.tmp"]
+  - name: raw-cl61
+    source: /project/aurora/raw/cl61/
+    destination: /project/aurora/raw/cl61/
+    exclude: ["*.lock", "*.tmp"]
+  - name: raw-hatprog5
+    source: /project/aurora/raw/hatprog5/
+    destination: /project/aurora/raw/hatprog5/
+    exclude: ["*.lock", "*.tmp"]
+  - name: raw-menapia
+    source: /project/aurora/raw/menapia/
+    destination: /project/aurora/raw/menapia/
+    exclude: ["*.lock", "*.tmp"]
+  - name: raw-ops-monitor
+    source: /project/aurora/raw/ops_monitor/
+    destination: /project/aurora/raw/ops_monitor/
+    exclude: ["*.lock", "*.tmp"]
+  - name: raw-pdu
+    source: /project/aurora/raw/pdu/
+    destination: /project/aurora/raw/pdu/
+    exclude: ["*.lock", "*.tmp"]
+  - name: raw-power
+    source: /project/aurora/raw/power/
+    destination: /project/aurora/raw/power/
+    exclude: ["*.lock", "*.tmp"]
+  - name: raw-rpgfmcw94
+    source: /project/aurora/raw/rpgfmcw94/
+    destination: /project/aurora/raw/rpgfmcw94/
+    exclude: ["*.lock", "*.tmp"]
+  - name: raw-vaisalamet
+    source: /project/aurora/raw/vaisalamet/
+    destination: /project/aurora/raw/vaisalamet/
+    exclude: ["*.lock", "*.tmp"]
+  - name: raw-wxcam
+    source: /project/aurora/raw/wxcam/
+    destination: /project/aurora/raw/wxcam/
+    exclude: ["*.lock", "*.tmp"]

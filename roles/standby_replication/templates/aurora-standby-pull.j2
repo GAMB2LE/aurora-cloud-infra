@@ -7,6 +7,7 @@ if [[ "{{ 'true' if aurora_standby_replication_enabled | bool else 'false' }}" !
 fi
 
 site_env={{ aurora_site_env | quote }}
+requested_stage="${1:-all}"
 source_user={{ aurora_standby_primary_user | quote }}
 source_host={{ aurora_standby_primary_host | quote }}
 proxy_jump={{ aurora_standby_primary_proxy_jump | default("") | quote }}
@@ -26,9 +27,18 @@ if [[ ! -r "$ssh_key" ]]; then
   exit 1
 fi
 
-exec 9>/run/aurora-standby-pull.lock
+case "$requested_stage" in
+  all{% for path in aurora_standby_replication_effective_paths %}|{{ path.name }}{% endfor %})
+    ;;
+  *)
+    echo "Unknown Aurora mirror stage: $requested_stage" >&2
+    exit 2
+    ;;
+esac
+
+exec 9>"/run/aurora-standby-pull-${requested_stage}.lock"
 if ! flock -n 9; then
-  echo "Another Aurora development live pull run is still active."
+  echo "Another Aurora development live pull ${requested_stage} run is still active."
   exit 0
 fi
 
@@ -107,6 +117,13 @@ replicate_path() {
       ;;
   esac
 
+  local started_epoch
+  local completed_epoch
+  local output_log
+  local transferred_bytes
+  started_epoch=$(date +%s)
+  output_log=$(mktemp)
+  trap 'rm -f "$output_log"' RETURN
   mkdir -p "$destination_path"
   echo "Replicating $name from ${source_user}@${source_host}:${source_path} to ${destination_path}"
   set +e
@@ -116,20 +133,38 @@ replicate_path() {
     --rsync-path="$rsync_path" \
     -e "$ssh_wrapper" \
     "${source_user}@${source_host}:${source_path}" \
-    "$destination_path"
-  local rsync_status=$?
+    "$destination_path" | tee "$output_log"
+  local rsync_status=${PIPESTATUS[0]}
   set -e
   if [[ "$rsync_status" -eq 24 ]]; then
     # Source-side SQLite WAL/SHM rotation can make an already transferred file
     # vanish during rsync's final scan. The next pull will reconcile it.
     echo "Replication $name completed with transient vanished source files (rsync 24)."
-    return 0
+    rsync_status=0
   fi
-  return "$rsync_status"
+  if [[ "$rsync_status" -ne 0 ]]; then
+    return "$rsync_status"
+  fi
+
+  completed_epoch=$(date +%s)
+  transferred_bytes=$(awk -F': ' '/^Total transferred file size:/ {gsub(/[^0-9]/, "", $2); print $2; exit}' "$output_log")
+  transferred_bytes=${transferred_bytes:-0}
+  stage_stamp="$state_root/${name}.json"
+  stage_tmp="${stage_stamp}.tmp.$$"
+  printf '{"stage":"%s","last_success_utc":"%s","duration_seconds":%d,"transferred_bytes":%s,"source_host":"%s"}\n' \
+    "$name" \
+    "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+    "$((completed_epoch - started_epoch))" \
+    "$transferred_bytes" \
+    "$source_host" \
+    > "$stage_tmp"
+  mv "$stage_tmp" "$stage_stamp"
 }
 
-{% for path in aurora_standby_replication_paths %}
+{% for path in aurora_standby_replication_effective_paths %}
+if [[ "$requested_stage" == "all" || "$requested_stage" == {{ path.name | quote }} ]]; then
 replicate_path {{ path.name | quote }} {{ path.source | quote }} {{ path.destination | quote }}{% for exclude in path.exclude | default([]) %} --exclude={{ exclude | quote }}{% endfor %}{{ '\n' }}
+fi
 {% endfor %}
 
 success_utc=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -137,12 +172,14 @@ printf '%s\n' "$success_utc" > "$state_root/last_success_utc"
 # The mirrored internal tree may not contain this development-only directory,
 # so --delete can remove the empty directory created before replication.
 mkdir -p "$(dirname "$public_stamp")"
-stamp_tmp="${public_stamp}.tmp.$$"
-printf '{"last_success_utc":"%s","site_env":"%s","source_host":"%s","source_user":"%s","paths_replicated":%d,"rsync_exit_code":0}\n' \
-  "$success_utc" \
-  "$site_env" \
-  "$source_host" \
-  "$source_user" \
-  {{ aurora_standby_replication_paths | length }} \
-  > "$stamp_tmp"
-mv "$stamp_tmp" "$public_stamp"
+if [[ "$requested_stage" == "all" || "$requested_stage" == "products" ]]; then
+  stamp_tmp="${public_stamp}.tmp.$$"
+  printf '{"last_success_utc":"%s","site_env":"%s","source_host":"%s","source_user":"%s","stage":"%s","rsync_exit_code":0}\n' \
+    "$success_utc" \
+    "$site_env" \
+    "$source_host" \
+    "$source_user" \
+    "$requested_stage" \
+    > "$stamp_tmp"
+  mv "$stamp_tmp" "$public_stamp"
+fi

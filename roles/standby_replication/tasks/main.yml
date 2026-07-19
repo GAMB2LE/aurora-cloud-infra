@@ -96,6 +96,11 @@
     - aurora_standby_replication_timer_enabled | bool
     - not ansible_check_mode
 
+- name: Start bounded development mirror stage list
+  ansible.builtin.set_fact:
+    aurora_standby_replication_effective_paths: "{{ (aurora_standby_replication_paths | rejectattr('name', 'equalto', 'raw') | list) + aurora_standby_raw_stages }}"
+  when: aurora_standby_replication_enabled | bool
+
 - name: Install development live pull replication script
   ansible.builtin.template:
     src: aurora-standby-pull.j2
@@ -117,12 +122,46 @@
     - aurora-dev-live-pull.timer
   when: aurora_standby_replication_enabled | bool
 
-- name: Enable development live pull timer
+- name: Install staged development live pull service
+  ansible.builtin.template:
+    src: aurora-dev-live-pull@.service.j2
+    dest: /etc/systemd/system/aurora-dev-live-pull@.service
+    owner: root
+    group: root
+    mode: "0644"
+  when: aurora_standby_replication_enabled | bool
+
+- name: Install staged development live pull timers
+  ansible.builtin.template:
+    src: aurora-dev-live-pull-stage.timer.j2
+    dest: "/etc/systemd/system/aurora-dev-live-pull-{{ item.name }}.timer"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ aurora_standby_replication_effective_paths }}"
+  loop_control:
+    index_var: loop_index
+  when: aurora_standby_replication_enabled | bool
+
+- name: Enable staged development live pull timers
   ansible.builtin.systemd:
-    name: aurora-dev-live-pull.timer
+    name: "aurora-dev-live-pull-{{ item.name }}.timer"
     enabled: true
     state: started
     daemon_reload: true
+  loop: "{{ aurora_standby_replication_effective_paths }}"
+  when:
+    - aurora_standby_replication_enabled | bool
+    - aurora_standby_replication_timer_enabled | bool
+    - not ansible_check_mode
+
+- name: Disable legacy combined development live pull timer
+  ansible.builtin.systemd:
+    name: aurora-dev-live-pull.timer
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  failed_when: false
   when:
     - aurora_standby_replication_enabled | bool
     - aurora_standby_replication_timer_enabled | bool
@@ -134,6 +173,18 @@
     enabled: false
     state: stopped
     daemon_reload: true
+  failed_when: false
+  when:
+    - not (aurora_standby_replication_enabled | bool and aurora_standby_replication_timer_enabled | bool)
+    - not ansible_check_mode
+
+- name: Disable staged development live pull timers when inactive
+  ansible.builtin.systemd:
+    name: "aurora-dev-live-pull-{{ item.name }}.timer"
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  loop: "{{ aurora_standby_replication_effective_paths | default([]) }}"
   failed_when: false
   when:
     - not (aurora_standby_replication_enabled | bool and aurora_standby_replication_timer_enabled | bool)
