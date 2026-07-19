@@ -82,16 +82,8 @@
     recurse: true
   when: not ansible_check_mode
 
-- name: Install Python dependencies with uv
-  ansible.builtin.command: "{{ aurora_uv_bin }} pip install --upgrade -r {{ aurora_app_dir }}/requirements-dashboard.txt --python {{ aurora_venv }}/bin/python"
-  environment:
-    UV_CACHE_DIR: "{{ aurora_uv_cache_dir }}"
-  become_user: "{{ aurora_service_user }}"
-  when: not ansible_check_mode
-  notify: Restart dashboard
-
-- name: Install mobile API dependencies with uv
-  ansible.builtin.command: "{{ aurora_uv_bin }} pip install --upgrade -r {{ aurora_app_dir }}/requirements-mobile-api.txt --python {{ aurora_venv }}/bin/python"
+- name: Install pinned dashboard runtime dependencies with uv
+  ansible.builtin.command: "{{ aurora_uv_bin }} pip install --upgrade -r {{ aurora_app_dir }}/requirements-runtime.txt --python {{ aurora_venv }}/bin/python"
   environment:
     UV_CACHE_DIR: "{{ aurora_uv_cache_dir }}"
   become_user: "{{ aurora_service_user }}"
