@@ -155,6 +155,16 @@
     - aurora_standby_replication_timer_enabled | bool
     - not ansible_check_mode
 
+- name: Stop an in-flight legacy combined development pull
+  ansible.builtin.systemd:
+    name: aurora-dev-live-pull.service
+    state: stopped
+  failed_when: false
+  when:
+    - aurora_standby_replication_enabled | bool
+    - aurora_standby_replication_timer_enabled | bool
+    - not ansible_check_mode
+
 - name: Enable staged development live pull timers
   ansible.builtin.systemd:
     name: "aurora-dev-live-pull-{{ item.name }}.timer"
