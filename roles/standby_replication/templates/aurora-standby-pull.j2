@@ -75,7 +75,8 @@ fi
 {% for arg in aurora_standby_primary_ssh_extra_args %}
 ssh_command+=({{ arg | quote }})
 {% endfor %}
-ssh_wrapper="$state_root/ssh-wrapper"
+ssh_wrapper="$state_root/ssh-wrapper-$$"
+ssh_wrapper_tmp="${ssh_wrapper}.tmp.$$"
 {
   printf '#!/usr/bin/env bash\n'
   printf 'exec'
@@ -83,7 +84,8 @@ ssh_wrapper="$state_root/ssh-wrapper"
     printf ' %q' "$arg"
   done
   printf ' "$@"\n'
-} > "$ssh_wrapper"
+} > "$ssh_wrapper_tmp"
+mv -f "$ssh_wrapper_tmp" "$ssh_wrapper"
 chmod 0700 "$ssh_wrapper"
 
 rsync_common=(

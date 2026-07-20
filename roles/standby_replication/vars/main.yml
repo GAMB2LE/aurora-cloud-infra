@@ -38,7 +38,10 @@ aurora_standby_raw_stages:
   - name: raw-rpgfmcw94
     source: /project/aurora/raw/rpgfmcw94/
     destination: /project/aurora/raw/rpgfmcw94/
-    exclude: ["*.lock", "*.tmp"]
+    # The development dashboard reads the compact cloud-radar product and
+    # quicklooks, not the raw radar archive. Keeping this historical mirror
+    # would consume more space than the development volume can hold.
+    exclude: ["Y2026/**", ".radar-partials/**", "*.lock", "*.tmp"]
   - name: raw-vaisalamet
     source: /project/aurora/raw/vaisalamet/
     destination: /project/aurora/raw/vaisalamet/
@@ -104,4 +107,7 @@ aurora_standby_product_stages:
   - name: product-wxcam
     source: /data/aurora/products/wxcam/
     destination: /data/aurora/products/wxcam/
-    exclude: [".zarr-rebuild-backups/**", "*.lock", "*.tmp"]
+    # The browser uses the catalog, thumbnails, and videos. The pixel archive
+    # is an analysis product retained on production, not a development-site
+    # runtime dependency.
+    exclude: ["wxcam.zarr/**", ".zarr-rebuild-backups/**", "*.lock", "*.tmp"]
