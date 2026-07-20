@@ -98,6 +98,7 @@ def main() -> int:
     mirror_age_minutes = round((observed_at - mirror_time).total_seconds() / 60.0, 3) if mirror_time else None
     shadow = read_json(SHADOW_REPORT)
     alerts: list[str] = []
+    observations: list[str] = []
     development = probes["development"]
     production = probes["production"]
     if not development["ok"]:
@@ -109,7 +110,9 @@ def main() -> int:
     elif production["elapsed_seconds"] > WARN_SECONDS:
         alerts.append("production_endpoint_slow")
     if development["ok"] and production["ok"] and development["elapsed_seconds"] - production["elapsed_seconds"] > DELTA_SECONDS:
-        alerts.append("development_slower_than_production")
+        # A one-off latency delta is useful release telemetry, but does not
+        # make either endpoint unavailable and must not fail the timer unit.
+        observations.append("development_slower_than_production")
     if mirror_age_minutes is None or mirror_age_minutes > 7.5:
         alerts.append("development_mirror_stale")
     if shadow and shadow.get("shadow_status") != "compared":
@@ -124,6 +127,7 @@ def main() -> int:
         "earthkit_shadow_status": shadow.get("shadow_status", "not_yet_observed"),
         "status": "alert" if alerts else "ok",
         "alerts": alerts,
+        "observations": observations,
     }
     ROOT.mkdir(parents=True, exist_ok=True)
     payload["rolling_latency_24h"] = rolling_latency_summary(history + [payload], observed_at)

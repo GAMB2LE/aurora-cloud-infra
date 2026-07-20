@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Claim a finite newest-first batch, then use four non-overlapping compressed
+# streams.  LV0 HDF5 compresses by more than 8x, so streaming zstd avoids
+# spending scarce Starlink upload capacity on repeated radar values.
+source_user={{ radar_source_user | quote }}
+source_host={{ radar_source_host | quote }}
+source_port={{ radar_source_port | int }}
+source_path={{ radar_source_path | quote }}
+source_pattern={{ radar_source_pattern | quote }}
+destination={{ radar_source_destination | quote }}
+workers={{ radar_backfill_workers | int }}
+max_files={{ radar_backfill_batch_files | int }}
+max_bytes={{ radar_backfill_batch_bytes | int }}
+partial_root={{ radar_backfill_partial_root | quote }}
+status_file={{ radar_backfill_status_file | quote }}
+known_hosts=/home/{{ aurora_service_user }}/.ssh/known_hosts
+lock_file={{ aurora_state_root | quote }}/radar-backfill.lock
+
+mkdir -p "$destination" "$partial_root" "$(dirname "$status_file")" "$(dirname "$known_hosts")"
+exec 9>"$lock_file"
+flock -n 9 || exit 0
+workdir="$(mktemp -d)"
+trap 'rm -rf "$workdir"' EXIT
+records="$workdir/records"
+ssh_opts=(
+  -p "$source_port" -o BatchMode=yes -o ConnectTimeout=15
+  -o IdentitiesOnly=yes -o IdentityFile=none -o PubkeyAuthentication=no
+  -o ServerAliveInterval=15 -o ServerAliveCountMax=4
+  -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$known_hosts"
+)
+
+# Keep the inventory command itself on the remote command line.  Passing a
+# NUL-producing command through `ssh bash -s` can consume its stdout on some
+# Tailscale SSH sessions before the local redirect sees it.
+remote_source_path="$(printf '%q' "$source_path")"
+remote_pattern="$(printf '%q' "$source_pattern")"
+ssh "${ssh_opts[@]}" "${source_user}@${source_host}" \
+  "cd $remote_source_path && find . -type f -name $remote_pattern -printf '%T@\\t%s\\t%P\\0' | sort -znr" > "$records"
+
+selection="$workdir/selection.json"
+# Python handles the NUL-delimited source inventory without shell field-split
+# ambiguity, including paths containing whitespace.
+python3 - "$records" "$destination" "$workers" "$max_files" "$max_bytes" "$workdir" "$selection" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+records, destination, workers, max_files, max_bytes, workdir, selection = sys.argv[1:]
+workers, max_files, max_bytes = int(workers), int(max_files), int(max_bytes)
+bucket_bytes = [0] * workers
+selected = 0
+selected_bytes = 0
+handles = [open(Path(workdir) / f"files.{index}", "wb") for index in range(workers)]
+try:
+    for record in Path(records).read_bytes().split(b"\0"):
+        if not record:
+            continue
+        _mtime, size_raw, rel_raw = record.split(b"\t", 2)
+        size = int(size_raw)
+        rel = os.fsdecode(rel_raw)
+        target = Path(destination) / rel
+        try:
+            complete = target.is_file() and target.stat().st_size == size
+        except OSError:
+            complete = False
+        if complete:
+            continue
+        if selected >= max_files or (selected and selected_bytes + size > max_bytes):
+            break
+        slot = min(range(workers), key=bucket_bytes.__getitem__)
+        handles[slot].write(_mtime + b"\t" + size_raw + b"\t" + rel_raw + b"\0")
+        bucket_bytes[slot] += size
+        selected += 1
+        selected_bytes += size
+finally:
+    for handle in handles:
+        handle.close()
+Path(selection).write_text(json.dumps({
+    "selected_files": selected,
+    "selected_bytes": selected_bytes,
+    "worker_bytes": bucket_bytes,
+    "source_record_bytes": Path(records).stat().st_size,
+}))
+PY
+selected="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["selected_files"])' "$selection")"
+selected_bytes="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["selected_bytes"])' "$selection")"
+
+started="$(date -u +%FT%TZ)"
+printf '{"started_at":"%s","selected_files":%d,"selected_bytes":%d,"workers":%d}\n' \
+  "$started" "$selected" "$selected_bytes" "$workers" > "$status_file"
+(( selected > 0 )) || { echo "Radar archive backfill is complete."; exit 0; }
+
+transfer_worker() {
+  local worker="$1" mtime size relpath target partial remote_file actual_size
+  while IFS=$'\t' read -r -d '' mtime size relpath; do
+    target="$destination/$relpath"
+    partial="$partial_root/$worker/$relpath"
+    mkdir -p "$(dirname "$target")" "$(dirname "$partial")"
+    remote_file="$(printf '%q' "${source_path%/}/$relpath")"
+    # A compressed stream is deliberately restarted after interruption.  A
+    # typical 3.7 GB LV0 file is only about 435 MB on the wire, which is both
+    # faster and more reliable than resuming a multi-gigabyte raw rsync frame.
+    if ! ssh "${ssh_opts[@]}" "${source_user}@${source_host}" \
+      "zstd -1 -T1 --check -q -c -- $remote_file" \
+      | zstd -d -q -c > "$partial"; then
+      echo "Compressed radar transfer failed for $relpath" >&2
+      return 1
+    fi
+    actual_size="$(stat -c %s "$partial")"
+    if [[ "$actual_size" != "$size" ]]; then
+      echo "Restored radar size mismatch for $relpath: expected=$size actual=$actual_size" >&2
+      return 1
+    fi
+    touch -d "@${mtime%.*}" "$partial"
+    mv -f "$partial" "$target"
+    echo "Restored radar file: $relpath ($size bytes)."
+  done < "$workdir/files.$worker"
+}
+
+worker_pids=()
+for ((i=0; i<workers; i++)); do
+  [[ -s "$workdir/files.$i" ]] || continue
+  transfer_worker "$i" &
+  worker_pids+=("$!")
+done
+failed=0
+for pid in "${worker_pids[@]}"; do
+  wait "$pid" || failed=1
+done
+(( failed == 0 )) || exit 1
+finished="$(date -u +%FT%TZ)"
+printf '{"started_at":"%s","finished_at":"%s","selected_files":%d,"selected_bytes":%d,"workers":%d,"result":"success"}\n' \
+  "$started" "$finished" "$selected" "$selected_bytes" "$workers" > "$status_file"
+echo "Radar archive batch completed: $selected files, $selected_bytes bytes."

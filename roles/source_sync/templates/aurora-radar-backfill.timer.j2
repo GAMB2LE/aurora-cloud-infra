@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule bounded parallel Aurora radar archive backfill
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec={{ radar_backfill_interval }}
+RandomizedDelaySec={{ radar_backfill_randomized_delay }}
+Unit=aurora-radar-backfill.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -34,27 +34,29 @@ sudo -u aurora ssh -o IdentityFile=none -o PubkeyAuthentication=no aurora@100.12
 
 ## Current Deployed Behavior
 
-`aurora-radar-source-sync.service` runs `/usr/local/bin/aurora-radar-sync`.
-With the current deployment variables, when
-`/var/lib/aurora-cloud/radar-sync.last` does not exist the script writes `0`,
-pulls the full current source history, and then advances the state marker on
-later runs.
+The source has two independent lanes:
 
-The companion `/var/lib/aurora-cloud/radar-sync.last.scope` marker records the
-deployed source-scope version. Expanding the configured scope automatically
-performs an idempotent historical backfill before the marker is advanced, so
-files excluded by an older deployment cannot be silently skipped.
+- `aurora-radar-source-sync.service` is the priority live lane. It polls every
+  two minutes, uses a bounded bootstrap lookback on first start, overlaps its
+  previous checkpoint by ten minutes, and ignores files modified in the last
+  five minutes. Its checkpoint is
+  `/var/lib/aurora-cloud/radar-live-sync.last`.
+- `aurora-radar-backfill.service` is the newest-first historical lane. It
+  transfers a bounded batch in parallel and records progress in
+  `/var/lib/aurora-cloud/radar-backfill-status.json`. It never advances the
+  live checkpoint.
 
-If you deliberately want the old fresh-start behavior again, set
-`radar_source_start_fresh: true` and redeploy. In that mode the script writes
-the current epoch and exits when the state file is absent.
+This separation prevents a historical LV0 archive catch-up from delaying new
+radar data. The backfill timer is enabled only on the authoritative writer
+host; its temporary files live below `.radar-partials` and are excluded from
+GWS replication.
 
-To deliberately reset the current sync point, stop the timer and edit or remove
-the state file:
+To deliberately reset the live sync point, stop the timer and edit or remove
+the live checkpoint:
 
 ```bash
 sudo systemctl stop aurora-radar-source-sync.timer
-sudo -u aurora date +%s | sudo tee /var/lib/aurora-cloud/radar-sync.last
+sudo -u aurora date +%s | sudo tee /var/lib/aurora-cloud/radar-live-sync.last
 sudo systemctl start aurora-radar-source-sync.timer
 ```
 

@@ -212,6 +212,15 @@
     mode: "0755"
   when: radar_source_sync_enabled | bool
 
+- name: Install bounded parallel radar archive backfill script
+  ansible.builtin.template:
+    src: aurora-radar-backfill.j2
+    dest: /usr/local/bin/aurora-radar-backfill
+    owner: root
+    group: root
+    mode: "0755"
+  when: radar_backfill_enabled | bool
+
 - name: Install radar source sync systemd units
   ansible.builtin.template:
     src: "{{ item }}.j2"
@@ -222,6 +231,8 @@
   loop:
     - aurora-radar-source-sync.service
     - aurora-radar-source-sync.timer
+    - aurora-radar-backfill.service
+    - aurora-radar-backfill.timer
   when: radar_source_sync_enabled | bool
 
 - name: Enable radar source sync timer
@@ -235,6 +246,17 @@
     - radar_source_sync_timer_enabled | bool
     - not ansible_check_mode
 
+- name: Enable radar archive backfill timer
+  ansible.builtin.systemd:
+    name: aurora-radar-backfill.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - radar_backfill_enabled | bool
+    - radar_backfill_timer_enabled | bool
+    - not ansible_check_mode
+
 - name: Disable radar source sync timer when requested
   ansible.builtin.systemd:
     name: aurora-radar-source-sync.timer
@@ -243,6 +265,16 @@
     daemon_reload: true
   when:
     - not radar_source_sync_enabled | bool or not radar_source_sync_timer_enabled | bool
+    - not ansible_check_mode
+
+- name: Disable radar archive backfill timer when requested
+  ansible.builtin.systemd:
+    name: aurora-radar-backfill.timer
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  when:
+    - not radar_backfill_enabled | bool or not radar_backfill_timer_enabled | bool
     - not ansible_check_mode
 
 - name: Install HATPRO source sync script

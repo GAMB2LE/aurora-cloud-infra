@@ -1,88 +1,54 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# The live lane has an independent checkpoint.  Historical recovery is owned
+# by aurora-radar-backfill, so a multi-terabyte LV0 transfer cannot delay new
+# radar files.
 source_user={{ radar_source_user | quote }}
 source_host={{ radar_source_host | quote }}
 source_port={{ radar_source_port | int }}
 source_path={{ radar_source_path | quote }}
 source_pattern={{ radar_source_pattern | quote }}
-source_scope={{ radar_source_scope_version | quote }}
 destination={{ radar_source_destination | quote }}
 state_file={{ radar_source_state_file | quote }}
-scope_file="${state_file}.scope"
-source_auth={{ radar_source_auth | default('tailscale') | quote }}
-ssh_key={{ radar_source_ssh_key_path | quote }}
-start_fresh={{ '1' if radar_source_start_fresh | bool else '0' }}
+bootstrap_lookback_seconds={{ radar_source_bootstrap_lookback_seconds | int }}
+overlap_seconds={{ radar_source_overlap_seconds | int }}
+mtime_grace_seconds={{ radar_source_mtime_grace_seconds | int }}
 known_hosts=/home/{{ aurora_service_user }}/.ssh/known_hosts
+lock_file={{ aurora_state_root | quote }}/radar-live-sync.lock
 
 mkdir -p "$destination" "$(dirname "$state_file")" "$(dirname "$known_hosts")"
+exec 9>"$lock_file"
+flock -n 9 || exit 0
 
-if [[ ! -f "$state_file" ]]; then
-  if [[ "$start_fresh" == "1" ]]; then
-    date +%s > "$state_file"
-    printf '%s\n' "$source_scope" > "$scope_file"
-    echo "Initialized fresh radar sync state at $(cat "$state_file"); no historical files pulled."
-    exit 0
-  fi
-  echo 0 > "$state_file"
-fi
-
-last_epoch="$(cat "$state_file")"
 now_epoch="$(date +%s)"
-
-if [[ ! -f "$scope_file" ]] || [[ "$(cat "$scope_file")" != "$source_scope" ]]; then
-  last_epoch=0
-  echo "Radar source scope changed to ${source_scope}; scheduling a complete idempotent backfill."
+if [[ -f "$state_file" ]] && [[ "$(cat "$state_file")" =~ ^[0-9]+$ ]]; then
+  last_epoch="$(cat "$state_file")"
+else
+  last_epoch=$(( now_epoch - bootstrap_lookback_seconds ))
 fi
+scan_epoch=$(( last_epoch - overlap_seconds ))
+safe_now_epoch=$(( now_epoch - mtime_grace_seconds ))
+(( scan_epoch < 0 )) && scan_epoch=0
 
+ssh_opts=(
+  -p "$source_port" -o BatchMode=yes -o ConnectTimeout=15
+  -o IdentitiesOnly=yes -o IdentityFile=none -o PubkeyAuthentication=no
+  -o ServerAliveInterval=15 -o ServerAliveCountMax=4
+  -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$known_hosts"
+)
 files_from="$(mktemp)"
 trap 'rm -f "$files_from"' EXIT
-
-if [[ "$source_auth" == "ssh_key" ]]; then
-  if [[ ! -f "$ssh_key" ]]; then
-    echo "Missing radar source SSH key: $ssh_key" >&2
-    exit 1
-  fi
-  ssh_opts=(
-    -p "$source_port"
-    -i "$ssh_key"
-    -o BatchMode=yes
-    -o IdentitiesOnly=yes
-    -o StrictHostKeyChecking=accept-new
-    -o UserKnownHostsFile="$known_hosts"
-  )
-  rsync_ssh="ssh -p $source_port -i $ssh_key -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$known_hosts"
-else
-  ssh_opts=(
-    -p "$source_port"
-    -o BatchMode=yes
-    -o IdentitiesOnly=yes
-    -o IdentityFile=none
-    -o PubkeyAuthentication=no
-    -o StrictHostKeyChecking=accept-new
-    -o UserKnownHostsFile="$known_hosts"
-  )
-  rsync_ssh="ssh -p $source_port -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityFile=none -o PubkeyAuthentication=no -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$known_hosts"
-fi
-
-ssh "${ssh_opts[@]}" "${source_user}@${source_host}" bash -s -- "$source_path" "$last_epoch" "$now_epoch" > "$files_from" <<'REMOTE_FIND'
+ssh "${ssh_opts[@]}" "${source_user}@${source_host}" bash -s -- \
+  "$source_path" "$scan_epoch" "$safe_now_epoch" "$source_pattern" > "$files_from" <<'REMOTE_FIND'
 set -euo pipefail
-source_path="$1"
-last_epoch="$2"
-now_epoch="$3"
-source_pattern={{ radar_source_pattern | quote }}
-cd "$source_path"
-find . -type f -name "$source_pattern" -newermt "@${last_epoch}" ! -newermt "@${now_epoch}" -printf '%P\0'
+cd "$1"
+find . -type f -name "$4" -newermt "@$2" ! -newermt "@$3" -printf '%P\0'
 REMOTE_FIND
 
-if [[ ! -s "$files_from" ]]; then
-  echo "$now_epoch" > "$state_file"
-  printf '%s\n' "$source_scope" > "$scope_file"
-  echo "No new radar files found."
-  exit 0
+if [[ -s "$files_from" ]]; then
+  rsync -a --partial --timeout=120 --from0 --files-from="$files_from" \
+    -e "ssh ${ssh_opts[*]}" "${source_user}@${source_host}:${source_path%/}/" "${destination%/}/"
 fi
-
-export RSYNC_RSH="$rsync_ssh"
-rsync -a --partial --from0 --files-from="$files_from" "${source_user}@${source_host}:${source_path%/}/" "${destination%/}/"
 echo "$now_epoch" > "$state_file"
-printf '%s\n' "$source_scope" > "$scope_file"
+echo "Radar live checkpoint advanced to $now_epoch."

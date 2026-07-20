@@ -332,9 +332,23 @@ radar_source_pattern: "*"
 radar_product_pattern: "*LV1.NC"
 radar_source_scope_version: all-native-files-v1
 radar_source_destination: "{{ aurora_paths.raw_radar }}"
-radar_source_state_file: "{{ aurora_state_root }}/radar-sync.last"
+# Deliberately independent of the retired all-history checkpoint.  Reusing the
+# old marker would make the priority lane requeue the whole LV0 archive.
+radar_source_state_file: "{{ aurora_state_root }}/radar-live-sync.last"
 radar_source_sync_interval: 2min
 radar_source_sync_randomized_delay: 30
+radar_source_bootstrap_lookback_seconds: 1800
+radar_source_overlap_seconds: 600
+radar_source_mtime_grace_seconds: 300
+radar_backfill_enabled: true
+radar_backfill_timer_enabled: "{{ aurora_writer_timers_enabled }}"
+radar_backfill_interval: 2min
+radar_backfill_randomized_delay: 15
+radar_backfill_workers: 4
+radar_backfill_batch_files: 24
+radar_backfill_batch_bytes: 85899345920
+radar_backfill_partial_root: "{{ aurora_paths.raw_radar }}/.radar-partials"
+radar_backfill_status_file: "{{ aurora_state_root }}/radar-backfill-status.json"
 # True means the first timer run records "now" and does not pull historical data.
 radar_source_start_fresh: false
 
@@ -617,6 +631,9 @@ gws_sync_jobs:
     destination: "{{ gws_raw_root }}/"
     schedule: "*:01/5"
     timeout_start_sec: 48h
+    # Resumable radar worker state is local-only and must never become archive data.
+    exclude:
+      - "rpgfmcw94/.radar-partials/**"
   - name: products
     source: "{{ aurora_product_root }}/"
     destination: "{{ gws_products_root }}/"
