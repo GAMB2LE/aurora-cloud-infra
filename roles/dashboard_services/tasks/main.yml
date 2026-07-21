@@ -46,6 +46,15 @@
     - Restart dashboard
     - Restart mobile API
 
+- name: Remove legacy development session-cleanup override
+  ansible.builtin.file:
+    path: /etc/systemd/system/aurora-dashboard.service.d/20-session-cleanup.conf
+    state: absent
+  when: aurora_site_env == 'development'
+  notify:
+    - Reload systemd
+    - Restart dashboard
+
 - name: Install Aurora service user msmtp config for ops alerts
   ansible.builtin.template:
     src: msmtprc.j2
@@ -175,7 +184,7 @@
   loop:
     - aurora-dashboard-display-manifest.service
     - aurora-dashboard-display-manifest.timer
-  when: aurora_is_development | bool
+  when: aurora_site_env == 'development'
   notify:
     - Reload systemd
 
@@ -222,10 +231,12 @@
 - name: Manage development display artifact manifest timer
   ansible.builtin.systemd:
     name: aurora-dashboard-display-manifest.timer
-    enabled: "{{ aurora_is_development | bool }}"
-    state: "{{ 'started' if aurora_is_development | bool else 'stopped' }}"
+    enabled: true
+    state: started
     daemon_reload: true
-  when: not ansible_check_mode
+  when:
+    - aurora_site_env == 'development'
+    - not ansible_check_mode
 
 - name: Manage long-range planning forecast timer
   ansible.builtin.systemd:
