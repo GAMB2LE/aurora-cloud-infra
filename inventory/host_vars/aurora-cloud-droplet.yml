@@ -15,6 +15,15 @@ aurora_app_version: 323a92e
 aurora_dashboard_session_check_ms: 15000
 aurora_dashboard_unused_session_lifetime_ms: 60000
 
+# These compact display products are generated on development. Keep them
+# outside the mirrored production product tree so the five-minute mirror cannot
+# remove a valid development build that production has not published yet.
+aurora_power_display_summary_path: "{{ aurora_dev_product_root }}/power/power_display_summary.zarr"
+aurora_power_display_energy_path: "{{ aurora_dev_product_root }}/power/power_display_energy.zarr"
+aurora_power_current_display_path: "{{ aurora_dev_product_root }}/power/power_current_display.zarr"
+aurora_power_forecast_display_path: "{{ aurora_dev_product_root }}/power/power_forecast_display.zarr"
+aurora_power_display_manifest_path: "{{ aurora_dev_product_root }}/power/power_display_manifest.json"
+
 # The droplet has its own public development hostname. Full public failover is
 # manual and should not be done by changing this development baseline silently.
 aurora_certbot_enabled: true
