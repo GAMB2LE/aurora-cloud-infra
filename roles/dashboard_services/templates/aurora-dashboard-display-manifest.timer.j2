@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule Aurora development display artifact manifest
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=5min
+Persistent=true
+RandomizedDelaySec=30
+Unit=aurora-dashboard-display-manifest.service
+
+[Install]
+WantedBy=timers.target

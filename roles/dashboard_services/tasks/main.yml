@@ -165,6 +165,20 @@
     - Restart dashboard
     - Restart mobile API
 
+- name: Install development display artifact manifest units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - aurora-dashboard-display-manifest.service
+    - aurora-dashboard-display-manifest.timer
+  when: aurora_is_development | bool
+  notify:
+    - Reload systemd
+
 - name: Enable dashboard service
   ansible.builtin.systemd:
     name: aurora-dashboard.service
@@ -202,6 +216,14 @@
     name: aurora-dashboard-health-probe.timer
     enabled: "{{ aurora_dashboard_probe_enabled | bool }}"
     state: "{{ 'started' if aurora_dashboard_probe_enabled | bool else 'stopped' }}"
+    daemon_reload: true
+  when: not ansible_check_mode
+
+- name: Manage development display artifact manifest timer
+  ansible.builtin.systemd:
+    name: aurora-dashboard-display-manifest.timer
+    enabled: "{{ aurora_is_development | bool }}"
+    state: "{{ 'started' if aurora_is_development | bool else 'stopped' }}"
     daemon_reload: true
   when: not ansible_check_mode
 

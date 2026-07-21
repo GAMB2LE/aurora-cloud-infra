@@ -1,0 +1,15 @@
+[Unit]
+Description=Aurora development dashboard display artifact manifest
+After=network-online.target aurora-dev-live-pull.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+WorkingDirectory={{ aurora_app_dir }}
+EnvironmentFile=/etc/aurora-dashboard.env
+ExecStart={{ aurora_venv }}/bin/python generate_dashboard_display_manifest.py --output {{ aurora_product_root }}/dashboard/display_artifacts/latest.json --group prewarmed={{ aurora_product_root }}/dashboard/interactive_prewarm --group quicklooks={{ aurora_app_dir }}/quicklooks --group wxcam-thumbnails={{ aurora_product_root }}/wxcam/hourly_thumbnails --group wxcam-videos={{ aurora_paths.products_wxcam_daily_videos }}
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6

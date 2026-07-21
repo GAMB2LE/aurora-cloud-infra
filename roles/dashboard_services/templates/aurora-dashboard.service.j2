@@ -14,10 +14,10 @@ ExecStart={{ aurora_venv }}/bin/panel serve app.py model-evaluation.py dart.py \
 {% for origin in aurora_dashboard_allowed_origins %}
   --allow-websocket-origin={{ origin }} \
 {% endfor %}
-  --static-dirs wxcam-media=/data/aurora/products/wxcam auroracam-media={{ aurora_paths.raw_auroracam }} \
+  --static-dirs dashboard-assets={{ aurora_app_dir }}/assets wxcam-media=/data/aurora/products/wxcam auroracam-media={{ aurora_paths.raw_auroracam }} \
   --keep-alive=15000 \
-  --check-unused-sessions=600000 \
-  --unused-session-lifetime=3600000 \
+  --check-unused-sessions={{ aurora_dashboard_session_check_ms }} \
+  --unused-session-lifetime={{ aurora_dashboard_unused_session_lifetime_ms }} \
   --session-token-expiration=86400 \
   --num-procs={{ aurora_dashboard_num_procs }}
 Restart=always

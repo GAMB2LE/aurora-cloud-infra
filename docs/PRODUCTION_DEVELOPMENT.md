@@ -84,6 +84,21 @@ message; this must not be treated as an acquisition failure.
 Production remains on `AURORA_ECMWF_PROVIDER=legacy` until the parity and
 resource gates pass.
 
+## Development-only display performance work
+
+The development host may run bounded presentation experiments that do not
+change raw data, product Zarrs, source synchronization, or writer ownership.
+
+`aurora-dashboard-display-manifest.timer` inventories prewarmed Plotly JSON,
+quicklooks, WXcam thumbnails, and daily videos every five minutes. The manifest
+is an atomic, bounded input for a future CDN or object-store publishing job; it
+does not publish raw data and does not move any Zarr store.
+
+Development also uses a short unused-Panel-session lifetime so backgrounded
+phone sessions stop retaining full server-side documents promptly. Production
+retains its existing lifetime unless a separately reviewed production release
+changes it.
+
 ## Release Policy
 
 Branches and tags:
