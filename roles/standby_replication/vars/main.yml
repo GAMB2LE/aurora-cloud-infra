@@ -10,6 +10,7 @@ aurora_standby_raw_stages:
   - name: raw-auroracam
     source: /project/aurora/raw/auroracam/
     destination: /project/aurora/raw/auroracam/
+    interval: 2min
     exclude: ["*.lock", "*.tmp"]
   - name: raw-cl61
     source: /project/aurora/raw/cl61/
@@ -67,6 +68,7 @@ aurora_standby_product_stages:
   - name: product-auroracam
     source: /data/aurora/products/auroracam/
     destination: /data/aurora/products/auroracam/
+    interval: 2min
     exclude: ["*.lock", "*.tmp"]
   - name: product-cl61
     source: /data/aurora/products/cl61/
