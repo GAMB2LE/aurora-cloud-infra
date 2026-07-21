@@ -173,6 +173,9 @@ aurora_power_operating_model_state_path: "{{ aurora_power_operating_root }}/powe
 aurora_power_operating_recommendations_path: "{{ aurora_power_operating_root }}/power_operating_recommendations.json"
 aurora_power_display_summary_path: "{{ aurora_product_root }}/power/power_display_summary.zarr"
 aurora_power_display_energy_path: "{{ aurora_product_root }}/power/power_display_energy.zarr"
+aurora_power_current_display_path: "{{ aurora_product_root }}/power/power_current_display.zarr"
+aurora_power_forecast_display_path: "{{ aurora_product_root }}/power/power_forecast_display.zarr"
+aurora_power_display_manifest_path: "{{ aurora_product_root }}/power/power_display_manifest.json"
 aurora_log_root: /var/log/aurora-cloud
 aurora_state_root: /var/lib/aurora-cloud
 
