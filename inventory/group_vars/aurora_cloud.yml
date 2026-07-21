@@ -525,7 +525,9 @@ auroracam_source_sync_interval: 2min
 auroracam_source_sync_randomized_delay: 30
 auroracam_source_bootstrap_lookback_seconds: 1800
 auroracam_source_overlap_seconds: 600
-auroracam_source_mtime_grace_seconds: 300
+# Camera frames use immutable minute-stamped names and are complete within
+# seconds. Keep a short write grace while avoiding a five-minute display lag.
+auroracam_source_mtime_grace_seconds: 90
 auroracam_backfill_enabled: true
 auroracam_backfill_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 auroracam_backfill_state_file: "{{ aurora_state_root }}/auroracam-backfill.cursor"
