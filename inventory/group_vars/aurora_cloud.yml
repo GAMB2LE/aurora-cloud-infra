@@ -95,7 +95,7 @@ aurora_app_repo: https://github.com/GAMB2LE/aurora_cloud_dashboard.git
 # Exact dashboard release containing the fast SOC/mode re-anchor and stale-input
 # guards. Host vars repeat this pin so either environment cannot downgrade the
 # live checkout during a routine deployment.
-aurora_app_version: prod-20260721.2
+aurora_app_version: prod-20260721.3
 aurora_infra_repo_dir: /tmp/aurora-cloud-infra-codex
 aurora_python: /usr/bin/python3
 aurora_venv: "{{ aurora_app_dir }}/venv"
