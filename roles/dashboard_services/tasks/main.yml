@@ -205,7 +205,7 @@
     daemon_reload: true
   when: not ansible_check_mode
 
-- name: Manage development long-range planning forecast timer
+- name: Manage long-range planning forecast timer
   ansible.builtin.systemd:
     name: aurora-power-soc-planning-forecast.timer
     enabled: "{{ aurora_power_operating_enabled | bool }}"
@@ -213,7 +213,7 @@
     daemon_reload: true
   when: not ansible_check_mode
 
-- name: Manage development operating-state scenario timer
+- name: Manage operating-state scenario timer
   ansible.builtin.systemd:
     name: aurora-power-operating-scenarios.timer
     enabled: "{{ aurora_power_operating_enabled | bool }}"

@@ -148,7 +148,10 @@ aurora_dashboard_probe_enabled: "{{ aurora_is_development }}"
 aurora_dashboard_probe_root: "{{ aurora_data_root }}/internal/dashboard-probe"
 aurora_dashboard_probe_warn_seconds: 4.0
 aurora_dashboard_probe_compare_delta_seconds: 2.0
-aurora_power_operating_enabled: "{{ aurora_is_development }}"
+# Operating scenarios are a published dashboard product in both environments.
+# Production generates the authoritative product; development generates its
+# independent staging product under /data/aurora/dev-products.
+aurora_power_operating_enabled: true
 aurora_power_operating_root: >-
   {{ (aurora_dev_product_root ~ '/power')
      if aurora_is_development
