@@ -5,3 +5,4 @@
   roles:
     - dashboard_app
     - dashboard_services
+    - nginx
