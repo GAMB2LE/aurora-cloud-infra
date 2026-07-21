@@ -8,7 +8,7 @@ aurora_public_ip: 167.172.54.82
 aurora_app_repo: https://github.com/GAMB2LE/aurora_cloud_dashboard.git
 # Exact dashboard commit from the isolated development performance branch.
 # Do not promote this ref or use it for the JASMIN production inventory.
-aurora_app_version: 954e8b6
+aurora_app_version: 323a92e
 # Development-only performance experiment. Panel supports reconnecting after a
 # brief disconnect, while this prevents unused phone sessions retaining a full
 # dashboard document for the production one-hour lifetime.
