@@ -10,7 +10,7 @@ User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
 WorkingDirectory={{ aurora_app_dir }}
 EnvironmentFile=/etc/aurora-dashboard.env
-ExecStart=/usr/bin/timeout --signal=TERM --kill-after=30s 10m {{ aurora_venv }}/bin/python generate_power_display_summary.py
+ExecStart=/usr/bin/timeout --signal=TERM --kill-after=30s 10m /bin/bash -lc '{{ aurora_venv }}/bin/python generate_power_display_summary.py && {{ aurora_venv }}/bin/python generate_power_quicklooks.py --prewarm-only --skip-display-refresh'
 Nice=15
 CPUQuota=100%
 CPUWeight=10
