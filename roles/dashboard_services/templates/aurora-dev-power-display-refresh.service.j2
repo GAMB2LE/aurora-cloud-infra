@@ -1,7 +1,7 @@
 [Unit]
 Description=Refresh compact Power display products from mirrored Power data
-After=network-online.target aurora-dev-live-pull@product-power.service
-Wants=network-online.target
+After=network-online.target aurora-dev-live-pull@product-power.service aurora-power-operating-scenarios.service
+Wants=network-online.target aurora-power-operating-scenarios.service
 ConditionPathExists={{ aurora_zarr.power }}
 
 [Service]
