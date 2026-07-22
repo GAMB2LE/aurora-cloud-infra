@@ -42,8 +42,12 @@ aurora_standby_replication_known_hosts:
 # CL61 is now written to the shared ASS Linux data path and is reachable from
 # the droplet via Tailscale SSH as the aurora user.
 
-# Planned-offline/no-data states during the JASMIN outage should not leave
-# failed oneshot units behind. Keep core append/sync/health timers running.
+# Development consumes replicated inputs and only writes its isolated display
+# and forecast products. Keep source/append timers disabled, but run the SOC
+# pipeline so calibration and verification evidence accumulate independently.
 aurora_processing_timers:
+  power_soc_forecast: true
+  power_soc_ensemble: true
+  power_quicklooks: true
   les_operational_run: false
   wxcam_daily_videos: "{{ aurora_writer_timers_enabled }}"
