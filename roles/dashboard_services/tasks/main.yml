@@ -188,6 +188,20 @@
   notify:
     - Reload systemd
 
+- name: Install development Power display refresh units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - aurora-dev-power-display-refresh.service
+    - aurora-dev-power-display-refresh.timer
+  when: aurora_site_env == 'development'
+  notify:
+    - Reload systemd
+
 - name: Enable dashboard service
   ansible.builtin.systemd:
     name: aurora-dashboard.service
@@ -231,6 +245,16 @@
 - name: Manage development display artifact manifest timer
   ansible.builtin.systemd:
     name: aurora-dashboard-display-manifest.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - aurora_site_env == 'development'
+    - not ansible_check_mode
+
+- name: Manage development Power display refresh timer
+  ansible.builtin.systemd:
+    name: aurora-dev-power-display-refresh.timer
     enabled: true
     state: started
     daemon_reload: true

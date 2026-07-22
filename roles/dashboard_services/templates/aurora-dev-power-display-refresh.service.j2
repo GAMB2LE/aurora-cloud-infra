@@ -1,0 +1,19 @@
+[Unit]
+Description=Refresh compact Power display products from mirrored Power data
+After=network-online.target aurora-dev-live-pull@product-power.service
+Wants=network-online.target
+ConditionPathExists={{ aurora_zarr.power }}
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+WorkingDirectory={{ aurora_app_dir }}
+EnvironmentFile=/etc/aurora-dashboard.env
+ExecStart=/usr/bin/timeout --signal=TERM --kill-after=30s 12m {{ aurora_venv }}/bin/python generate_power_display_summary.py
+Nice=15
+CPUQuota=50%
+CPUWeight=10
+MemoryHigh=1G
+MemoryMax=2G
+TimeoutStartSec=13min
