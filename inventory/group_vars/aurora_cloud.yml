@@ -161,6 +161,9 @@ aurora_power_operating_root: >-
   {{ (aurora_dev_product_root ~ '/power')
      if aurora_is_development
      else (aurora_product_root ~ '/power') }}
+# The deterministic/ensemble forecast consumes mirrored power and PDU inputs on
+# development, but every derived artifact must remain in the isolated dev tree.
+aurora_power_forecast_root: "{{ aurora_power_operating_root }}"
 aurora_power_planning_forecast_path: "{{ aurora_power_operating_root }}/power_soc_planning_forecast.zarr"
 aurora_power_planning_forecast_cache: "{{ aurora_power_operating_root }}/ecmwf_solar_planning"
 aurora_power_planning_forecast_state: "{{ aurora_power_operating_root }}/power_soc_planning_state.json"
@@ -201,8 +204,8 @@ aurora_paths:
   products_asfs_fast_sonic: "{{ aurora_product_root }}/asfs_fast_sonic"
   products_asfs_fast_gas: "{{ aurora_product_root }}/asfs_fast_gas"
   products_power: "{{ aurora_product_root }}/power"
-  products_power_ecmwf_solar_forecast: "{{ aurora_product_root }}/power/ecmwf_solar_forecast"
-  products_power_ecmwf_solar_ensemble: "{{ aurora_product_root }}/power/ecmwf_solar_ensemble"
+  products_power_ecmwf_solar_forecast: "{{ aurora_power_forecast_root }}/ecmwf_solar_forecast"
+  products_power_ecmwf_solar_ensemble: "{{ aurora_power_forecast_root }}/ecmwf_solar_ensemble"
   products_ops_monitor: "{{ aurora_product_root }}/ops_monitor"
   products_ops_monitor_health: "{{ aurora_product_root }}/ops_monitor/health"
   products_wxcam: "{{ aurora_product_root }}/wxcam"
@@ -224,13 +227,13 @@ aurora_zarr:
   asfs_fast_gas: "{{ aurora_product_root }}/asfs_fast_gas/asfs_fast_gas.zarr"
   power: "{{ aurora_product_root }}/power/power.zarr"
   pdu: "{{ aurora_product_root }}/power/pdu.zarr"
-  power_soc_forecast: "{{ aurora_product_root }}/power/power_soc_forecast.zarr"
-  power_soc_forecast_archive: "{{ aurora_product_root }}/power/power_soc_forecast_archive.zarr"
-  power_soc_forecast_skill: "{{ aurora_product_root }}/power/power_soc_forecast_skill.zarr"
-  power_soc_hindcast: "{{ aurora_product_root }}/power/power_soc_hindcast.zarr"
-  power_soc_ensemble: "{{ aurora_product_root }}/power/power_soc_ensemble_forecast.zarr"
-  power_soc_ensemble_archive: "{{ aurora_product_root }}/power/power_soc_ensemble_archive.zarr"
-  power_soc_ensemble_skill: "{{ aurora_product_root }}/power/power_soc_ensemble_skill.zarr"
+  power_soc_forecast: "{{ aurora_power_forecast_root }}/power_soc_forecast.zarr"
+  power_soc_forecast_archive: "{{ aurora_power_forecast_root }}/power_soc_forecast_archive.zarr"
+  power_soc_forecast_skill: "{{ aurora_power_forecast_root }}/power_soc_forecast_skill.zarr"
+  power_soc_hindcast: "{{ aurora_power_forecast_root }}/power_soc_hindcast.zarr"
+  power_soc_ensemble: "{{ aurora_power_forecast_root }}/power_soc_ensemble_forecast.zarr"
+  power_soc_ensemble_archive: "{{ aurora_power_forecast_root }}/power_soc_ensemble_archive.zarr"
+  power_soc_ensemble_skill: "{{ aurora_power_forecast_root }}/power_soc_ensemble_skill.zarr"
   ops_monitor: "{{ aurora_product_root }}/ops_monitor/ops_monitor.zarr"
   wxcam: "{{ wxcam_zarr_mount_path }}"
   auroracam: "{{ aurora_product_root }}/auroracam/auroracam.zarr"

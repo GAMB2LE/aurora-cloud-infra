@@ -48,6 +48,5 @@ aurora_standby_replication_known_hosts:
 aurora_processing_timers:
   power_soc_forecast: true
   power_soc_ensemble: true
-  power_quicklooks: true
   les_operational_run: false
   wxcam_daily_videos: "{{ aurora_writer_timers_enabled }}"
