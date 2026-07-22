@@ -10,10 +10,10 @@ User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
 WorkingDirectory={{ aurora_app_dir }}
 EnvironmentFile=/etc/aurora-dashboard.env
-ExecStart=/usr/bin/timeout --signal=TERM --kill-after=30s 12m {{ aurora_venv }}/bin/python generate_power_display_summary.py
+ExecStart=/usr/bin/timeout --signal=TERM --kill-after=30s 10m {{ aurora_venv }}/bin/python generate_power_display_summary.py
 Nice=15
-CPUQuota=50%
+CPUQuota=100%
 CPUWeight=10
-MemoryHigh=1G
-MemoryMax=2G
-TimeoutStartSec=13min
+MemoryHigh=2G
+MemoryMax=3G
+TimeoutStartSec=11min
