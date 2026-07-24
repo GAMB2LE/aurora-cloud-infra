@@ -14,9 +14,10 @@ aurora_app_version: c63f5f8a63a9bbe2bf525f1ff3abd7fa157019dd
 # dashboard document for the production one-hour lifetime.
 aurora_dashboard_session_check_ms: 15000
 aurora_dashboard_unused_session_lifetime_ms: 60000
-# Compare two independent Panel workers on the four-core development host.
-# This is development-only; production retains its current service topology.
-aurora_dashboard_num_procs: 2
+# The July 2026 development comparison found two Panel workers slower than
+# one for this cache-heavy dashboard. Keep a single worker until a new
+# benchmark demonstrates a workload-level gain.
+aurora_dashboard_num_procs: 1
 aurora_browser_rum_enabled: true
 aurora_measure_plot_json_bytes: false
 aurora_dashboard_perf_log_path: "{{ aurora_dev_product_root }}/dashboard/dashboard_perf.jsonl"
