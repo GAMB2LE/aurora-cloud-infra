@@ -9,7 +9,7 @@ User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
 WorkingDirectory={{ aurora_app_dir }}
 EnvironmentFile=/etc/aurora-dashboard.env
-ExecStart={{ aurora_venv }}/bin/uvicorn mobile_api:app --host {{ aurora_mobile_api_host }} --port {{ aurora_mobile_api_port }}
+ExecStart={{ aurora_venv }}/bin/uvicorn mobile_api:app --host {{ aurora_mobile_api_host }} --port {{ aurora_mobile_api_port }} --workers {{ aurora_mobile_api_workers | default(1) }}
 Restart=on-failure
 RestartSec=5
 

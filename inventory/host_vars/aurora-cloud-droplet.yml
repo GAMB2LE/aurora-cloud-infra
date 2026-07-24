@@ -18,6 +18,10 @@ aurora_dashboard_unused_session_lifetime_ms: 60000
 # one for this cache-heavy dashboard. Keep a single worker until a new
 # benchmark demonstrates a workload-level gain.
 aurora_dashboard_num_procs: 1
+# This is changed only for a short, development-local API worker benchmark.
+# Keep one worker as the normal cache-efficient setting unless the benchmark
+# demonstrates a concurrent-request improvement.
+aurora_mobile_api_workers: 1
 aurora_browser_rum_enabled: true
 aurora_measure_plot_json_bytes: false
 aurora_dashboard_perf_log_path: "{{ aurora_dev_product_root }}/dashboard/dashboard_perf.jsonl"
