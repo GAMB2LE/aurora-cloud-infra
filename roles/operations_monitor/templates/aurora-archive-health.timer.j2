@@ -1,0 +1,11 @@
+[Unit]
+Description=Schedule Aurora archive health contract
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec={{ archive_monitor_interval }}
+RandomizedDelaySec=20
+Persistent=true
+
+[Install]
+WantedBy=timers.target

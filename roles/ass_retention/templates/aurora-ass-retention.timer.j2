@@ -1,0 +1,11 @@
+[Unit]
+Description=Schedule verified ASS seven-day retention
+
+[Timer]
+OnCalendar={{ ass_retention_schedule }}
+Persistent=true
+RandomizedDelaySec=20min
+Unit=aurora-ass-retention.service
+
+[Install]
+WantedBy=timers.target

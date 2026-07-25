@@ -1,0 +1,62 @@
+---
+- name: Ensure archive monitoring output exists
+  ansible.builtin.file:
+    path: "{{ archive_monitor_output_root }}"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "0755"
+  when: archive_monitor_enabled | bool
+
+- name: Install archive health collector
+  ansible.builtin.template:
+    src: aurora-archive-health.py.j2
+    dest: /usr/local/bin/aurora-archive-health
+    owner: root
+    group: root
+    mode: "0755"
+  when: archive_monitor_enabled | bool
+
+- name: Install archive health units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - aurora-archive-health.service
+    - aurora-archive-health.timer
+  when: archive_monitor_enabled | bool
+
+- name: Enable archive health timer
+  ansible.builtin.systemd:
+    name: aurora-archive-health.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - archive_monitor_enabled | bool
+    - archive_monitor_timer_enabled | bool
+    - not ansible_check_mode
+
+- name: Disable archive health timer on non-monitoring hosts
+  ansible.builtin.systemd:
+    name: aurora-archive-health.timer
+    enabled: false
+    state: stopped
+  when:
+    - not archive_monitor_enabled | bool
+    - not ansible_check_mode
+  failed_when: false
+
+- name: Remove archive monitor executables and units from non-monitoring hosts
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /usr/local/bin/aurora-archive-health
+    - /etc/systemd/system/aurora-archive-health.service
+    - /etc/systemd/system/aurora-archive-health.timer
+  when: not archive_monitor_enabled | bool
+  notify: Reload systemd

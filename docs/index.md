@@ -133,6 +133,8 @@ standalone repo-local Pages site.
 
 ## Key docs in this site
 
+- **Operator Quickstart** for the concise, read-only login and system-health
+  check used during an incident
 - **Rebuild Plan** for host rebuild and recovery notes
 - **Production and Development** for host roles, release policy, mirror checks,
   and rollback rules

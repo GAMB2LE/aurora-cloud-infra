@@ -1,0 +1,156 @@
+#!/usr/bin/env python3
+"""Issue short-lived exact-path ASS retention permits after dual archive proof."""
+
+from __future__ import annotations
+
+import csv
+import datetime as dt
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+MIRROR = Path({{ gws_manifest_root | to_json }}) / "latest"
+OBJECT = Path({{ object_store_manifest_root | to_json }}) / "latest/comparison.json"
+MAX_AGE = dt.timedelta(hours={{ ass_retention_manifest_max_age_hours | int }})
+HOST = {{ edge_source_sync_ass_host | to_json }}
+PORT = {{ edge_source_sync_ass_port | int }}
+USER = {{ aurora_service_user | to_json }}
+AUTH = {{ edge_source_sync_auth | to_json }}
+KEY = {{ edge_source_sync_ssh_key_path | to_json }}
+KNOWN = f"/home/{USER}/.ssh/known_hosts"
+HELPER = {{ ass_retention_helper | to_json }}
+AUDIT = Path({{ ass_retention_audit_root | to_json }})
+DRY_RUN = {{ (ass_retention_dry_run | bool) | ternary('True', 'False') }}
+STREAMS = json.loads(
+    r'''{{ aurora_archive_streams | selectattr('site', 'equalto', 'ass') | list | to_json }}'''
+)
+
+
+def timestamp(value: str) -> dt.datetime:
+    return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def fail(message: str) -> None:
+    print(f"ASS retention blocked: {message}", file=sys.stderr)
+    raise SystemExit(2)
+
+
+def ssh_command() -> list[str]:
+    command = [
+        "ssh",
+        "-p",
+        str(PORT),
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "IdentitiesOnly=yes",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-o",
+        f"UserKnownHostsFile={KNOWN}",
+    ]
+    if AUTH == "tailscale":
+        command.extend(["-o", "IdentityFile=none", "-o", "PubkeyAuthentication=no"])
+    else:
+        command.extend(["-i", KEY])
+    command.append(f"{USER}@{HOST}")
+    return command
+
+
+def main() -> None:
+    now = dt.datetime.now(dt.timezone.utc)
+    summary_path = MIRROR / "summary.json"
+    if not summary_path.exists() or not OBJECT.exists():
+        fail("required verification evidence is missing")
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    report = json.loads(OBJECT.read_text(encoding="utf-8"))
+    if now - timestamp(summary["generated_at"]) > MAX_AGE:
+        fail("GWS verification is stale")
+    if now - timestamp(report["generated_at"]) > MAX_AGE:
+        fail("object-store inventory is stale")
+    raw = report.get("jobs", {}).get("raw", {}).get("source_vs_s3", {})
+    for field in ("missing_from_right", "size_mismatch", "checksum_mismatch"):
+        if raw.get(field):
+            fail(f"object-store raw {field} is non-empty")
+
+    candidates: list[dict] = []
+    cutoffs: list[int] = []
+    for stream in STREAMS:
+        if not stream.get("prune_enabled", False):
+            continue
+        name = stream["name"]
+        state = summary.get("streams", {}).get(name, {})
+        if state.get("error"):
+            fail(f"GWS verification failed for {name}: {state['error']}")
+        if state.get("local_missing_count") or state.get("local_mismatch_count"):
+            fail(f"cloud mirror is incomplete for {name}")
+        if state.get("gws_missing_count") or state.get("gws_mismatch_count"):
+            fail(f"GWS mirror is incomplete for {name}")
+        if not state.get("product_gate_ok", False):
+            fail(f"product gate is closed for {name}")
+        source_path = MIRROR / name / "source.tsv"
+        prune_path = MIRROR / name / "prune_candidates.tsv"
+        if not source_path.exists() or not prune_path.exists():
+            fail(f"candidate evidence is missing for {name}")
+        allowed = set(prune_path.read_text(encoding="utf-8").splitlines()[1:])
+        cutoff = int(
+            (now - dt.timedelta(days=int(stream["retention_days"]))).timestamp()
+        )
+        cutoffs.append(cutoff)
+        with source_path.open(newline="", encoding="utf-8") as handle:
+            for row in csv.DictReader(handle, delimiter="\t"):
+                if row["relpath"] not in allowed or int(row["mtime"]) >= cutoff:
+                    continue
+                root = Path(stream["source_root"])
+                candidate = root / row["relpath"]
+                try:
+                    candidate.relative_to(root)
+                except ValueError:
+                    fail(f"candidate escapes source root for {name}")
+                candidates.append(
+                    {
+                        "stream": name,
+                        "path": str(candidate),
+                        "size": int(row["size"]),
+                        "mtime": int(row["mtime"]),
+                    }
+                )
+
+    AUDIT.mkdir(parents=True, exist_ok=True)
+    if not candidates:
+        print("ASS retention: no dual-verified files outside the retention window")
+        return
+
+    expires = now + dt.timedelta(minutes=30)
+    for index in range(0, len(candidates), 500):
+        batch = candidates[index : index + 500]
+        permit = {
+            "schema_version": 1,
+            "site": "ass",
+            "generated_at": now.isoformat().replace("+00:00", "Z"),
+            "expires_at": expires.isoformat().replace("+00:00", "Z"),
+            "verification_run": summary["generated_at"],
+            "object_store_run": report["generated_at"],
+            "cutoff_epoch": min(cutoffs),
+            "dry_run": DRY_RUN,
+            "candidates": batch,
+        }
+        payload = (json.dumps(permit, sort_keys=True) + "\n").encode()
+        result = subprocess.run(
+            [*ssh_command(), "sudo", "-n", HELPER, "--permit", "-"],
+            input=payload,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        audit_path = AUDIT / f"{now:%Y%m%dT%H%M%SZ}-{index // 500:04d}.json"
+        audit_path.write_bytes(result.stdout)
+    print(
+        f"ASS retention: issued {len(candidates)} exact-path "
+        f"{'dry-run ' if DRY_RUN else ''}candidates"
+    )
+
+
+if __name__ == "__main__":
+    main()

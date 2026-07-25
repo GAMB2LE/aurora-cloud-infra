@@ -1,0 +1,20 @@
+[Unit]
+Description=Build Aurora GWS/object-store comparison inventory
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists={{ object_store_rclone_config }}
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+Environment=XDG_CACHE_HOME={{ object_store_cache_root }}
+ExecStart=/usr/local/bin/aurora-object-store-inventory
+ExecStartPost=+/usr/local/sbin/aurora-object-store-verification-gate
+TimeoutStartSec=12h
+Nice=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths={{ object_store_manifest_root }} {{ object_store_cache_root }} {{ aurora_state_root }}/object-store-verification-gate

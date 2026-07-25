@@ -27,12 +27,15 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Operator Quickstart: OPERATOR_QUICKSTART.md
   - Rebuild Plan: PLAN.md
   - Production and Development: PRODUCTION_DEVELOPMENT.md
   - Failover: FAILOVER.md
   - Reverse Tunnels: REVERSE_TUNNELS.md
   - Reverse Tunnel Rollout: REVERSE_TUNNEL_ROLLOUT.md
   - Data Locations: DATA_LOCATIONS.md
+  - Archive Services: ARCHIVE_SERVICES.md
+  - ASS Backup and Retention: ASS_BACKUP_AND_RETENTION.md
   - Source Syncs:
       - CL61: CL61_SOURCE_SYNC.md
       - Cloud Radar: RADAR_SOURCE_SYNC.md

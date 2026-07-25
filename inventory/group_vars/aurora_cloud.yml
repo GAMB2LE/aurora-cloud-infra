@@ -95,7 +95,7 @@ aurora_app_repo: https://github.com/GAMB2LE/aurora_cloud_dashboard.git
 # Exact dashboard release containing the fast SOC/mode re-anchor and stale-input
 # guards. Host vars repeat this pin so either environment cannot downgrade the
 # live checkout during a routine deployment.
-aurora_app_version: prod-20260721.10
+aurora_app_version: prod-20260725.1
 aurora_infra_repo_dir: /tmp/aurora-cloud-infra-codex
 aurora_python: /usr/bin/python3
 aurora_venv: "{{ aurora_app_dir }}/venv"
@@ -668,6 +668,176 @@ gws_sync_jobs:
     source: "{{ gws_manifest_root }}/"
     destination: "{{ gws_internal_root }}/manifests/"
     schedule: "*:06/10"
+
+# Canonical archive catalogue. GWS, object-store, monitoring, and retention
+# roles consume this list rather than maintaining independent path maps.
+aurora_archive_streams:
+  - name: cl61
+    site: ass
+    source_root: "{{ cl61_source_path }}"
+    cloud_root: "{{ cl61_source_destination }}"
+    archive_relpath: cl61
+    retention_days: 7
+    prune_enabled: true
+  - name: rpgfmcw94
+    site: ass
+    source_root: "{{ radar_source_path }}"
+    cloud_root: "{{ radar_source_destination }}"
+    archive_relpath: rpgfmcw94
+    retention_days: 7
+    prune_enabled: false
+  - name: hatprog5
+    site: ass
+    source_root: "{{ hatpro_source_path }}"
+    cloud_root: "{{ hatpro_source_destination }}"
+    archive_relpath: hatprog5
+    retention_days: 7
+    prune_enabled: true
+  - name: vaisalamet
+    site: ass
+    source_root: "{{ vaisalamet_source_path }}"
+    cloud_root: "{{ vaisalamet_source_destination }}"
+    archive_relpath: vaisalamet
+    retention_days: 7
+    prune_enabled: true
+  - name: asfs_logger
+    site: ass
+    source_root: "{{ asfs_logger_source_path }}"
+    cloud_root: "{{ asfs_logger_source_destination }}"
+    archive_relpath: asfs/crd
+    retention_days: 7
+    prune_enabled: true
+  - name: asfs_fast_sonic
+    site: ass
+    source_root: "{{ asfs_fast_sonic_source_path }}"
+    cloud_root: "{{ asfs_fast_sonic_source_destination }}"
+    archive_relpath: asfs/crd
+    retention_days: 7
+    prune_enabled: true
+  - name: asfs_fast_gas
+    site: ass
+    source_root: "{{ asfs_fast_gas_source_path }}"
+    cloud_root: "{{ asfs_fast_gas_source_destination }}"
+    archive_relpath: asfs/crd
+    retention_days: 7
+    prune_enabled: true
+  - name: pdu
+    site: ass
+    source_root: "{{ pdu_source_path }}"
+    cloud_root: "{{ pdu_source_destination }}"
+    archive_relpath: pdu
+    retention_days: 7
+    prune_enabled: true
+  - name: wxcam
+    site: ass
+    source_root: "{{ wxcam_source_path }}"
+    cloud_root: "{{ wxcam_source_destination }}"
+    archive_relpath: wxcam
+    retention_days: 7
+    prune_enabled: true
+  - name: auroracam
+    site: ass
+    source_root: "{{ auroracam_source_path }}"
+    cloud_root: "{{ auroracam_source_destination }}"
+    archive_relpath: auroracam
+    retention_days: 7
+    prune_enabled: true
+  - name: power
+    site: aps
+    source_root: "{{ power_source_path }}"
+    cloud_root: "{{ power_source_destination }}"
+    archive_relpath: power/level1
+    retention_days: 7
+    prune_enabled: false
+
+object_store_mirror_enabled: "{{ aurora_is_production }}"
+object_store_mirror_timer_enabled: "{{ aurora_writer_timers_enabled }}"
+object_store_remote: gamb2le-object-store
+object_store_bucket: gamb2le-o
+object_store_rclone_config: /etc/aurora-object-store/rclone.conf
+object_store_manifest_root: "{{ aurora_data_root }}/internal/object_store_manifests"
+object_store_log_root: /var/log/aurora-cloud/object-store
+object_store_cache_root: "{{ aurora_state_root }}/object-store-rclone-cache"
+object_store_inventory_workers: 3
+object_store_inventory_schedule: "*-*-* 03,09,15,21:20:00"
+object_store_inventory_max_age_hours: 8
+object_store_jobs:
+  - name: raw
+    source: "{{ aurora_raw_root }}/"
+    destination: data/incoming/aurora-cloud/raw
+    gws_destination: "{{ gws_raw_root }}"
+    schedule: "*:04/30"
+    settle_age: 15m
+    timeout_start_sec: 48h
+    transfers: 4
+    full_history: true
+    recent_first: 2d
+    recent_max_duration: 8m
+    backfill_max_duration: 22m
+    sharded_prefixes: [auroracam, wxcam, cl61, power]
+    exclude:
+      - rpgfmcw94/.radar-partials/**
+  - name: products
+    source: "{{ aurora_product_root }}/"
+    destination: data/output/aurora-cloud/products
+    gws_destination: "{{ gws_products_root }}"
+    schedule: "*:05/30"
+    settle_age: 20m
+    timeout_start_sec: 12h
+    transfers: 4
+    lookback: 7d
+    max_duration: 25m
+    order_by: modtime,descending
+    exclude:
+      - wxcam/**
+  - name: products-wxcam
+    source: "{{ aurora_paths.products_wxcam }}/"
+    destination: data/output/aurora-cloud/products/wxcam
+    gws_destination: "{{ gws_products_root }}/wxcam"
+    schedule: "*:11"
+    settle_age: 30m
+    timeout_start_sec: 24h
+    transfers: 2
+    lookback: 7d
+    max_duration: 45m
+    order_by: modtime,descending
+    sharded_prefixes: [FISH, PANO]
+    exclude:
+      - wxcam.zarr/**
+  - name: model-evaluation
+    source: "{{ aurora_model_evaluation_campaign_root }}/"
+    destination: data/output/aurora-cloud/model-evaluation
+    gws_destination: "{{ gws_path }}/data/output/aurora-cloud/model-evaluation"
+    schedule: "17:00"
+    settle_age: 1h
+    timeout_start_sec: 12h
+    transfers: 4
+    copy_links: true
+  - name: manifests
+    source: "{{ gws_manifest_root }}/"
+    destination: data/internal/aurora-cloud/manifests/gws
+    gws_destination: "{{ gws_internal_root }}/manifests"
+    schedule: "*:12"
+    settle_age: 5m
+    timeout_start_sec: 12h
+    transfers: 4
+    lookback: 2d
+
+ass_retention_enabled: "{{ aurora_is_production }}"
+# Held closed until the restricted edge helper is explicitly approved,
+# installed, and its dry-run audit canary has been reviewed.
+ass_retention_timer_enabled: false
+ass_retention_schedule: "*-*-* 03:30:00 UTC"
+ass_retention_manifest_max_age_hours: 8
+ass_retention_dry_run: true
+ass_retention_helper: /usr/local/sbin/aurora-edge-prune-exact
+ass_retention_audit_root: "{{ aurora_data_root }}/internal/retention"
+
+archive_monitor_enabled: "{{ aurora_is_production }}"
+archive_monitor_timer_enabled: "{{ aurora_is_production }}"
+archive_monitor_output_root: "{{ aurora_data_root }}/internal/archive_status"
+archive_monitor_latest_path: "{{ archive_monitor_output_root }}/health-v1.json"
+archive_monitor_interval: 2min
 
 # SSHFS mount is required for the GWS-only WXcam pixel Zarr. Bulk raw and
 # non-WXcam product mirroring still use the rsync jobs above.

@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+"""Publish a stable read-only health contract for archive consumers."""
+
+from __future__ import annotations
+
+import datetime as dt
+import json
+from pathlib import Path
+import subprocess
+
+OUTPUT = Path({{ archive_monitor_latest_path | to_json }})
+GWS = Path({{ gws_manifest_root | to_json }}) / "latest/summary.json"
+OBJECT = Path({{ object_store_manifest_root | to_json }}) / "latest/comparison.json"
+GATE = Path({{ aurora_state_root | to_json }}) / "object-store-verification-gate/state.json"
+STREAMS = json.loads(r'''{{ aurora_archive_streams | to_json }}''')
+EVIDENCE_MAX_AGE_HOURS = {{ object_store_inventory_max_age_hours | int }}
+PREFIX = {
+    "rpgfmcw94": "radar",
+    "asfs_logger": "asfs_logger",
+    "asfs_fast_sonic": "asfs_fast_sonic",
+    "asfs_fast_gas": "asfs_fast_gas",
+}
+
+
+def now() -> str:
+    return dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def read(path: Path) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def unit(name: str) -> dict:
+    completed = subprocess.run(
+        [
+            "systemctl",
+            "show",
+            name,
+            "-p",
+            "ActiveState",
+            "-p",
+            "SubState",
+            "-p",
+            "Result",
+            "-p",
+            "UnitFileState",
+            "-p",
+            "ExecMainExitTimestamp",
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    result = {}
+    for line in completed.stdout.splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            result[key] = value
+    return result
+
+
+def evidence_age_hours(value: object) -> float | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        timestamp = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return (
+        dt.datetime.now(dt.timezone.utc) - timestamp
+    ).total_seconds() / 3600
+
+
+def main() -> int:
+    gws = read(GWS)
+    object_report = read(OBJECT)
+    gate = read(GATE)
+    metrics: dict[str, object] = {}
+    failures: list[str] = []
+    gws_age = evidence_age_hours(gws.get("generated_at"))
+    object_age = evidence_age_hours(object_report.get("generated_at"))
+    if gws_age is None:
+        failures.append("gws_evidence_missing")
+    elif gws_age > EVIDENCE_MAX_AGE_HOURS:
+        failures.append(f"gws_evidence_stale_hours={gws_age:.2f}")
+    if object_age is None:
+        failures.append("object_store_evidence_missing")
+    elif object_age > EVIDENCE_MAX_AGE_HOURS:
+        failures.append(f"object_store_evidence_stale_hours={object_age:.2f}")
+    issues = 0
+    prune_ready = 0
+    for stream in STREAMS:
+        name = stream["name"]
+        state = gws.get("streams", {}).get(name, {})
+        prefix = PREFIX.get(name, name)
+        missing = int(state.get("gws_missing_count") or 0)
+        mismatch = int(state.get("gws_mismatch_count") or 0)
+        count = int(state.get("source_count") or 0)
+        gws_count = int(state.get("gws_count") or 0)
+        coverage = 100.0 if count == 0 else min(100.0, gws_count * 100.0 / count)
+        metrics[f"{prefix}_gws_missing_count"] = missing
+        metrics[f"{prefix}_gws_mismatch_count"] = mismatch
+        metrics[f"{prefix}_gws_coverage_pct"] = coverage
+        metrics[f"{prefix}_prune_ready_state"] = int(
+            bool(state.get("prune_ready")) and bool(stream.get("prune_enabled"))
+        )
+        issues += missing + mismatch
+        prune_ready += int(bool(metrics[f"{prefix}_prune_ready_state"]))
+
+    raw = (
+        object_report.get("jobs", {})
+        .get("raw", {})
+        .get("source_vs_s3", {})
+    )
+    object_missing = len(raw.get("missing_from_right", []))
+    object_mismatch = len(raw.get("size_mismatch", [])) + len(
+        raw.get("checksum_mismatch", [])
+    )
+    metrics.update(
+        {
+            "streams_gws_issue_count": issues,
+            "streams_prune_ready_count": prune_ready,
+            "streams_target_count": len(STREAMS),
+            "object_store_raw_missing_count": object_missing,
+            "object_store_raw_mismatch_count": object_mismatch,
+            "object_store_clean_streak": int(gate.get("clean_streak", 0)),
+            "object_store_stable_parity_state": int(
+                bool(gate.get("stable_parity"))
+            ),
+            "object_store_writers_independent_state": int(
+                gate.get("writers_policy") == "independent"
+            ),
+        }
+    )
+    services = {}
+    for name in [
+        "aurora-mirror-verify.service",
+        "aurora-object-store-inventory.service",
+        "aurora-object-store-copy-raw.service",
+        "aurora-object-store-copy-products.service",
+        "aurora-object-store-copy-products-wxcam.service",
+        "aurora-object-store-copy-model-evaluation.service",
+        "aurora-object-store-copy-manifests.service",
+        "aurora-ass-retention.timer",
+    ]:
+        services[name] = unit(name)
+    metrics["mirror_verify_service_healthy_state"] = int(
+        services["aurora-mirror-verify.service"].get("Result") == "success"
+    )
+    metrics["ass_retention_enabled_state"] = int(
+        services["aurora-ass-retention.timer"].get("UnitFileState") == "enabled"
+    )
+    if issues:
+        failures.append(f"gws_issues={issues}")
+    if object_missing:
+        failures.append(f"object_store_raw_missing={object_missing}")
+    if object_mismatch:
+        failures.append(f"object_store_raw_mismatch={object_mismatch}")
+    if not gate.get("stable_parity", False):
+        failures.append("object_store_stable_parity=false")
+    for service_name, service_state in services.items():
+        if service_name == "aurora-ass-retention.timer":
+            continue
+        if service_state.get("ActiveState") == "failed":
+            failures.append(f"service_failed={service_name}")
+    payload = {
+        "schema_version": "health-v1",
+        "generated_at": now(),
+        "overall_level": "red" if failures else "green",
+        "failures": failures,
+        "metrics": metrics,
+        "services": services,
+        "evidence": {
+            "gws_generated_at": gws.get("generated_at"),
+            "object_store_generated_at": object_report.get("generated_at"),
+            "object_store_gate": gate,
+        },
+    }
+    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    temporary = OUTPUT.with_suffix(".tmp")
+    temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(OUTPUT)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

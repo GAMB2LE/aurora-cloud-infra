@@ -1,0 +1,8 @@
+---
+- name: Configure Aurora GWS, object-store, verification, and retention services
+  hosts: aurora_cloud
+  become: true
+  roles:
+    - gws_sync
+    - object_store_mirror
+    - ass_retention

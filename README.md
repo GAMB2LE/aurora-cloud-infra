@@ -43,6 +43,8 @@ changes.
 
 ## Documentation
 
+- [Operator Quickstart](docs/OPERATOR_QUICKSTART.md): login prerequisites,
+  dashboard-first health checks, and incident evidence collection
 - [Documentation home](docs/index.md): scope and current deployment contract
 - [Production and Development](docs/PRODUCTION_DEVELOPMENT.md): roles, release policy, and rollback
 - [Data Locations](docs/DATA_LOCATIONS.md): raw, product, state, and archive paths

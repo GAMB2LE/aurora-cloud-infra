@@ -1,0 +1,371 @@
+#!/usr/bin/env python3
+"""Build reproducible cloud/GWS/S3 comparison evidence from the catalogue."""
+
+from __future__ import annotations
+
+import csv
+from concurrent.futures import ThreadPoolExecutor
+import datetime as dt
+import fnmatch
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import time
+
+CATALOG_PATH = Path("/etc/aurora-object-store/catalog.json")
+COMMON_EXCLUDES = [
+    "**/.git/**",
+    "**/.venv/**",
+    "**/__pycache__/**",
+    "**/.cache/**",
+    "**/*.lock",
+    "**/*.partial",
+    "**/*.part",
+    "**/*.tmp",
+    "**/*-wal",
+    "**/*-shm",
+    "**/logs/**",
+    "**/*backup*.zarr/**",
+    "**/*schema-backup*.zarr/**",
+]
+
+
+def utc_now() -> str:
+    return dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def duration_seconds(value: str) -> int:
+    units = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+    return int(value[:-1]) * units[value[-1].lower()]
+
+
+def excluded(path: str, patterns: list[str]) -> bool:
+    value = path.lstrip("/")
+    return any(
+        fnmatch.fnmatch(value, pattern.lstrip("/"))
+        or fnmatch.fnmatch(value, pattern.lstrip("/").replace("**/", "*/"))
+        for pattern in patterns
+    )
+
+
+def local_inventory(root: str, patterns: list[str], settle_age: str) -> dict[str, dict]:
+    result: dict[str, dict] = {}
+    base = Path(root)
+    if not base.exists():
+        return result
+    settled_before = time.time() - duration_seconds(settle_age)
+    for directory, dirnames, filenames in os.walk(base):
+        dirnames[:] = [
+            name
+            for name in dirnames
+            if name not in {".git", ".venv", "__pycache__", ".cache"}
+            and not name.endswith((".partial", ".tmp"))
+        ]
+        for name in filenames:
+            path = Path(directory, name)
+            try:
+                stat = path.stat()
+            except FileNotFoundError:
+                continue
+            if stat.st_mtime > settled_before:
+                continue
+            relative = path.relative_to(base).as_posix()
+            if excluded(relative, patterns):
+                continue
+            result[relative] = {
+                "relative_path": relative,
+                "size": stat.st_size,
+                "mtime": int(stat.st_mtime),
+                "checksum": "",
+            }
+    return result
+
+
+class S3Lister:
+    def __init__(self, config: dict):
+        self.config = config
+
+    def list_json(
+        self, remote: str, *, recursive: bool = True, files_only: bool = True
+    ) -> list[dict]:
+        command = [
+            "/usr/bin/rclone",
+            "lsjson",
+            f"--config={self.config['rclone_config']}",
+            remote,
+            "--contimeout=30s",
+            "--timeout=10m",
+            "--use-server-modtime",
+            "--retries=6",
+            "--low-level-retries=20",
+        ]
+        if files_only:
+            command.insert(2, "--files-only")
+        if recursive:
+            command.insert(2, "--fast-list")
+            command.insert(2, "--recursive")
+        completed = subprocess.run(
+            command,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            timeout=1800,
+        )
+        return json.loads(completed.stdout or "[]")
+
+    def inventory(self, job: dict, local: dict[str, dict]) -> dict[str, dict]:
+        destination = job["destination"].strip("/")
+        remote = f"{self.config['remote']}:{self.config['bucket']}/{destination}"
+        top_level = self.list_json(remote, recursive=False, files_only=False)
+        local_prefixes = {path.split("/", 1)[0] for path in local if "/" in path}
+        remote_prefixes = {item["Path"] for item in top_level if item.get("IsDir")}
+        prefixes = sorted(local_prefixes | remote_prefixes)
+        sharded = set(job.get("sharded_prefixes", []))
+
+        def list_shallow_shards(prefix: str) -> tuple[str, list[dict]]:
+            prefix_remote = f"{remote}/{prefix}"
+            if prefix not in sharded:
+                return prefix, self.list_json(prefix_remote)
+
+            first_level = self.list_json(
+                prefix_remote, recursive=False, files_only=False
+            )
+            combined: list[dict] = []
+            shards: list[tuple[str, str]] = []
+            for parent_item in first_level:
+                parent = parent_item["Path"]
+                if not parent_item.get("IsDir"):
+                    item = dict(parent_item)
+                    item["Path"] = parent
+                    combined.append(item)
+                    continue
+                parent_remote = f"{prefix_remote}/{parent}"
+                second_level = self.list_json(
+                    parent_remote, recursive=False, files_only=False
+                )
+                for child_item in second_level:
+                    child = child_item["Path"]
+                    relative = f"{parent}/{child}"
+                    if child_item.get("IsDir"):
+                        shards.append((relative, f"{parent_remote}/{child}"))
+                    else:
+                        item = dict(child_item)
+                        item["Path"] = relative
+                        combined.append(item)
+
+            def list_shard(value: tuple[str, str]) -> list[dict]:
+                relative, shard_remote = value
+                items = self.list_json(shard_remote)
+                for item in items:
+                    item["Path"] = f"{relative}/{item['Path']}"
+                return items
+
+            with ThreadPoolExecutor(
+                max_workers=int(self.config.get("list_workers", 3))
+            ) as pool:
+                for items in pool.map(list_shard, shards):
+                    combined.extend(items)
+            return prefix, combined
+
+        listed: list[tuple[str, list[dict]]] = []
+        if prefixes:
+            with ThreadPoolExecutor(
+                max_workers=int(self.config.get("list_workers", 3))
+            ) as pool:
+                listed = list(pool.map(list_shallow_shards, prefixes))
+
+        result: dict[str, dict] = {}
+        for item in top_level:
+            if not item.get("IsDir"):
+                relative = item["Path"]
+                result[relative] = record(relative, item)
+        for prefix, items in listed:
+            for item in items:
+                relative = f"{prefix}/{item['Path']}"
+                result[relative] = record(relative, item)
+        return result
+
+
+def record(relative: str, item: dict) -> dict:
+    return {
+        "relative_path": relative,
+        "size": int(item.get("Size", 0)),
+        "mtime": item.get("ModTime", ""),
+        "checksum": "",
+    }
+
+
+def gws_inventory(config: dict, job: dict) -> dict[str, dict]:
+    if job["name"] != "raw":
+        return {}
+    result: dict[str, dict] = {}
+    latest = Path(config["gws_manifest_root"], "latest")
+    if not latest.exists():
+        return result
+    archive_paths = {
+        stream["name"]: stream["archive_relpath"]
+        for stream in config.get("streams", [])
+    }
+    for path in latest.glob("*/gws.tsv"):
+        stream = path.parent.name
+        archive_path = archive_paths.get(stream, stream).strip("/")
+        with path.open(newline="", encoding="utf-8") as handle:
+            for row in csv.DictReader(handle, delimiter="\t"):
+                relative = f"{archive_path}/{row['relpath']}"
+                result[relative] = {
+                    "relative_path": relative,
+                    "size": int(row["size"]),
+                    "mtime": row.get("mtime", ""),
+                    "checksum": row.get("checksum", ""),
+                }
+    return result
+
+
+def compare(left: dict[str, dict], right: dict[str, dict]) -> dict:
+    left_keys, right_keys = set(left), set(right)
+    shared = left_keys & right_keys
+    size_mismatch = sorted(
+        path for path in shared if left[path]["size"] != right[path]["size"]
+    )
+    checksum_mismatch = sorted(
+        path
+        for path in shared
+        if left[path].get("checksum")
+        and right[path].get("checksum")
+        and left[path]["checksum"] != right[path]["checksum"]
+    )
+    return {
+        "left_count": len(left),
+        "right_count": len(right),
+        "missing_from_right": sorted(left_keys - right_keys),
+        "extra_in_right": sorted(right_keys - left_keys),
+        "size_mismatch": size_mismatch,
+        "checksum_mismatch": checksum_mismatch,
+        "matches": len(shared) - len(size_mismatch) - len(checksum_mismatch),
+    }
+
+
+def write_tsv(path: Path, rows: dict[str, dict]) -> None:
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=("relative_path", "size", "mtime", "checksum"),
+            delimiter="\t",
+        )
+        writer.writeheader()
+        writer.writerows(rows[key] for key in sorted(rows))
+
+
+def render_markdown(report: dict) -> str:
+    lines = [
+        "# Aurora GWS / Object-store comparison",
+        "",
+        f"Generated: `{report['generated_at']}`",
+        "",
+        "| Job | Source | S3 | Missing | Size mismatch |",
+        "|---|---:|---:|---:|---:|",
+    ]
+    for name, values in report["jobs"].items():
+        check = values["source_vs_s3"]
+        lines.append(
+            f"| {name} | {check['left_count']} | {check['right_count']} | "
+            f"{len(check['missing_from_right'])} | {len(check['size_mismatch'])} |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def publish(root: Path, stage: Path, generated_at: str) -> None:
+    latest = root / "latest"
+    history = root / "history" / generated_at.replace(":", "").replace("-", "")
+    incoming = root / ".latest.new"
+    if incoming.exists():
+        shutil.rmtree(incoming)
+    shutil.copytree(stage, incoming)
+    if latest.exists():
+        backup = root / ".latest.old"
+        if backup.exists():
+            shutil.rmtree(backup)
+        latest.replace(backup)
+        incoming.replace(latest)
+        shutil.rmtree(backup)
+    else:
+        incoming.replace(latest)
+    history.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(latest, history)
+
+
+def main() -> int:
+    config = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+    generated_at = utc_now()
+    root = Path(config["manifest_root"])
+    root.mkdir(parents=True, exist_ok=True)
+    lister = S3Lister(config)
+    with tempfile.TemporaryDirectory(prefix=".inventory-", dir=root) as temporary:
+        stage = Path(temporary)
+        report = {
+            "schema_version": 2,
+            "generated_at": generated_at,
+            "path_invariant": (
+                f"/gws/ssde/j25b/gamb2le/data/<path> == "
+                f"s3://{config['bucket']}/data/<path>"
+            ),
+            "jobs": {},
+        }
+        for job in config["jobs"]:
+            patterns = COMMON_EXCLUDES + job.get("exclude", [])
+            local = local_inventory(
+                job["source"], patterns, job.get("settle_age", "15m")
+            )
+            s3 = lister.inventory(job, local)
+            gws = gws_inventory(config, job)
+            write_tsv(stage / f"{job['name']}-local.tsv", local)
+            write_tsv(stage / f"{job['name']}-s3.tsv", s3)
+            if gws:
+                write_tsv(stage / f"{job['name']}-gws.tsv", gws)
+            report["jobs"][job["name"]] = {
+                "source": job["source"],
+                "gws": job.get("gws_destination", ""),
+                "s3": f"s3://{config['bucket']}/{job['destination'].strip('/')}",
+                "source_vs_s3": compare(local, s3),
+                "source_vs_gws": compare(local, gws) if gws else None,
+                "gws_vs_s3": compare(gws, s3) if gws else None,
+            }
+        (stage / "comparison.json").write_text(
+            json.dumps(report, indent=2) + "\n", encoding="utf-8"
+        )
+        (stage / "comparison.md").write_text(
+            render_markdown(report), encoding="utf-8"
+        )
+        (stage / "catalog.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 2,
+                    "generated_at": generated_at,
+                    "streams": config["streams"],
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        publish(root, stage, generated_at)
+
+    subprocess.run(
+        [
+            "/usr/bin/rclone",
+            "copy",
+            str(root / "latest"),
+            f"--config={config['rclone_config']}",
+            f"{config['remote']}:{config['bucket']}/data/internal/"
+            "aurora-cloud/manifests/object-store/latest",
+        ],
+        check=True,
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
