@@ -30,6 +30,9 @@ ASS source -> cloud raw mirror -> GWS raw + object-store raw
   `prune_ready`.
 - The object-store inventory must be fresh and report no raw missing paths,
   size mismatches, or checksum mismatches.
+- The object-store stability gate must describe that exact inventory, record
+  the independently additive writer policy, and have passed the configured
+  number of consecutive clean inventories (two by default).
 - The source path must be present in the GWS verifier's exact
   `prune_candidates.tsv` and have an mtime older than seven days.
 - The cloud coordinator creates a short-lived, site-specific permit containing
