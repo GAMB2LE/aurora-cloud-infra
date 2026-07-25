@@ -48,6 +48,10 @@ changes.
 - [Documentation home](docs/index.md): scope and current deployment contract
 - [Production and Development](docs/PRODUCTION_DEVELOPMENT.md): roles, release policy, and rollback
 - [Data Locations](docs/DATA_LOCATIONS.md): raw, product, state, and archive paths
+- [Archive Services](docs/ARCHIVE_SERVICES.md): GWS and object-store writers,
+  verification, monitoring contract, and retention coordinator
+- [ASS Backup and Retention](docs/ASS_BACKUP_AND_RETENTION.md): fail-closed
+  verification gates and the exact edge-pruning boundary
 - [Source Syncs](docs/RADAR_SOURCE_SYNC.md): start with the stream-specific guides in the docs navigation
 - [Failover](docs/FAILOVER.md): emergency promotion and recovery
 - [Reverse Tunnels](docs/REVERSE_TUNNELS.md): guarded cloud-side access setup
