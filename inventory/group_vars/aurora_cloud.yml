@@ -785,9 +785,9 @@ object_store_jobs:
     settle_age: 20m
     timeout_start_sec: 12h
     transfers: 4
-    lookback: 7d
-    max_duration: 25m
-    order_by: modtime,descending
+    recent_first: 2d
+    recent_max_duration: 8m
+    backfill_max_duration: 17m
     exclude:
       - wxcam/**
   - name: products-wxcam
@@ -798,9 +798,9 @@ object_store_jobs:
     settle_age: 30m
     timeout_start_sec: 24h
     transfers: 2
-    lookback: 7d
-    max_duration: 45m
-    order_by: modtime,descending
+    recent_first: 2d
+    recent_max_duration: 10m
+    backfill_max_duration: 35m
     sharded_prefixes: [FISH, PANO]
     exclude:
       - wxcam.zarr/**
@@ -821,7 +821,9 @@ object_store_jobs:
     settle_age: 5m
     timeout_start_sec: 12h
     transfers: 4
-    lookback: 2d
+    recent_first: 2d
+    recent_max_duration: 4m
+    backfill_max_duration: 8m
 
 ass_retention_enabled: "{{ aurora_is_production }}"
 # Held closed until the restricted edge helper is explicitly approved,

@@ -55,8 +55,10 @@ Verification observes writers; it does not enable or disable them.
 The full-history raw writer interleaves two bounded phases on every activation:
 the newest two days are copied first, then a full-history backfill slice runs.
 This prevents a multi-terabyte backlog from starving current observations.
-High-cardinality product and camera writers are also time-bounded and ordered
-newest first, so every timer cycle can reconsider newly published chunks.
+High-cardinality product, camera, and manifest writers use the same two-phase
+pattern: a short newest-first slice followed by a bounded full-history slice.
+Thus every timer cycle reconsiders newly published chunks while historical
+gaps continue to converge instead of falling permanently outside a lookback.
 An outer graceful GNU `timeout` enforces each wall-clock budget because the
 deployed legacy rclone can stop transfers yet continue scanning after its own
 `--max-duration` deadline.

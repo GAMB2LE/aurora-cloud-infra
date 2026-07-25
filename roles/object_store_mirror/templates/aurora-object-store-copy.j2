@@ -41,7 +41,7 @@ base_args=(
   --log-file "$log_file"
   --log-level INFO
 )
-{% if item.lookback is defined %}
+{% if item.lookback is defined and item.recent_first is not defined %}
 base_args+=(--max-age {{ item.lookback | quote }})
 {% endif %}
 {% if item.copy_links | default(false) %}
@@ -63,10 +63,10 @@ base_args+=(--exclude '**/*schema-backup*.zarr/**')
 {% for pattern in item.exclude | default([]) %}
 base_args+=(--exclude {{ pattern | quote }})
 {% endfor %}
-{% if item.max_duration is defined %}
+{% if item.max_duration is defined and item.recent_first is not defined %}
 base_args+=(--max-duration {{ item.max_duration | quote }})
 {% endif %}
-{% if item.order_by is defined %}
+{% if item.order_by is defined and item.recent_first is not defined %}
 base_args+=(--order-by {{ item.order_by | quote }})
 {% endif %}
 
