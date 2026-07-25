@@ -12,6 +12,25 @@ EnvironmentFile=/etc/aurora-dashboard.env
 ExecStart={{ aurora_venv }}/bin/uvicorn mobile_api:app --host {{ aurora_mobile_api_host }} --port {{ aurora_mobile_api_port }} --workers {{ aurora_mobile_api_workers | default(1) }}
 Restart=on-failure
 RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictNamespaces=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadOnlyPaths={{ aurora_app_dir }} {{ aurora_raw_root }} {{ aurora_product_root }} {{ aurora_dev_product_root }}
+ReadWritePaths=/var/cache/aurora-mobile-api
 
 [Install]
 WantedBy=multi-user.target
