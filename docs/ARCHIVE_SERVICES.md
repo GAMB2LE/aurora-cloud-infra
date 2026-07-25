@@ -44,7 +44,9 @@ JASMIN GWS              object store
       health-v1.json and exact retention permit
 ```
 
-Writers never wait for verification and never delete destination data.
+Writers never wait for verification and never delete destination data. In
+particular, the GWS rsync wrapper deliberately omits every `--delete` mode so
+source retention cannot propagate into the archive.
 Verification observes writers; it does not enable or disable them.
 
 The full-history raw writer interleaves two bounded phases on every activation:
@@ -56,6 +58,7 @@ newest first, so every timer cycle can reconsider newly published chunks.
 ## Playbooks
 
 - `playbooks/archive_services.yml` configures the complete archive stack.
+- `playbooks/gws_mirror.yml` configures the additive GWS writer and verifier.
 - `playbooks/object_store_mirror.yml` configures only non-destructive object
   storage and archive-health publication.
 - `playbooks/retention_coordinator.yml` installs the fail-closed cloud

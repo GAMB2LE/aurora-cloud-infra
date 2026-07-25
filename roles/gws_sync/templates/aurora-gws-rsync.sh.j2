@@ -41,7 +41,6 @@ ssh_opts=(
 rsync_opts=(
   -aH
   --partial
-  --delete-delay
   --delay-updates
   --stats
   --human-readable
@@ -49,6 +48,9 @@ rsync_opts=(
   --exclude={{ pattern | quote }}
 {% endfor %}
 )
+
+# GWS is an archive, not a replica. Source pruning or accidental local removal
+# must never propagate as a destination deletion.
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 log_file="${manifest_root%/}/logs/gws-sync-${job_name}-${timestamp}.log"
