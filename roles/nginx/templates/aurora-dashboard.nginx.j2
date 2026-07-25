@@ -26,6 +26,10 @@ server {
 {% endif %}
     server_tokens off;
     client_max_body_size 1m;
+{% if aurora_nginx_rate_limits | default(false) | bool %}
+    limit_req_status 429;
+    limit_conn_status 429;
+{% endif %}
 
     location = / {
         return 302 /app;
