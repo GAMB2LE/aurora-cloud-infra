@@ -14,6 +14,9 @@ archive parity, publishes archive health, or coordinates retention.
 
 The dashboard must not install transfer, verification, or pruning services.
 It consumes `/data/aurora/internal/archive_status/health-v1.json`.
+Its generic operations collector may copy contract metrics into presentation
+snapshots for compatibility, but it must not SSH-probe the GWS, parse archive
+manifests, inspect archive writer units, or infer prune readiness.
 
 ## Canonical stream catalogue
 
@@ -87,3 +90,7 @@ The contract contains:
 
 Missing or stale verification must be treated as unsafe. A red health result
 does not stop the additive writers; it only blocks pruning and alerts operators.
+
+The `health-v1` producer is the only code allowed to turn archive evidence into
+operator state. Browser, mobile API, reports, and notification code are
+read-only consumers of that result.
