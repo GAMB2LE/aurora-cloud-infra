@@ -8,6 +8,22 @@ job={{ item.name | quote }}
 
 mkdir -p "$log_root"
 log_file="$log_root/$job-$(date -u +%Y%m%dT%H%M%SZ).log"
+
+run_bounded() {
+  local duration="$1"
+  shift
+  set +e
+  /usr/bin/timeout --signal=TERM --kill-after=2m "$duration" /usr/bin/rclone "$@"
+  local rc=$?
+  set -e
+  # GNU timeout returns 124 when the wall-clock budget is reached. TERM can
+  # surface as 143 on older rclone builds. Both mean the bounded slice yielded
+  # as designed; every other failure remains fatal.
+  if [[ $rc -ne 0 && $rc -ne 124 && $rc -ne 143 ]]; then
+    return "$rc"
+  fi
+}
+
 base_args=(
   copy "$source_path" "$destination"
   "--config={{ object_store_rclone_config }}"
@@ -65,14 +81,18 @@ recent_args+=(
   --max-duration {{ item.recent_max_duration | default('8m') | quote }}
   --order-by modtime,descending
 )
-/usr/bin/rclone "${recent_args[@]}"
+run_bounded {{ item.recent_max_duration | default('8m') | quote }} "${recent_args[@]}"
 
 backfill_args=("${base_args[@]}")
 backfill_args+=(
   --max-duration {{ item.backfill_max_duration | default('22m') | quote }}
   --order-by modtime,descending
 )
-exec /usr/bin/rclone "${backfill_args[@]}"
+run_bounded {{ item.backfill_max_duration | default('22m') | quote }} "${backfill_args[@]}"
+{% else %}
+{% if item.max_duration is defined %}
+run_bounded {{ item.max_duration | quote }} "${base_args[@]}"
 {% else %}
 exec /usr/bin/rclone "${base_args[@]}"
+{% endif %}
 {% endif %}

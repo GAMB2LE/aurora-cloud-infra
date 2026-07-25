@@ -54,6 +54,9 @@ the newest two days are copied first, then a full-history backfill slice runs.
 This prevents a multi-terabyte backlog from starving current observations.
 High-cardinality product and camera writers are also time-bounded and ordered
 newest first, so every timer cycle can reconsider newly published chunks.
+An outer graceful GNU `timeout` enforces each wall-clock budget because the
+deployed legacy rclone can stop transfers yet continue scanning after its own
+`--max-duration` deadline.
 
 ## Playbooks
 
