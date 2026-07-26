@@ -70,6 +70,8 @@ The deployed syncs currently cover:
 - Vaisala MET
 - ASFS Logger
 - ASFS Fast Sonic
+- ASFS Fast Gas
+- PDU
 - Power
 - WXcam
 - MX4 camera FTP ingest on the ASS Linux data volume
@@ -89,22 +91,27 @@ from the CL61 SSH/SFTP path.
 ASFS science and fast-sonic syncs use the current CRD source directory
 (`/home/aurora/data/asfs/raw/crd`) and the May 2 onward retained data window.
 
-## GWS transfer model
+## Archive transfer model
 
-The current backup and archive design is push-based from the Aurora VM to:
+The current archive design uses independent additive writers from the Aurora
+VM to both:
 
-`/gws/ssde/j25b/gamb2le`
+- JASMIN GWS under `/gws/ssde/j25b/gamb2le`; and
+- the configured `gamb2le-o` object-store bucket.
 
-It uses systemd timers plus rsync-over-SSH failover across:
+GWS transfer uses systemd timers plus rsync-over-SSH failover across:
 
 1. `xfer-vm-03.jasmin.ac.uk`
 2. `xfer-vm-01.jasmin.ac.uk`
 3. `xfer-vm-02.jasmin.ac.uk`
 
-Verification manifests are generated for source, local raw, and GWS copies so
-upstream pruning decisions can be made against evidence rather than trust.
-Product sync is split into core products and WXcam products so the large WXcam
-media tree cannot delay the smaller product artifacts.
+Verification manifests are generated for source, local raw, GWS, and object
+copies. The fail-closed gate requires two complete, distinct reports with zero
+missing or mismatched files in both destinations before retention can become
+eligible. Product sync is split into core products and WXcam products so the
+large WXcam media tree cannot delay smaller product artifacts. The dashboard
+only reads the resulting infrastructure-owned health contract; it does not run
+archive writers, probes, verification, repair, or retention.
 
 ## Production and development state
 
