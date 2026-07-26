@@ -1,7 +1,8 @@
 # Aurora Cloud Infrastructure
 
 This repo contains the Ansible configuration used to build and operate the
-Aurora cloud dashboard hosts on JASMIN Cloud and the DigitalOcean droplet.
+Aurora cloud data and presentation hosts on JASMIN Cloud and the DigitalOcean
+droplet.
 
 ## What this repo covers
 

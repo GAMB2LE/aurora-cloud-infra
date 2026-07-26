@@ -1,6 +1,6 @@
 # Aurora Cloud Infrastructure
 
-Ansible configuration for the AURORA dashboard cloud hosts.
+Ansible configuration for the AURORA cloud data and presentation hosts.
 
 ## What This Repository Owns
 

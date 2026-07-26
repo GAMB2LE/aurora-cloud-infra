@@ -1,5 +1,5 @@
 site_name: Aurora Cloud Infrastructure
-site_description: Ansible configuration for rebuilding the Aurora cloud dashboard host
+site_description: Ansible configuration for rebuilding the Aurora cloud data and presentation hosts
 repo_name: GAMB2LE/aurora-cloud-infra
 repo_url: https://github.com/GAMB2LE/aurora-cloud-infra
 docs_dir: docs
