@@ -1,0 +1,20 @@
+[Unit]
+Description=Repair exact Aurora object-store inventory gaps
+After=network-online.target aurora-object-store-inventory.service
+Wants=network-online.target
+ConditionPathExists={{ object_store_manifest_root }}/latest/comparison.json
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+Environment=XDG_CACHE_HOME={{ object_store_cache_root }}
+ExecStart=/usr/local/bin/aurora-object-store-repair-from-report
+TimeoutStartSec=12h
+Nice=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths={{ aurora_raw_root }} {{ aurora_data_root }}
+ReadWritePaths={{ object_store_cache_root }}

@@ -53,6 +53,7 @@
   loop:
     - { src: aurora-object-store-inventory.py, dest: /usr/local/bin/aurora-object-store-inventory }
     - { src: aurora-object-store-verification-gate.py, dest: /usr/local/sbin/aurora-object-store-verification-gate }
+    - { src: aurora-object-store-repair-from-report.py, dest: /usr/local/bin/aurora-object-store-repair-from-report }
   when: object_store_mirror_enabled | bool
 
 - name: Install object-store inventory and verification units
@@ -67,6 +68,8 @@
     - aurora-object-store-inventory.timer
     - aurora-object-store-verification-gate.service
     - aurora-object-store-verification-gate.path
+    - aurora-object-store-repair.service
+    - aurora-object-store-repair.path
   when: object_store_mirror_enabled | bool
 
 - name: Enable routine object-store copy timers
@@ -102,6 +105,7 @@
   loop:
     - aurora-object-store-inventory.timer
     - aurora-object-store-verification-gate.path
+    - aurora-object-store-repair.path
   when:
     - object_store_mirror_enabled | bool
     - not ansible_check_mode

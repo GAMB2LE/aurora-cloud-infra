@@ -19,84 +19,72 @@ import tempfile
 DEFAULT_REPORT = Path(
     "/data/aurora/internal/object_store_manifests/latest/comparison.json"
 )
+DEFAULT_CATALOG = Path("/etc/aurora-object-store/catalog.json")
 RCLONE = "/usr/bin/rclone"
-RCLONE_CONFIG = "/etc/aurora-object-store/rclone.conf"
-REMOTE = "gamb2le-object-store:gamb2le-o"
-
-JOBS = {
-    "raw": {
-        "source": Path("/project/aurora/raw"),
-        "destination": "data/incoming/aurora-cloud/raw",
-        "settle_seconds": 15 * 60,
-    },
-    "products": {
-        "source": Path("/data/aurora/products"),
-        "destination": "data/output/aurora-cloud/products",
-        "settle_seconds": 20 * 60,
-    },
-    "products-wxcam": {
-        "source": Path("/data/aurora/products/wxcam"),
-        "destination": "data/output/aurora-cloud/products/wxcam",
-        "settle_seconds": 30 * 60,
-    },
-    "model-evaluation": {
-        "source": Path(
-            "/data/aurora/model-evaluation/campaigns/"
-            "aurora_iceland_model_evaluation_v1"
-        ),
-        "destination": "data/output/aurora-cloud/model-evaluation",
-        "settle_seconds": 60 * 60,
-        "copy_links": True,
-    },
-    "manifests": {
-        "source": Path("/data/aurora/internal/mirror_manifests"),
-        "destination": "data/internal/aurora-cloud/manifests/gws",
-        "settle_seconds": 5 * 60,
-    },
-}
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--report", type=Path, default=DEFAULT_REPORT)
+    parser.add_argument("--catalog", type=Path, default=DEFAULT_CATALOG)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
         "--job",
         action="append",
-        choices=sorted(JOBS),
-        help="Repair only this job; may be repeated.",
+        help="Repair only this catalogue job; may be repeated.",
     )
     return parser.parse_args()
+
+
+def duration_seconds(value: str) -> int:
+    units = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+    return int(value[:-1]) * units[value[-1].lower()]
 
 
 def settled_paths(
     source: Path, paths: set[str], settle_seconds: int
 ) -> tuple[list[str], list[str]]:
     cutoff = dt.datetime.now(dt.timezone.utc).timestamp() - settle_seconds
-    ready: list[str] = []
+    ready_with_mtime: list[tuple[float, str]] = []
     deferred: list[str] = []
-    for relative_path in sorted(paths):
+    for relative_path in paths:
         path = source / relative_path
         try:
+            path.resolve(strict=False).relative_to(source.resolve())
             stat = path.stat()
-        except FileNotFoundError:
+        except (FileNotFoundError, ValueError):
             deferred.append(relative_path)
             continue
-        if stat.st_mtime > cutoff:
+        if path.is_symlink() or not path.is_file() or stat.st_mtime > cutoff:
             deferred.append(relative_path)
             continue
-        ready.append(relative_path)
-    return ready, deferred
+        ready_with_mtime.append((stat.st_mtime, relative_path))
+    ready = [
+        relative
+        for _mtime, relative in sorted(
+            ready_with_mtime,
+            key=lambda item: (-item[0], item[1]),
+        )
+    ]
+    return ready, sorted(deferred)
 
 
-def repair_job(name: str, report_job: dict, dry_run: bool) -> dict:
-    config = JOBS[name]
+def repair_job(
+    name: str,
+    job: dict,
+    report_job: dict,
+    catalog: dict,
+    dry_run: bool,
+) -> dict:
     comparison = report_job["source_vs_s3"]
     candidates = set(comparison.get("missing_from_right", []))
     candidates.update(comparison.get("size_mismatch", []))
     candidates.update(comparison.get("checksum_mismatch", []))
+    source = Path(job["source"])
     ready, deferred = settled_paths(
-        config["source"], candidates, config["settle_seconds"]
+        source,
+        candidates,
+        duration_seconds(job.get("settle_age", "15m")),
     )
     result = {
         "job": name,
@@ -116,9 +104,12 @@ def repair_job(name: str, report_job: dict, dry_run: bool) -> dict:
         command = [
             RCLONE,
             "copy",
-            f"{config['source']}/",
-            f"{REMOTE}/{config['destination']}/",
-            f"--config={RCLONE_CONFIG}",
+            f"{source}/",
+            (
+                f"{catalog['remote']}:{catalog['bucket']}/"
+                f"{job['destination'].strip('/')}/"
+            ),
+            f"--config={catalog['rclone_config']}",
             f"--files-from-raw={file_list.name}",
             "--no-traverse",
             "--ignore-times",
@@ -132,7 +123,7 @@ def repair_job(name: str, report_job: dict, dry_run: bool) -> dict:
             "--low-level-retries=10",
             "--stats=1m",
         ]
-        if config.get("copy_links"):
+        if job.get("copy_links"):
             command.append("--copy-links")
         if dry_run:
             command.append("--dry-run")
@@ -143,13 +134,26 @@ def repair_job(name: str, report_job: dict, dry_run: bool) -> dict:
 
 def main() -> int:
     args = parse_args()
+    catalog = json.loads(args.catalog.read_text(encoding="utf-8"))
     report = json.loads(args.report.read_text(encoding="utf-8"))
-    selected = set(args.job or JOBS)
+    jobs = {job["name"]: job for job in catalog["jobs"]}
+    selected = set(args.job or jobs)
+    unknown = selected - set(jobs)
+    if unknown:
+        raise SystemExit(f"unknown catalogue jobs: {', '.join(sorted(unknown))}")
     results = []
-    for name in JOBS:
+    for name, job in jobs.items():
         if name not in selected:
             continue
-        results.append(repair_job(name, report["jobs"][name], args.dry_run))
+        results.append(
+            repair_job(
+                name,
+                job,
+                report["jobs"][name],
+                catalog,
+                args.dry_run,
+            )
+        )
     print(json.dumps({"report": report["generated_at"], "jobs": results}, indent=2))
     return 1 if any(item["returncode"] for item in results) else 0
 

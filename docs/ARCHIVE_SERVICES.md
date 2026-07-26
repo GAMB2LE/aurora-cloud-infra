@@ -61,6 +61,13 @@ Thus every timer cycle reconsiders newly published chunks while historical
 gaps continue to converge instead of falling permanently outside a lookback.
 Full product inventories list each product family in smaller parallel shards;
 they never depend on one unbounded recursive object-store listing.
+
+When an inventory publishes exact missing or mismatched paths,
+`aurora-object-store-repair.path` starts the catalogue-driven repair service.
+It revalidates every settled source file, rejects symlinks and paths outside
+the configured source root, orders candidates newest first, and performs only
+exact `rclone copy --files-from-raw` operations. It never deletes or broadly
+rewalks the archive to repair a known finite gap.
 An outer graceful GNU `timeout` enforces each wall-clock budget because the
 deployed legacy rclone can stop transfers yet continue scanning after its own
 `--max-duration` deadline.
