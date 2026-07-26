@@ -408,10 +408,30 @@ def main() -> int:
         "updated_at": generated_at,
         "state": "running",
         "current_job": None,
+        "phase": "starting",
         "completed_jobs": [],
         "total_jobs": len(config["jobs"]),
     }
-    write_progress(root, progress)
+    progress_lock = threading.Lock()
+    heartbeat_stop = threading.Event()
+
+    def update_progress(**values: object) -> None:
+        with progress_lock:
+            progress.update(values)
+            progress["updated_at"] = utc_now()
+            write_progress(root, progress)
+
+    def heartbeat() -> None:
+        while not heartbeat_stop.wait(60):
+            update_progress()
+
+    update_progress()
+    heartbeat_thread = threading.Thread(
+        target=heartbeat,
+        name="inventory-progress-heartbeat",
+        daemon=True,
+    )
+    heartbeat_thread.start()
     try:
         with tempfile.TemporaryDirectory(prefix=".inventory-", dir=root) as temporary:
             stage = Path(temporary)
@@ -432,25 +452,26 @@ def main() -> int:
                 "jobs": {},
             }
             for job in config["jobs"]:
-                progress.update(
-                    {
-                        "updated_at": utc_now(),
-                        "state": "running",
-                        "current_job": job["name"],
-                    }
+                update_progress(
+                    state="running",
+                    current_job=job["name"],
+                    phase="local_inventory",
                 )
-                write_progress(root, progress)
                 patterns = COMMON_EXCLUDES + job.get("exclude", [])
                 local = local_inventory(
                     job["source"], patterns, job.get("settle_age", "15m")
                 )
+                update_progress(phase="object_store_inventory")
                 s3 = lister.inventory(job, local)
                 # The source is live while a full remote listing is built.
                 # Exclude anything that changed during that window so a newer
                 # object cannot be misreported as a destructive mismatch.
+                update_progress(phase="stability_check")
                 local = retain_unchanged_local_snapshot(job["source"], local)
+                update_progress(phase="gws_inventory")
                 gws = gws_inventory(config, job)
                 gws_source = mirror_manifest_inventory(config, job, "source")
+                update_progress(phase="comparison")
                 write_tsv(stage / f"{job['name']}-local.tsv", local)
                 write_tsv(stage / f"{job['name']}-s3.tsv", s3)
                 if gws:
@@ -478,7 +499,8 @@ def main() -> int:
                         else None
                     ),
                 }
-                progress["completed_jobs"].append(job["name"])
+                with progress_lock:
+                    progress["completed_jobs"].append(job["name"])
             (stage / "comparison.json").write_text(
                 json.dumps(report, indent=2) + "\n", encoding="utf-8"
             )
@@ -497,16 +519,14 @@ def main() -> int:
                 + "\n",
                 encoding="utf-8",
             )
-            progress.update(
-                {
-                    "updated_at": utc_now(),
-                    "state": "publishing",
-                    "current_job": None,
-                }
+            update_progress(
+                state="publishing",
+                current_job=None,
+                phase="local_publish",
             )
-            write_progress(root, progress)
             publish(root, stage, generated_at)
 
+        update_progress(phase="object_store_publish")
         subprocess.run(
             [
                 "/usr/bin/rclone",
@@ -519,24 +539,21 @@ def main() -> int:
             check=True,
         )
     except Exception as error:
-        progress.update(
-            {
-                "updated_at": utc_now(),
-                "state": "failed",
-                "error": f"{type(error).__name__}: {error}"[:1000],
-            }
+        update_progress(
+            state="failed",
+            phase="failed",
+            error=f"{type(error).__name__}: {error}"[:1000],
         )
-        write_progress(root, progress)
         raise
-    progress.update(
-        {
-            "updated_at": utc_now(),
-            "state": "complete",
-            "current_job": None,
-            "report_generated_at": generated_at,
-        }
+    finally:
+        heartbeat_stop.set()
+        heartbeat_thread.join(timeout=2)
+    update_progress(
+        state="complete",
+        current_job=None,
+        phase="complete",
+        report_generated_at=generated_at,
     )
-    write_progress(root, progress)
     return 0
 
 
