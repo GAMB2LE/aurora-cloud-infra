@@ -61,6 +61,10 @@ Thus every timer cycle reconsiders newly published chunks while historical
 gaps continue to converge instead of falling permanently outside a lookback.
 Full product inventories list each product family in smaller parallel shards;
 they never depend on one unbounded recursive object-store listing.
+Raw inventories use the same rule for every family, including the multi-terabyte
+radar archive. Families are scheduled independently, radar is listed as bounded
+year/month subtrees, and a global process semaphore limits nested listings to
+the configured `object_store_inventory_process_limit` (12 in production).
 
 When an inventory publishes exact missing or mismatched paths,
 `aurora-object-store-repair.path` starts the catalogue-driven repair service.
