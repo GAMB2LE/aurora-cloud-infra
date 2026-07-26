@@ -140,7 +140,9 @@ systemctl is-enabled aurora-ass-retention.timer
    the canonical per-stream `Y/M/D` hierarchy. `source_vs_s3` therefore proves
    cloud-to-object parity, and `source_vs_gws` is built from the independent
    canonical edge-source/GWS manifests. The service never compares the two
-   deliberately different raw path layouts directly.
+   deliberately different raw path layouts directly. The verifier publishes
+   its complete `latest/` tree by atomic directory replacement, so readers
+   cannot combine manifests from different verification runs.
 4. The repair path unit copies only the exact reported missing or mismatched
    paths. It must finish successfully before another inventory is started.
 5. Run a fresh inventory. A clean result establishes clean streak one.
