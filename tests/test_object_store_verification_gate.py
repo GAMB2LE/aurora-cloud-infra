@@ -119,6 +119,41 @@ class ObjectStoreVerificationGateTests(unittest.TestCase):
         self.assertFalse(dirty["stable_parity"])
         self.assertEqual(dirty["failures"], ["raw:missing_from_right=1"])
 
+    def test_missing_gws_evidence_is_never_clean(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            latest = root / "manifests" / "latest"
+            latest.mkdir(parents=True)
+            catalog = root / "catalog.json"
+            state = root / "state.json"
+            catalog.write_text(
+                json.dumps(
+                    {
+                        "manifest_root": str(root / "manifests"),
+                        "report_max_age_hours": 8,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            generated = dt.datetime.now(dt.timezone.utc).isoformat()
+            incomplete = report(generated)
+            del incomplete["jobs"]["raw"]["source_vs_gws"]
+            (latest / "comparison.json").write_text(
+                json.dumps(incomplete),
+                encoding="utf-8",
+            )
+            gate.CATALOG = catalog
+            gate.STATE = state
+            gate.REQUIRED = 2
+
+            self.assertEqual(gate.main(), 0)
+            rejected = json.loads(state.read_text(encoding="utf-8"))
+
+        self.assertFalse(rejected["clean"])
+        self.assertEqual(rejected["clean_streak"], 0)
+        self.assertFalse(rejected["stable_parity"])
+        self.assertEqual(rejected["failures"], ["raw:gws_evidence_missing"])
+
 
 if __name__ == "__main__":
     unittest.main()
