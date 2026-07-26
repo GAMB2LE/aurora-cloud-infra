@@ -700,7 +700,7 @@ aurora_archive_streams:
     cloud_root: "{{ radar_source_destination }}"
     archive_relpath: rpgfmcw94
     retention_days: 7
-    prune_enabled: false
+    prune_enabled: true
   - name: hatprog5
     site: ass
     source_sync_stem: hatpro

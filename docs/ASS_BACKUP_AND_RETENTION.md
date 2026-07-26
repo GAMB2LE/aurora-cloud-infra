@@ -56,8 +56,12 @@ ASS source -> cloud raw mirror -> GWS raw + object-store raw
   permitted ASS paths older than seven days.
 
 The coordinator and edge helper default to dry-run. Enabling deletion requires
-both sides to be explicitly configured for live mode. Radar and APS power remain
-non-prunable regardless of the global mode.
+both sides to be explicitly configured for live mode. All ASS raw streams,
+including the complete radar LV0/LV1 tree, use a seven-day source-retention
+window. Radar was kept disabled while its historical LV0 coverage was
+incomplete; it is eligible only after the same exact dual-destination evidence
+and product gate as every other stream. APS power remains non-prunable
+regardless of the global mode.
 
 Files outside the managed archive scope remain on ASS until an explicit source,
 GWS, and object-store mapping is added; the retention service must not guess.
