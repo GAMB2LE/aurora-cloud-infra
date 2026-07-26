@@ -11,6 +11,7 @@ import subprocess
 OUTPUT = Path({{ archive_monitor_latest_path | to_json }})
 GWS = Path({{ gws_manifest_root | to_json }}) / "latest/summary.json"
 OBJECT = Path({{ object_store_manifest_root | to_json }}) / "latest/comparison.json"
+INVENTORY_PROGRESS = Path({{ object_store_manifest_root | to_json }}) / "progress.json"
 GATE = Path({{ aurora_state_root | to_json }}) / "object-store-verification-gate/state.json"
 STREAMS = json.loads(r'''{{ aurora_archive_streams | to_json }}''')
 EVIDENCE_MAX_AGE_HOURS = {{ object_store_inventory_max_age_hours | int }}
@@ -79,6 +80,7 @@ def evidence_age_hours(value: object) -> float | None:
 def main() -> int:
     gws = read(GWS)
     object_report = read(OBJECT)
+    inventory_progress = read(INVENTORY_PROGRESS)
     gate = read(GATE)
     metrics: dict[str, object] = {}
     failures: list[str] = []
@@ -156,6 +158,10 @@ def main() -> int:
     metrics["ass_retention_enabled_state"] = int(
         services["aurora-ass-retention.timer"].get("UnitFileState") == "enabled"
     )
+    metrics["object_store_inventory_running_state"] = int(
+        services["aurora-object-store-inventory.service"].get("ActiveState")
+        == "activating"
+    )
     if issues:
         failures.append(f"gws_issues={issues}")
     if object_missing:
@@ -180,6 +186,7 @@ def main() -> int:
             "gws_generated_at": gws.get("generated_at"),
             "object_store_generated_at": object_report.get("generated_at"),
             "object_store_gate": gate,
+            "object_store_inventory_progress": inventory_progress,
         },
     }
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)

@@ -105,6 +105,12 @@ The contract contains:
 - writer and verifier unit states;
 - verification timestamps and the object-store clean streak.
 
+The inventory itself atomically updates
+`/data/aurora/internal/object_store_manifests/progress.json` with its state,
+current job, completed jobs, and total job count. The health contract embeds
+that evidence and publishes a numeric running-state metric, so consumers never
+need to inspect processes or infer progress from partial manifests.
+
 Missing or stale verification must be treated as unsafe. A red health result
 does not stop the additive writers; it only blocks pruning and alerts operators.
 

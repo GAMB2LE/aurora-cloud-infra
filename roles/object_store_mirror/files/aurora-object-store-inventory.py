@@ -270,6 +270,15 @@ def write_tsv(path: Path, rows: dict[str, dict]) -> None:
         writer.writerows(rows[key] for key in sorted(rows))
 
 
+def write_progress(root: Path, progress: dict) -> None:
+    temporary = root / ".progress.tmp"
+    temporary.write_text(
+        json.dumps(progress, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(root / "progress.json")
+
+
 def render_markdown(report: dict) -> str:
     lines = [
         "# Aurora GWS / Object-store comparison",
@@ -314,67 +323,114 @@ def main() -> int:
     root = Path(config["manifest_root"])
     root.mkdir(parents=True, exist_ok=True)
     lister = S3Lister(config)
-    with tempfile.TemporaryDirectory(prefix=".inventory-", dir=root) as temporary:
-        stage = Path(temporary)
-        report = {
-            "schema_version": 2,
-            "generated_at": generated_at,
-            "path_invariant": (
-                f"/gws/ssde/j25b/gamb2le/data/<path> == "
-                f"s3://{config['bucket']}/data/<path>"
-            ),
-            "jobs": {},
-        }
-        for job in config["jobs"]:
-            patterns = COMMON_EXCLUDES + job.get("exclude", [])
-            local = local_inventory(
-                job["source"], patterns, job.get("settle_age", "15m")
-            )
-            s3 = lister.inventory(job, local)
-            gws = gws_inventory(config, job)
-            write_tsv(stage / f"{job['name']}-local.tsv", local)
-            write_tsv(stage / f"{job['name']}-s3.tsv", s3)
-            if gws:
-                write_tsv(stage / f"{job['name']}-gws.tsv", gws)
-            report["jobs"][job["name"]] = {
-                "source": job["source"],
-                "gws": job.get("gws_destination", ""),
-                "s3": f"s3://{config['bucket']}/{job['destination'].strip('/')}",
-                "source_vs_s3": compare(local, s3),
-                "source_vs_gws": compare(local, gws) if gws else None,
-                "gws_vs_s3": compare(gws, s3) if gws else None,
+    progress = {
+        "schema_version": 1,
+        "run_generated_at": generated_at,
+        "updated_at": generated_at,
+        "state": "running",
+        "current_job": None,
+        "completed_jobs": [],
+        "total_jobs": len(config["jobs"]),
+    }
+    write_progress(root, progress)
+    try:
+        with tempfile.TemporaryDirectory(prefix=".inventory-", dir=root) as temporary:
+            stage = Path(temporary)
+            report = {
+                "schema_version": 2,
+                "generated_at": generated_at,
+                "path_invariant": (
+                    f"/gws/ssde/j25b/gamb2le/data/<path> == "
+                    f"s3://{config['bucket']}/data/<path>"
+                ),
+                "jobs": {},
             }
-        (stage / "comparison.json").write_text(
-            json.dumps(report, indent=2) + "\n", encoding="utf-8"
-        )
-        (stage / "comparison.md").write_text(
-            render_markdown(report), encoding="utf-8"
-        )
-        (stage / "catalog.json").write_text(
-            json.dumps(
-                {
-                    "schema_version": 2,
-                    "generated_at": generated_at,
-                    "streams": config["streams"],
-                },
-                indent=2,
+            for job in config["jobs"]:
+                progress.update(
+                    {
+                        "updated_at": utc_now(),
+                        "state": "running",
+                        "current_job": job["name"],
+                    }
+                )
+                write_progress(root, progress)
+                patterns = COMMON_EXCLUDES + job.get("exclude", [])
+                local = local_inventory(
+                    job["source"], patterns, job.get("settle_age", "15m")
+                )
+                s3 = lister.inventory(job, local)
+                gws = gws_inventory(config, job)
+                write_tsv(stage / f"{job['name']}-local.tsv", local)
+                write_tsv(stage / f"{job['name']}-s3.tsv", s3)
+                if gws:
+                    write_tsv(stage / f"{job['name']}-gws.tsv", gws)
+                report["jobs"][job["name"]] = {
+                    "source": job["source"],
+                    "gws": job.get("gws_destination", ""),
+                    "s3": f"s3://{config['bucket']}/{job['destination'].strip('/')}",
+                    "source_vs_s3": compare(local, s3),
+                    "source_vs_gws": compare(local, gws) if gws else None,
+                    "gws_vs_s3": compare(gws, s3) if gws else None,
+                }
+                progress["completed_jobs"].append(job["name"])
+            (stage / "comparison.json").write_text(
+                json.dumps(report, indent=2) + "\n", encoding="utf-8"
             )
-            + "\n",
-            encoding="utf-8",
-        )
-        publish(root, stage, generated_at)
+            (stage / "comparison.md").write_text(
+                render_markdown(report), encoding="utf-8"
+            )
+            (stage / "catalog.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 2,
+                        "generated_at": generated_at,
+                        "streams": config["streams"],
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            progress.update(
+                {
+                    "updated_at": utc_now(),
+                    "state": "publishing",
+                    "current_job": None,
+                }
+            )
+            write_progress(root, progress)
+            publish(root, stage, generated_at)
 
-    subprocess.run(
-        [
-            "/usr/bin/rclone",
-            "copy",
-            str(root / "latest"),
-            f"--config={config['rclone_config']}",
-            f"{config['remote']}:{config['bucket']}/data/internal/"
-            "aurora-cloud/manifests/object-store/latest",
-        ],
-        check=True,
+        subprocess.run(
+            [
+                "/usr/bin/rclone",
+                "copy",
+                str(root / "latest"),
+                f"--config={config['rclone_config']}",
+                f"{config['remote']}:{config['bucket']}/data/internal/"
+                "aurora-cloud/manifests/object-store/latest",
+            ],
+            check=True,
+        )
+    except Exception as error:
+        progress.update(
+            {
+                "updated_at": utc_now(),
+                "state": "failed",
+                "error": f"{type(error).__name__}: {error}"[:1000],
+            }
+        )
+        write_progress(root, progress)
+        raise
+    progress.update(
+        {
+            "updated_at": utc_now(),
+            "state": "complete",
+            "current_job": None,
+            "report_generated_at": generated_at,
+        }
     )
+    write_progress(root, progress)
     return 0
 
 

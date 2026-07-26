@@ -169,6 +169,29 @@ class ObjectStoreInventoryTests(unittest.TestCase):
 
         self.assertEqual(maximum, 2)
 
+    def test_progress_publication_is_atomic_and_replaces_previous_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            inventory.write_progress(
+                root,
+                {
+                    "state": "running",
+                    "current_job": "raw",
+                },
+            )
+            inventory.write_progress(
+                root,
+                {
+                    "state": "complete",
+                    "current_job": None,
+                },
+            )
+
+            progress = (root / "progress.json").read_text(encoding="utf-8")
+
+        self.assertIn('"state": "complete"', progress)
+        self.assertNotIn('"state": "running"', progress)
+
     def test_non_raw_jobs_do_not_claim_gws_evidence(self) -> None:
         self.assertEqual(
             inventory.gws_inventory(
