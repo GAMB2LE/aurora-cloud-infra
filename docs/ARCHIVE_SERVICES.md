@@ -25,8 +25,9 @@ Each entry defines the edge source, cloud raw root, archive-relative path,
 retention duration, and whether pruning is allowed. Add a stream there before
 adding service-specific logic.
 
-Radar (`rpgfmcw94`) and APS power pruning are disabled. They remain disabled
-until their complete histories are independently proved in both archives.
+Radar (`rpgfmcw94`) uses the same seven-day ASS policy as the other verified
+raw streams after two consecutive clean GWS/object-store reports. APS power
+remains non-prunable pending a separate source and archive policy review.
 
 ## Data flow
 
