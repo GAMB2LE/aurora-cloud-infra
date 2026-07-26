@@ -369,34 +369,44 @@ def gws_inventory(config: dict, job: dict) -> dict[str, dict]:
         "StrictHostKeyChecking=accept-new",
     ]
     failures: list[str] = []
-    for host in config.get("gws_hosts", []):
-        target = f"{config['gws_user']}@{host}"
-        try:
-            completed = subprocess.run(
-                [*ssh_base, target, remote_command],
-                check=True,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=7200,
-            )
-        except (OSError, subprocess.SubprocessError) as error:
-            failures.append(f"{host}: {error}")
-            continue
-        result: dict[str, dict] = {}
-        for line in completed.stdout.splitlines():
-            if not line:
+    hosts = config.get("gws_hosts", [])
+    attempts = max(1, int(config.get("gws_inventory_attempts", 3)))
+    retry_delay = max(0, int(config.get("gws_inventory_retry_delay_seconds", 15)))
+    for attempt in range(1, attempts + 1):
+        for host in hosts:
+            target = f"{config['gws_user']}@{host}"
+            try:
+                completed = subprocess.run(
+                    [*ssh_base, target, remote_command],
+                    check=True,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=7200,
+                )
+            except (OSError, subprocess.SubprocessError) as error:
+                stderr = getattr(error, "stderr", "") or ""
+                detail = stderr.strip().splitlines()[-1:] or [str(error)]
+                failures.append(
+                    f"attempt {attempt}/{attempts} {host}: {detail[0]}"
+                )
                 continue
-            relative, size, mtime = line.split("\t")
-            if excluded(relative, patterns):
-                continue
-            result[relative] = {
-                "relative_path": relative,
-                "size": int(size),
-                "mtime": int(float(mtime)),
-                "checksum": "",
-            }
-        return result
+            result: dict[str, dict] = {}
+            for line in completed.stdout.splitlines():
+                if not line:
+                    continue
+                relative, size, mtime = line.split("\t")
+                if excluded(relative, patterns):
+                    continue
+                result[relative] = {
+                    "relative_path": relative,
+                    "size": int(size),
+                    "mtime": int(float(mtime)),
+                    "checksum": "",
+                }
+            return result
+        if attempt < attempts:
+            time.sleep(retry_delay * attempt)
     raise RuntimeError(
         f"all GWS inventory hosts failed for {job['name']}: "
         + "; ".join(failures)
@@ -567,10 +577,13 @@ def main() -> int:
                     verification_settle_age(job),
                     bool(job.get("copy_links")),
                 )
-                update_progress(phase="object_store_inventory")
-                s3 = lister.inventory(job, local)
                 update_progress(phase="gws_inventory")
                 gws = gws_inventory(config, job)
+                # Prove the usually-cheaper GWS path before starting a large
+                # object-store listing. A transient JASMIN outage must not
+                # waste an otherwise valid high-cardinality S3 inventory.
+                update_progress(phase="object_store_inventory")
+                s3 = lister.inventory(job, local)
                 # The source is live while a full remote listing is built.
                 # Exclude anything that changed during either remote listing
                 # so a newer object cannot be misreported as a mismatch.

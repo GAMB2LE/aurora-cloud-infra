@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+import subprocess
 import tempfile
 import threading
 import time
@@ -49,6 +50,34 @@ class ObjectStoreInventoryTests(unittest.TestCase):
         command = run.call_args.args[0]
         self.assertIn("user@xfer.example", command)
         self.assertIn("cd \"/gws/products\"", command[-1])
+
+    def test_gws_inventory_retries_the_host_pool(self) -> None:
+        completed = SimpleNamespace(stdout="stable/file.nc\t42\t100.5\n")
+        config = {
+            "gws_key": "/key",
+            "gws_user": "user",
+            "gws_hosts": ["xfer-1.example", "xfer-2.example"],
+            "gws_inventory_attempts": 2,
+            "gws_inventory_retry_delay_seconds": 0,
+        }
+        job = {
+            "name": "products",
+            "gws_destination": "/gws/products",
+        }
+        failure = subprocess.CalledProcessError(
+            255,
+            ["ssh"],
+            stderr="temporary connection failure",
+        )
+        with mock.patch.object(
+            inventory.subprocess,
+            "run",
+            side_effect=[failure, failure, completed],
+        ) as run:
+            result = inventory.gws_inventory(config, job)
+
+        self.assertEqual(result["stable/file.nc"]["size"], 42)
+        self.assertEqual(run.call_count, 3)
 
     def test_publish_keeps_bounded_immutable_history(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
