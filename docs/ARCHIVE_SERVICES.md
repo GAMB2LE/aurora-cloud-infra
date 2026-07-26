@@ -111,3 +111,33 @@ does not stop the additive writers; it only blocks pruning and alerts operators.
 The `health-v1` producer is the only code allowed to turn archive evidence into
 operator state. Browser, mobile API, reports, and notification code are
 read-only consumers of that result.
+
+## Safe convergence runbook
+
+Run these on the cloud host. None of them enables pruning:
+
+```bash
+systemctl status aurora-mirror-verify.service
+systemctl status aurora-object-store-inventory.service
+systemctl status aurora-object-store-repair.path
+systemctl status aurora-object-store-verification-gate.path
+systemctl is-enabled aurora-ass-retention.timer
+```
+
+1. Leave every additive writer timer running.
+2. Start one full inventory with
+   `sudo systemctl start --no-block aurora-object-store-inventory.service`.
+3. Wait for atomic publication at
+   `/data/aurora/internal/object_store_manifests/latest/comparison.json`.
+4. The repair path unit copies only the exact reported missing or mismatched
+   paths. It must finish successfully before another inventory is started.
+5. Run a fresh inventory. A clean result establishes clean streak one.
+6. Run another independent full inventory. Only that distinct second clean
+   report may establish stable parity.
+7. Confirm `health-v1.json` is green and review both cloud and edge audit logs
+   before any dry-run retention canary.
+
+`aurora-ass-retention.timer` stays disabled until the restricted edge helper is
+installed with explicit approval and a dry-run canary has been reviewed. A
+failed, interrupted, or partial inventory never replaces the previous complete
+comparison and can never authorize deletion.
