@@ -13,6 +13,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 
 CATALOG_PATH = Path("/etc/aurora-object-store/catalog.json")
@@ -87,6 +88,9 @@ def local_inventory(root: str, patterns: list[str], settle_age: str) -> dict[str
 class S3Lister:
     def __init__(self, config: dict):
         self.config = config
+        self.list_slots = threading.BoundedSemaphore(
+            int(config.get("list_process_limit", 12))
+        )
 
     def list_json(
         self, remote: str, *, recursive: bool = True, files_only: bool = True
@@ -107,13 +111,14 @@ class S3Lister:
         if recursive:
             command.insert(2, "--fast-list")
             command.insert(2, "--recursive")
-        completed = subprocess.run(
-            command,
-            check=True,
-            text=True,
-            stdout=subprocess.PIPE,
-            timeout=1800,
-        )
+        with self.list_slots:
+            completed = subprocess.run(
+                command,
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+                timeout=1800,
+            )
         return json.loads(completed.stdout or "[]")
 
     def inventory(self, job: dict, local: dict[str, dict]) -> dict[str, dict]:

@@ -3,7 +3,11 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 import tempfile
+import threading
+import time
+from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 
 SCRIPT = (
@@ -135,6 +139,35 @@ class ObjectStoreInventoryTests(unittest.TestCase):
 
         self.assertEqual(list(result), ["cl61/ceilometer_20260725.nc"])
         self.assertEqual(result["cl61/ceilometer_20260725.nc"]["size"], 42)
+
+    def test_global_listing_limit_caps_nested_concurrency(self) -> None:
+        lister = inventory.S3Lister(
+            {
+                "remote": "remote",
+                "bucket": "bucket",
+                "rclone_config": "/config",
+                "list_process_limit": 2,
+            }
+        )
+        lock = threading.Lock()
+        active = 0
+        maximum = 0
+
+        def fake_run(*args, **kwargs):
+            nonlocal active, maximum
+            with lock:
+                active += 1
+                maximum = max(maximum, active)
+            time.sleep(0.02)
+            with lock:
+                active -= 1
+            return SimpleNamespace(stdout="[]")
+
+        with mock.patch.object(inventory.subprocess, "run", side_effect=fake_run):
+            with inventory.ThreadPoolExecutor(max_workers=6) as pool:
+                list(pool.map(lister.list_json, [f"remote:{i}" for i in range(6)]))
+
+        self.assertEqual(maximum, 2)
 
     def test_non_raw_jobs_do_not_claim_gws_evidence(self) -> None:
         self.assertEqual(
