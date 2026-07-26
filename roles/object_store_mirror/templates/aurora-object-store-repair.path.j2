@@ -2,7 +2,9 @@
 Description=Repair Aurora object-store gaps after inventory publication
 
 [Path]
-PathChanged={{ object_store_manifest_root }}/latest/comparison.json
+# The inventory publisher atomically replaces the whole latest directory.
+# Watch that directory so the trigger survives inode replacement.
+PathChanged={{ object_store_manifest_root }}/latest
 Unit=aurora-object-store-repair.service
 
 [Install]
