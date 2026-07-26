@@ -789,7 +789,8 @@ object_store_jobs:
     schedule: "*:04/30"
     # Verification deliberately trails live writers. This is far inside the
     # seven-day retention horizon but longer than writer cadence + full scan.
-    settle_age: 6h
+    settle_age: 15m
+    verification_settle_age: 6h
     timeout_start_sec: 48h
     transfers: 4
     full_history: true
@@ -804,7 +805,8 @@ object_store_jobs:
     destination: data/output/aurora-cloud/products
     gws_destination: "{{ gws_products_root }}"
     schedule: "*:05/30"
-    settle_age: 6h
+    settle_age: 20m
+    verification_settle_age: 6h
     timeout_start_sec: 12h
     transfers: 4
     recent_first: 2d
@@ -818,7 +820,8 @@ object_store_jobs:
     destination: data/output/aurora-cloud/products/wxcam
     gws_destination: "{{ gws_products_root }}/wxcam"
     schedule: "*:11"
-    settle_age: 6h
+    settle_age: 30m
+    verification_settle_age: 6h
     timeout_start_sec: 24h
     transfers: 2
     recent_first: 2d
@@ -832,7 +835,8 @@ object_store_jobs:
     destination: data/output/aurora-cloud/model-evaluation
     gws_destination: "{{ gws_path }}/data/output/aurora-cloud/model-evaluation"
     schedule: "17:00"
-    settle_age: 6h
+    settle_age: 1h
+    verification_settle_age: 6h
     timeout_start_sec: 12h
     transfers: 4
     copy_links: true
@@ -841,7 +845,8 @@ object_store_jobs:
     destination: data/internal/aurora-cloud/manifests/gws
     gws_destination: "{{ gws_internal_root }}/manifests"
     schedule: "*:12"
-    settle_age: 2h
+    settle_age: 5m
+    verification_settle_age: 2h
     timeout_start_sec: 12h
     transfers: 4
     recent_first: 2d

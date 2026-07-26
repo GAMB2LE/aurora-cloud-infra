@@ -24,6 +24,18 @@ SPEC.loader.exec_module(inventory)
 
 
 class ObjectStoreInventoryTests(unittest.TestCase):
+    def test_verification_horizon_is_independent_of_writer_settle_age(self) -> None:
+        self.assertEqual(
+            inventory.verification_settle_age(
+                {"settle_age": "15m", "verification_settle_age": "6h"}
+            ),
+            "6h",
+        )
+        self.assertEqual(
+            inventory.verification_settle_age({"settle_age": "15m"}),
+            "15m",
+        )
+
     def test_local_inventory_excludes_symlink_pointers(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

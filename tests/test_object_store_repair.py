@@ -22,6 +22,14 @@ SPEC.loader.exec_module(repair)
 
 
 class ObjectStoreRepairTests(unittest.TestCase):
+    def test_repair_uses_verification_horizon_not_writer_latency(self) -> None:
+        self.assertEqual(
+            repair.verification_settle_age(
+                {"settle_age": "15m", "verification_settle_age": "6h"}
+            ),
+            "6h",
+        )
+
     def test_settled_paths_are_newest_first_and_symlinks_are_deferred(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

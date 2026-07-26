@@ -165,6 +165,11 @@ systemctl is-enabled aurora-ass-retention.timer
    plus a complete inventory run. Raw GWS parity is read from one immutable
    verifier history directory and applies the same settled-source cutoff as
    the authoritative stream verifier.
+   `verification_settle_age` controls only this proof horizon. The independent
+   `settle_age` used by additive copy writers remains 15 minutes for raw,
+   20 minutes for products, 30 minutes for WXCam products, one hour for model
+   evaluation, and five minutes for manifests; verification must never slow
+   delivery of fresh data.
 4. The repair path unit copies only the exact reported missing or mismatched
    paths. It must finish successfully before another inventory is started.
 5. Run a fresh inventory. A clean result establishes clean streak one.

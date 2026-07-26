@@ -41,6 +41,13 @@ def duration_seconds(value: str) -> int:
     return int(value[:-1]) * units[value[-1].lower()]
 
 
+def verification_settle_age(job: dict) -> str:
+    return job.get(
+        "verification_settle_age",
+        job.get("settle_age", "15m"),
+    )
+
+
 def settled_paths(
     source: Path, paths: set[str], settle_seconds: int
 ) -> tuple[list[str], list[str]]:
@@ -84,7 +91,7 @@ def repair_job(
     ready, deferred = settled_paths(
         source,
         candidates,
-        duration_seconds(job.get("settle_age", "15m")),
+        duration_seconds(verification_settle_age(job)),
     )
     result = {
         "job": name,

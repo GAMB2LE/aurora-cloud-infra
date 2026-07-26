@@ -43,6 +43,13 @@ def duration_seconds(value: str) -> int:
     return int(value[:-1]) * units[value[-1].lower()]
 
 
+def verification_settle_age(job: dict) -> str:
+    return job.get(
+        "verification_settle_age",
+        job.get("settle_age", "15m"),
+    )
+
+
 def excluded(path: str, patterns: list[str]) -> bool:
     value = path.lstrip("/")
     return any(
@@ -459,7 +466,9 @@ def main() -> int:
                 )
                 patterns = COMMON_EXCLUDES + job.get("exclude", [])
                 local = local_inventory(
-                    job["source"], patterns, job.get("settle_age", "15m")
+                    job["source"],
+                    patterns,
+                    verification_settle_age(job),
                 )
                 update_progress(phase="object_store_inventory")
                 s3 = lister.inventory(job, local)
