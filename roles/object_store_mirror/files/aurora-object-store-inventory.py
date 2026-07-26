@@ -124,9 +124,21 @@ class S3Lister:
     def inventory(self, job: dict, local: dict[str, dict]) -> dict[str, dict]:
         destination = job["destination"].strip("/")
         remote = f"{self.config['remote']}:{self.config['bucket']}/{destination}"
+        patterns = COMMON_EXCLUDES + job.get("exclude", [])
+
+        def tree_excluded(path: str) -> bool:
+            return excluded(path, patterns) or excluded(
+                f"{path.rstrip('/')}/__inventory_probe__",
+                patterns,
+            )
+
         top_level = self.list_json(remote, recursive=False, files_only=False)
         local_prefixes = {path.split("/", 1)[0] for path in local if "/" in path}
-        remote_prefixes = {item["Path"] for item in top_level if item.get("IsDir")}
+        remote_prefixes = {
+            item["Path"]
+            for item in top_level
+            if item.get("IsDir") and not tree_excluded(item["Path"])
+        }
         prefixes = sorted(local_prefixes | remote_prefixes)
         sharded = set(job.get("sharded_prefixes", []))
         shard_all_prefixes = bool(job.get("shard_all_prefixes", False))
@@ -192,10 +204,14 @@ class S3Lister:
         for item in top_level:
             if not item.get("IsDir"):
                 relative = item["Path"]
+                if excluded(relative, patterns):
+                    continue
                 result[relative] = record(relative, item)
         for prefix, items in listed:
             for item in items:
                 relative = f"{prefix}/{item['Path']}"
+                if excluded(relative, patterns):
+                    continue
                 result[relative] = record(relative, item)
         return result
 

@@ -169,6 +169,51 @@ class ObjectStoreInventoryTests(unittest.TestCase):
 
         self.assertEqual(maximum, 2)
 
+    def test_remote_excluded_family_is_not_listed(self) -> None:
+        calls: list[str] = []
+        lister = inventory.S3Lister(
+            {
+                "remote": "remote",
+                "bucket": "bucket",
+                "list_workers": 2,
+            }
+        )
+
+        def fake_list_json(
+            remote: str, *, recursive: bool = True, files_only: bool = True
+        ) -> list[dict]:
+            calls.append(remote)
+            if remote == "remote:bucket/products":
+                return [
+                    {"Path": "cl61", "IsDir": True},
+                    {"Path": "wxcam", "IsDir": True},
+                ]
+            if remote.endswith("/cl61"):
+                return [{"Path": "store.zarr", "IsDir": True}]
+            if remote.endswith("/cl61/store.zarr"):
+                return [{"Path": "array", "IsDir": True}]
+            if remote.endswith("/cl61/store.zarr/array"):
+                return [{"Path": "0", "IsDir": False, "Size": 42}]
+            raise AssertionError(f"excluded family was listed: {remote}")
+
+        lister.list_json = fake_list_json  # type: ignore[method-assign]
+        result = lister.inventory(
+            {
+                "destination": "products",
+                "shard_all_prefixes": True,
+                "exclude": ["wxcam/**"],
+            },
+            {
+                "cl61/store.zarr/array/0": {
+                    "relative_path": "cl61/store.zarr/array/0",
+                    "size": 42,
+                }
+            },
+        )
+
+        self.assertEqual(list(result), ["cl61/store.zarr/array/0"])
+        self.assertFalse(any(remote.endswith("/wxcam") for remote in calls))
+
     def test_progress_publication_is_atomic_and_replaces_previous_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
