@@ -64,7 +64,8 @@ they never depend on one unbounded recursive object-store listing.
 Raw inventories use the same rule for every family, including the multi-terabyte
 radar archive. Families are scheduled independently, radar is listed as bounded
 year/month subtrees, and a global process semaphore limits nested listings to
-the configured `object_store_inventory_process_limit` (12 in production).
+the configured `object_store_inventory_process_limit` (16 in production,
+matching the cloud host's CPU count).
 Model-evaluation campaign data has independent additive writers to both GWS
 and object storage; it is not implicitly covered by the products job.
 
