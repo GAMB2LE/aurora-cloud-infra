@@ -187,6 +187,46 @@ class ObjectStoreInventoryTests(unittest.TestCase):
 
         self.assertNotIn("hatprog5/file.NC", source)
 
+    def test_gws_comparison_uses_immutable_history_and_settle_cutoff(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            latest = root / "latest"
+            latest.mkdir(parents=True)
+            (latest / "summary.json").write_text(
+                '{"generated_at":"2026-07-25T12:00:00+00:00"}\n',
+                encoding="utf-8",
+            )
+            directory = root / "history" / "20260725T120000Z" / "cl61"
+            directory.mkdir(parents=True)
+            rows = (
+                "relpath\tsize\tmtime\tchecksum\n"
+                "old.nc\t42\t1784970000\t\n"
+                "live.nc\t43\t1784980700\t\n"
+            )
+            (directory / "source.tsv").write_text(rows, encoding="utf-8")
+            (directory / "gws.tsv").write_text(rows, encoding="utf-8")
+            config = {
+                "gws_manifest_root": str(root),
+                "gws_settle_seconds": 2700,
+                "streams": [
+                    {
+                        "name": "cl61",
+                        "archive_relpath": "cl61",
+                    }
+                ],
+            }
+
+            source = inventory.mirror_manifest_inventory(
+                config, {"name": "raw"}, "source"
+            )
+            gws = inventory.mirror_manifest_inventory(
+                config, {"name": "raw"}, "gws"
+            )
+
+        self.assertIn("cl61/old.nc", source)
+        self.assertNotIn("cl61/live.nc", source)
+        self.assertIn("cl61/live.nc", gws)
+
     def test_shard_all_prefixes_preserves_files_in_flat_family(self) -> None:
         lister = inventory.S3Lister(
             {

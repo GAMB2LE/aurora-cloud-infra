@@ -260,18 +260,45 @@ def mirror_manifest_inventory(
     if side not in {"source", "gws"}:
         raise ValueError(f"unsupported mirror manifest side: {side}")
     result: dict[str, dict] = {}
-    latest = Path(config["gws_manifest_root"], "latest")
+    root = Path(config["gws_manifest_root"])
+    latest = root / "latest"
     if not latest.exists():
         return result
+    snapshot = latest
+    snapshot_time = time.time()
+    try:
+        summary = json.loads(
+            (latest / "summary.json").read_text(encoding="utf-8")
+        )
+        generated_at = dt.datetime.fromisoformat(
+            summary["generated_at"].replace("Z", "+00:00")
+        )
+        run_id = generated_at.strftime("%Y%m%dT%H%M%SZ")
+        history = root / "history" / run_id
+        if history.exists():
+            # Read both sides from the immutable history tree even if latest
+            # is atomically replaced while this inventory is running.
+            snapshot = history
+        snapshot_time = generated_at.timestamp()
+    except (FileNotFoundError, KeyError, ValueError, json.JSONDecodeError):
+        pass
+    settled_before = snapshot_time - int(
+        config.get("gws_settle_seconds", 2700)
+    )
     archive_paths = {
         stream["name"]: stream["archive_relpath"]
         for stream in config.get("streams", [])
     }
-    for path in latest.glob(f"*/{side}.tsv"):
+    for path in snapshot.glob(f"*/{side}.tsv"):
         stream = path.parent.name
         archive_path = archive_paths.get(stream, stream).strip("/")
         with path.open(newline="", encoding="utf-8") as handle:
             for row in csv.DictReader(handle, delimiter="\t"):
+                if (
+                    side == "source"
+                    and float(row.get("mtime") or 0) > settled_before
+                ):
+                    continue
                 relative = f"{archive_path}/{row['relpath']}"
                 result[relative] = {
                     "relative_path": relative,
