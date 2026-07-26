@@ -5,7 +5,8 @@
 - Catalog: `/data/aurora/products/wxcam/wxcam_catalog.sqlite`
 - Daily videos: `/data/aurora/products/wxcam/daily_videos`
 - Hourly thumbnails: `/data/aurora/products/wxcam/hourly_thumbnails`
-- Pixel Zarr path: `/mnt/gws/gamb2le/data/output/aurora-cloud/products/wxcam/wxcam.zarr`
+- Local derived pixel Zarr:
+  `/data/aurora/products/wxcam/wxcam.zarr`
 
 The wxcam source contains nested `FISH/` and `PANO/` trees. The deployed sync
 retains HDR JPG and MP4 files from both streams locally. `AUTO`/`LONG`/`SHORT`
@@ -28,9 +29,12 @@ block the two-minute live-data timer.
 The dashboard uses the SQLite catalog plus daily MP4 and hourly thumbnail
 products for browsing. The science-quicklook grid is driven by the selected
 HDR JPG stream, while the interactive browser uses stitched HDR MP4 products.
-The wxcam pixel Zarr is GWS-only and starts at `2026-07-04T00:00:00Z`.
-Local raw/catalog/video products remain on the processing host, but the
-decoded pixel Zarr is written through the GWS SSHFS mount.
+The wxcam pixel Zarr is a local mutable working store and starts at
+`2026-07-04T00:00:00Z`. It is reproducible from the archived HDR imagery and
+is deliberately excluded from the additive GWS and object-store product
+writers. Immutable raw HDR files, the catalogue, daily videos, and hourly
+thumbnails are archived. The derived Zarr is never accepted as retention
+evidence.
 
 The catalog, daily-video, and pixel-Zarr timers consume the incrementally
 updated raw mirror. Fresh in-flight media are deferred until they have settled.

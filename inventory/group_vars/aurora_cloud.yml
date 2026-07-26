@@ -214,7 +214,6 @@ aurora_paths:
   quicklooks: "{{ aurora_product_root }}/quicklooks"
 
 wxcam_zarr_start_time: "2026-07-04T00:00:00Z"
-wxcam_zarr_gws_path: "{{ gws_path }}/data/output/aurora-cloud/products/wxcam/wxcam.zarr"
 wxcam_zarr_mount_path: "{{ aurora_product_root }}/wxcam/wxcam.zarr"
 
 aurora_zarr:
@@ -878,8 +877,8 @@ archive_monitor_output_root: "{{ aurora_data_root }}/internal/archive_status"
 archive_monitor_latest_path: "{{ archive_monitor_output_root }}/health-v1.json"
 archive_monitor_interval: 2min
 
-# SSHFS mount is required for the GWS-only WXcam pixel Zarr. Bulk raw and
-# non-WXcam product mirroring still use the rsync jobs above.
+# Optional operator convenience mount only. Production writers, verifiers,
+# dashboards, and derived products must not depend on SSHFS.
 gws_sshfs_enabled: false
 gws_sshfs_mountpoint: /mnt/gws/gamb2le
 

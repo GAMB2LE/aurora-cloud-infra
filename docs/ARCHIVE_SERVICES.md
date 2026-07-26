@@ -68,11 +68,20 @@ the configured `object_store_inventory_process_limit` (16 in production,
 matching the cloud host's CPU count).
 Model-evaluation campaign data has independent additive writers to both GWS
 and object storage; it is not implicitly covered by the products job.
+Symlinked runtime inputs are dereferenced by both writers and verified as
+regular, restorable files under their campaign-relative paths.
+
+WXCam's live `wxcam.zarr` is a mutable derived working store and is
+intentionally excluded from both product archives. Its immutable raw HDR
+imagery, catalogue, daily videos, and hourly thumbnails remain covered.
+Because the Zarr is reproducible from archived imagery, it is never accepted
+as retention evidence.
 
 When an inventory publishes exact missing or mismatched paths,
 `aurora-object-store-repair.path` starts the catalogue-driven repair service.
-It revalidates every settled source file, rejects symlinks and paths outside
-the configured source root, orders candidates newest first, and performs only
+It revalidates every settled source file, rejects paths outside the configured
+source root, follows symlinks only for jobs explicitly marked `copy_links`,
+orders candidates newest first, and performs only
 exact `rclone copy --files-from-raw` operations. It never deletes or broadly
 rewalks the archive to repair a known finite gap.
 An outer graceful GNU `timeout` enforces each wall-clock budget because the
