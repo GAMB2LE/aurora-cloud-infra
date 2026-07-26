@@ -142,7 +142,10 @@ systemctl is-enabled aurora-ass-retention.timer
    canonical edge-source/GWS manifests. The service never compares the two
    deliberately different raw path layouts directly. The verifier publishes
    its complete `latest/` tree by atomic directory replacement, so readers
-   cannot combine manifests from different verification runs.
+   cannot combine manifests from different verification runs. Object parity
+   excludes symlink pointers and re-stats every source file after the remote
+   listing; anything changed during that window is deferred to a later run
+   rather than reported as a destructive size mismatch.
 4. The repair path unit copies only the exact reported missing or mismatched
    paths. It must finish successfully before another inventory is started.
 5. Run a fresh inventory. A clean result establishes clean streak one.

@@ -24,6 +24,41 @@ SPEC.loader.exec_module(inventory)
 
 
 class ObjectStoreInventoryTests(unittest.TestCase):
+    def test_local_inventory_excludes_symlink_pointers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "20260725.mp4"
+            target.write_bytes(b"video")
+            (root / "latest.mp4").symlink_to(target.name)
+
+            result = inventory.local_inventory(str(root), [], "0s")
+
+        self.assertIn("20260725.mp4", result)
+        self.assertNotIn("latest.mp4", result)
+
+    def test_remote_window_recheck_excludes_mutated_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "daily.mp4"
+            path.write_bytes(b"old")
+            rows = inventory.local_inventory(str(root), [], "0s")
+            path.write_bytes(b"new-content")
+
+            stable = inventory.retain_unchanged_local_snapshot(str(root), rows)
+
+        self.assertNotIn("daily.mp4", stable)
+
+    def test_remote_window_recheck_keeps_unchanged_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "complete.nc"
+            path.write_bytes(b"stable")
+            rows = inventory.local_inventory(str(root), [], "0s")
+
+            stable = inventory.retain_unchanged_local_snapshot(str(root), rows)
+
+        self.assertEqual(stable, rows)
+
     def test_shard_all_prefixes_avoids_one_recursive_family_listing(self) -> None:
         calls: list[tuple[str, bool, bool]] = []
         lister = inventory.S3Lister(

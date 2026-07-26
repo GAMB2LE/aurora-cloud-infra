@@ -68,6 +68,11 @@ def local_inventory(root: str, patterns: list[str], settle_age: str) -> dict[str
         for name in filenames:
             path = Path(directory, name)
             try:
+                # Symlinks are operational pointers, not independently
+                # restorable archive objects. The repair service deliberately
+                # refuses them, so they must not enter the parity contract.
+                if path.is_symlink():
+                    continue
                 stat = path.stat()
             except FileNotFoundError:
                 continue
@@ -83,6 +88,28 @@ def local_inventory(root: str, patterns: list[str], settle_age: str) -> dict[str
                 "checksum": "",
             }
     return result
+
+
+def retain_unchanged_local_snapshot(
+    root: str, rows: dict[str, dict]
+) -> dict[str, dict]:
+    """Keep only files unchanged for the entire remote inventory window."""
+    base = Path(root)
+    stable: dict[str, dict] = {}
+    for relative, row in rows.items():
+        path = base / relative
+        try:
+            if path.is_symlink():
+                continue
+            stat = path.stat()
+        except FileNotFoundError:
+            continue
+        if (
+            stat.st_size == row["size"]
+            and int(stat.st_mtime) == int(row["mtime"])
+        ):
+            stable[relative] = row
+    return stable
 
 
 class S3Lister:
@@ -391,6 +418,10 @@ def main() -> int:
                     job["source"], patterns, job.get("settle_age", "15m")
                 )
                 s3 = lister.inventory(job, local)
+                # The source is live while a full remote listing is built.
+                # Exclude anything that changed during that window so a newer
+                # object cannot be misreported as a destructive mismatch.
+                local = retain_unchanged_local_snapshot(job["source"], local)
                 gws = gws_inventory(config, job)
                 gws_source = mirror_manifest_inventory(config, job, "source")
                 write_tsv(stage / f"{job['name']}-local.tsv", local)
