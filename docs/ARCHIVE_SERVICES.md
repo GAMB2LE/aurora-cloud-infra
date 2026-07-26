@@ -65,7 +65,9 @@ Raw inventories use the same rule for every family, including the multi-terabyte
 radar archive. Families are scheduled independently, radar is listed as bounded
 year/month subtrees, and a global process semaphore limits nested listings to
 the configured `object_store_inventory_process_limit` (16 in production,
-matching the cloud host's CPU count).
+matching the cloud host's CPU count). Each listing also has a 60-minute outer
+process guard; rclone's shorter inactivity timeout and bounded retries still
+detect dead connections without rejecting valid high-cardinality listings.
 Model-evaluation campaign data has independent additive writers to both GWS
 and object storage; it is not implicitly covered by the products job.
 Symlinked runtime inputs are dereferenced by both writers and verified as

@@ -164,7 +164,9 @@ class S3Lister:
                 check=True,
                 text=True,
                 stdout=subprocess.PIPE,
-                timeout=1800,
+                timeout=int(
+                    self.config.get("list_timeout_seconds", 1800)
+                ),
             )
         return json.loads(completed.stdout or "[]")
 

@@ -377,6 +377,25 @@ class ObjectStoreInventoryTests(unittest.TestCase):
 
         self.assertEqual(maximum, 2)
 
+    def test_listing_timeout_is_configurable_for_large_valid_shards(self) -> None:
+        lister = inventory.S3Lister(
+            {
+                "remote": "remote",
+                "bucket": "bucket",
+                "rclone_config": "/config",
+                "list_timeout_seconds": 3600,
+            }
+        )
+
+        with mock.patch.object(
+            inventory.subprocess,
+            "run",
+            return_value=SimpleNamespace(stdout="[]"),
+        ) as run:
+            lister.list_json("remote:large-shard")
+
+        self.assertEqual(run.call_args.kwargs["timeout"], 3600)
+
     def test_remote_excluded_family_is_not_listed(self) -> None:
         calls: list[str] = []
         lister = inventory.S3Lister(
