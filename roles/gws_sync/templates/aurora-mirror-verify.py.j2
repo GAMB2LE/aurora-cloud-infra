@@ -483,14 +483,39 @@ def prune_history(root: Path, keep: int) -> None:
         shutil.rmtree(stale, ignore_errors=True)
 
 
-def probe_gws_host() -> str | None:
+def list_gws_entries(stream: dict) -> tuple[dict[str, dict], str, str]:
     if not Path(CONFIG["gws_key"]).exists():
-        return None
+        raise FileNotFoundError(f"missing GWS SSH key: {CONFIG['gws_key']}")
+    root = (
+        f"{CONFIG['gws_raw_root'].rstrip('/')}/"
+        f"{stream['gws_relpath'].lstrip('/')}"
+    )
+    failures: list[str] = []
     for host in CONFIG["gws_hosts"]:
-        proc = subprocess.run(GWS_BASE + [f"{CONFIG['gws_user']}@{host}", "true"], capture_output=True, text=True)
-        if proc.returncode == 0:
-            return host
-    return None
+        target = f"{CONFIG['gws_user']}@{host}"
+        try:
+            entries = list_remote_entries(
+                GWS_BASE,
+                target,
+                root,
+                bool(stream["recursive"]),
+                stream["source_pattern"],
+            )
+            entries = normalize_entries(stream, entries)
+            maybe_add_checksums(
+                entries,
+                CONFIG["checksum_mode"],
+                root,
+                GWS_BASE,
+                target,
+            )
+            return entries, target, host
+        except Exception as exc:  # noqa: BLE001
+            failures.append(f"{host}: {exc}")
+    raise RuntimeError(
+        "all GWS transfer hosts failed for "
+        f"{stream['name']}: {'; '.join(failures)}"
+    )
 
 
 def main() -> int:
@@ -507,11 +532,6 @@ def main() -> int:
         "streams": {},
     }
 
-    gws_host = probe_gws_host()
-    if gws_host:
-        summary["gws_host"] = gws_host
-        summary["gws_available"] = True
-    gws_target = f"{CONFIG['gws_user']}@{gws_host}" if gws_host else None
     now_ts = int(utcnow().timestamp())
 
     hard_failures: list[str] = []
@@ -541,40 +561,24 @@ def main() -> int:
             maybe_add_checksums(source_entries, CONFIG["checksum_mode"], stream["source_root"], ssh_base(stream), source_target)
             maybe_add_checksums(local_entries, CONFIG["checksum_mode"], Path(stream["local_root"]))
 
-            if gws_target:
-                gws_entries = list_remote_entries(
-                    GWS_BASE,
-                    gws_target,
-                    f"{CONFIG['gws_raw_root'].rstrip('/')}/{stream['gws_relpath'].lstrip('/')}",
-                    bool(stream["recursive"]),
-                    stream["source_pattern"],
-                )
-                gws_entries = normalize_entries(stream, gws_entries)
-                maybe_add_checksums(
-                    gws_entries,
-                    CONFIG["checksum_mode"],
-                    f"{CONFIG['gws_raw_root'].rstrip('/')}/{stream['gws_relpath'].lstrip('/')}",
-                    GWS_BASE,
-                    gws_target,
-                )
-            else:
-                gws_entries = {}
+            gws_entries, gws_target, gws_host = list_gws_entries(stream)
+            summary["gws_host"] = gws_host
+            summary["gws_available"] = True
 
             write_manifest(stream_dir / "source.tsv", source_entries)
             write_manifest(stream_dir / "local.tsv", local_entries)
-            if gws_target:
-                write_manifest(stream_dir / "gws.tsv", gws_entries)
+            write_manifest(stream_dir / "gws.tsv", gws_entries)
 
             local_source_entries = settled_entries(source_entries, int(CONFIG["local_settle_seconds"]), now_ts)
             gws_source_entries = settled_entries(source_entries, int(CONFIG["gws_settle_seconds"]), now_ts)
 
             local_mirrored, local_missing, local_mismatched = compare_entries(local_source_entries, local_entries)
-            if gws_target:
-                gws_mirrored, gws_missing, gws_mismatched = compare_entries(gws_source_entries, gws_entries)
-            else:
-                gws_mirrored, gws_missing, gws_mismatched = [], list(gws_source_entries.keys()), []
+            gws_mirrored, gws_missing, gws_mismatched = compare_entries(
+                gws_source_entries,
+                gws_entries,
+            )
 
-            mirrored_all = sorted(set(local_mirrored).intersection(gws_mirrored)) if gws_target else []
+            mirrored_all = sorted(set(local_mirrored).intersection(gws_mirrored))
             latest_product_source = latest_settled_product_timestamp(
                 stream,
                 source_entries,
@@ -591,7 +595,7 @@ def main() -> int:
                 product_ok = int(watermark.timestamp()) >= latest_product_source
 
             prune_candidates = []
-            if product_ok and gws_target and not local_missing and not local_mismatched and not gws_missing and not gws_mismatched:
+            if product_ok and not local_missing and not local_mismatched and not gws_missing and not gws_mismatched:
                 prune_candidates = mirrored_all
 
             prune_path = stream_dir / "prune_candidates.tsv"
@@ -603,11 +607,11 @@ def main() -> int:
             stream_summary = {
                 "source_count": len(source_entries),
                 "local_count": len(local_entries),
-                "gws_count": len(gws_entries) if gws_target else None,
+                "gws_count": len(gws_entries),
                 "local_missing_count": len(local_missing),
                 "local_mismatch_count": len(local_mismatched),
-                "gws_missing_count": len(gws_missing) if gws_target else None,
-                "gws_mismatch_count": len(gws_mismatched) if gws_target else None,
+                "gws_missing_count": len(gws_missing),
+                "gws_mismatch_count": len(gws_mismatched),
                 "product_gate_ok": product_ok,
                 "required_services": service_states,
                 "latest_product_source_mtime": latest_product_source,
