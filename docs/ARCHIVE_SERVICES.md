@@ -136,6 +136,9 @@ Complete inventories are retained as immutable history, bounded by
 `object_store_inventory_history_keep` (12 reports in production). This
 preserves multiple independent proof runs without allowing large TSV evidence
 snapshots to grow without limit.
+Operational transfer logs are local diagnostics, not archive data. Both
+manifest writers explicitly exclude the root `logs/` tree; any legacy
+additive copies are ignored by parity checks and are never retention evidence.
 
 Missing or stale verification must be treated as unsafe. A red health result
 does not stop the additive writers; it only blocks pruning and alerts operators.

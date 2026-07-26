@@ -677,6 +677,8 @@ gws_sync_jobs:
     source: "{{ gws_manifest_root }}/"
     destination: "{{ gws_internal_root }}/manifests/"
     schedule: "*:06/10"
+    exclude:
+      - /logs/**
 
 # Canonical archive catalogue. GWS, object-store, monitoring, and retention
 # roles consume this list rather than maintaining independent path maps.
@@ -859,6 +861,8 @@ object_store_jobs:
     recent_first: 2d
     recent_max_duration: 4m
     backfill_max_duration: 8m
+    exclude:
+      - logs/**
 
 ass_retention_enabled: "{{ aurora_is_production }}"
 # Held closed until the restricted edge helper is explicitly approved,
