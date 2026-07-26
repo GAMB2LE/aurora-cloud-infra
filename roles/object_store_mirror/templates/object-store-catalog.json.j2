@@ -6,6 +6,7 @@
   "manifest_root": {{ object_store_manifest_root | to_json }},
   "gws_manifest_root": {{ gws_manifest_root | to_json }},
   "list_workers": {{ object_store_inventory_workers | int }},
+  "shard_list_workers": {{ object_store_inventory_shard_workers | int }},
   "report_max_age_hours": {{ object_store_inventory_max_age_hours | int }},
   "jobs": {{ object_store_jobs | to_nice_json }},
   "streams": {{ aurora_archive_streams | to_nice_json }}

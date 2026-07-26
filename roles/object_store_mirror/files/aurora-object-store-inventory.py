@@ -165,7 +165,12 @@ class S3Lister:
                 return items
 
             with ThreadPoolExecutor(
-                max_workers=int(self.config.get("list_workers", 3))
+                max_workers=int(
+                    self.config.get(
+                        "shard_list_workers",
+                        self.config.get("list_workers", 3),
+                    )
+                )
             ) as pool:
                 for items in pool.map(list_shard, shards):
                     combined.extend(items)
