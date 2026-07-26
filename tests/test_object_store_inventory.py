@@ -92,6 +92,50 @@ class ObjectStoreInventoryTests(unittest.TestCase):
         )
         self.assertEqual(result["asfs/crd/fast_sonic_20260725.nc"]["size"], 42)
 
+    def test_shard_all_prefixes_preserves_files_in_flat_family(self) -> None:
+        lister = inventory.S3Lister(
+            {
+                "remote": "remote",
+                "bucket": "bucket",
+                "list_workers": 2,
+                "shard_list_workers": 4,
+            }
+        )
+
+        def fake_list_json(
+            remote: str, *, recursive: bool = True, files_only: bool = True
+        ) -> list[dict]:
+            if remote == "remote:bucket/raw":
+                return [{"Path": "cl61", "IsDir": True}]
+            if remote.endswith("/cl61"):
+                self.assertFalse(recursive)
+                self.assertFalse(files_only)
+                return [
+                    {
+                        "Path": "ceilometer_20260725.nc",
+                        "IsDir": False,
+                        "Size": 42,
+                    }
+                ]
+            raise AssertionError(f"unexpected listing: {remote}")
+
+        lister.list_json = fake_list_json  # type: ignore[method-assign]
+        result = lister.inventory(
+            {
+                "destination": "raw",
+                "shard_all_prefixes": True,
+            },
+            {
+                "cl61/ceilometer_20260725.nc": {
+                    "relative_path": "cl61/ceilometer_20260725.nc",
+                    "size": 42,
+                }
+            },
+        )
+
+        self.assertEqual(list(result), ["cl61/ceilometer_20260725.nc"])
+        self.assertEqual(result["cl61/ceilometer_20260725.nc"]["size"], 42)
+
     def test_non_raw_jobs_do_not_claim_gws_evidence(self) -> None:
         self.assertEqual(
             inventory.gws_inventory(
