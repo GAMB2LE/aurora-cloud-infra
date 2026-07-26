@@ -53,6 +53,24 @@ class ObjectStoreRepairTests(unittest.TestCase):
         self.assertEqual(ready, ["newer.nc", "older.nc"])
         self.assertEqual(deferred, ["../outside.nc", "link.nc"])
 
+    def test_settled_paths_include_links_for_dereferenced_archive_jobs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "runtime.dat"
+            target.write_bytes(b"input table")
+            link = root / "linked.dat"
+            link.symlink_to(target.name)
+
+            ready, deferred = repair.settled_paths(
+                root,
+                {"linked.dat"},
+                0,
+                copy_links=True,
+            )
+
+        self.assertEqual(ready, ["linked.dat"])
+        self.assertEqual(deferred, [])
+
     def test_repair_uses_catalogue_and_exact_files_from_list(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -104,6 +122,48 @@ class ObjectStoreRepairTests(unittest.TestCase):
         self.assertIn("remote:bucket/data/raw/", command)
         self.assertIn("--ignore-times", command)
         self.assertFalse(any("delete" in item for item in command))
+
+    def test_repair_dereferences_links_when_catalogue_requires_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source"
+            source.mkdir()
+            target = source / "runtime.dat"
+            target.write_bytes(b"input table")
+            (source / "linked.dat").symlink_to(target.name)
+            captured: dict[str, object] = {}
+
+            def fake_run(command: list[str], check: bool) -> mock.Mock:
+                captured["command"] = command
+                return mock.Mock(returncode=0)
+
+            with mock.patch.object(repair.subprocess, "run", side_effect=fake_run):
+                result = repair.repair_job(
+                    "model-evaluation",
+                    {
+                        "source": str(source),
+                        "destination": "data/model",
+                        "settle_age": "0s",
+                        "copy_links": True,
+                    },
+                    {
+                        "source_vs_s3": {
+                            "missing_from_right": ["linked.dat"],
+                            "size_mismatch": [],
+                            "checksum_mismatch": [],
+                        }
+                    },
+                    {
+                        "remote": "remote",
+                        "bucket": "bucket",
+                        "rclone_config": "/config",
+                    },
+                    False,
+                )
+
+        self.assertEqual(result["ready"], 1)
+        command = captured["command"]
+        assert isinstance(command, list)
+        self.assertIn("--copy-links", command)
 
 
 if __name__ == "__main__":
