@@ -81,10 +81,12 @@ deployed legacy rclone can stop transfers yet continue scanning after its own
 - `playbooks/retention_coordinator.yml` installs the fail-closed cloud
   coordinator while allowing its timer to remain explicitly disabled.
 - `playbooks/archive_dashboard_consumer.yml` releases only the pinned dashboard
-  consumer and its read-only health contract, without reapplying source-sync or
-  archive writer roles.
-- `playbooks/dashboard_runtime_release.yml` includes the archive roles so a
-  rebuilt cloud host has the same managed services.
+  consumer and points it at the read-only health contract. It does not install
+  or reapply the contract producer, source-sync, archive writer, verifier, or
+  retention roles.
+- `playbooks/dashboard_runtime_release.yml` deliberately excludes every archive
+  role. Use `archive_services.yml` for archive changes and `site.yml` for a
+  complete host rebuild.
 
 Always run `--check --diff` before applying a playbook.
 

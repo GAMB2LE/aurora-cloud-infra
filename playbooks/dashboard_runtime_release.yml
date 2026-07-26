@@ -20,8 +20,4 @@
     - dashboard_app
     - dashboard_services
     - nginx
-    - gws_sync
-    - object_store_mirror
-    - ass_retention
-    - operations_monitor
     - standby_replication

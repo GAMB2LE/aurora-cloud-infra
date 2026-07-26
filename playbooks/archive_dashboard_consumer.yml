@@ -4,7 +4,6 @@
   become: true
   roles:
     - dashboard_app
-    - operations_monitor
   tasks:
     - name: Point dashboard consumers at the infrastructure health contract
       ansible.builtin.lineinfile:
