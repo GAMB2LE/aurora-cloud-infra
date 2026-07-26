@@ -175,3 +175,8 @@ systemctl is-enabled aurora-ass-retention.timer
 installed with explicit approval and a dry-run canary has been reviewed. A
 failed, interrupted, or partial inventory never replaces the previous complete
 comparison and can never authorize deletion.
+
+Retention permits are signed by the cloud coordinator using
+`ass_retention_signing_private_key`; edge helpers trust only the corresponding
+root-managed public key. Never commit either private-key material or an
+unencrypted key variable. Missing signing or verification keys fail closed.

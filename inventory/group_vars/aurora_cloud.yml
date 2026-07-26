@@ -853,6 +853,7 @@ ass_retention_manifest_max_age_hours: 8
 ass_retention_dry_run: true
 ass_retention_helper: /usr/local/sbin/aurora-edge-prune-exact
 ass_retention_audit_root: "{{ aurora_data_root }}/internal/retention"
+ass_retention_signing_private_key: /etc/aurora-retention/signing-key.pem
 
 archive_monitor_enabled: "{{ aurora_is_production }}"
 archive_monitor_timer_enabled: "{{ aurora_is_production }}"
