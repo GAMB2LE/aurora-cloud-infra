@@ -65,7 +65,12 @@ def excluded(path: str, patterns: list[str]) -> bool:
     return False
 
 
-def local_inventory(root: str, patterns: list[str], settle_age: str) -> dict[str, dict]:
+def local_inventory(
+    root: str,
+    patterns: list[str],
+    settle_age: str,
+    copy_links: bool = False,
+) -> dict[str, dict]:
     result: dict[str, dict] = {}
     base = Path(root)
     if not base.exists():
@@ -81,10 +86,10 @@ def local_inventory(root: str, patterns: list[str], settle_age: str) -> dict[str
         for name in filenames:
             path = Path(directory, name)
             try:
-                # Symlinks are operational pointers, not independently
-                # restorable archive objects. The repair service deliberately
-                # refuses them, so they must not enter the parity contract.
-                if path.is_symlink():
+                # Operational pointers are excluded by default. Jobs that
+                # explicitly archive their targets verify the dereferenced
+                # bytes under the symlink's relative path.
+                if path.is_symlink() and not copy_links:
                     continue
                 stat = path.stat()
             except FileNotFoundError:
@@ -104,7 +109,9 @@ def local_inventory(root: str, patterns: list[str], settle_age: str) -> dict[str
 
 
 def retain_unchanged_local_snapshot(
-    root: str, rows: dict[str, dict]
+    root: str,
+    rows: dict[str, dict],
+    copy_links: bool = False,
 ) -> dict[str, dict]:
     """Keep only files unchanged for the entire remote inventory window."""
     base = Path(root)
@@ -112,7 +119,7 @@ def retain_unchanged_local_snapshot(
     for relative, row in rows.items():
         path = base / relative
         try:
-            if path.is_symlink():
+            if path.is_symlink() and not copy_links:
                 continue
             stat = path.stat()
         except FileNotFoundError:
@@ -556,6 +563,7 @@ def main() -> int:
                     job["source"],
                     patterns,
                     verification_settle_age(job),
+                    bool(job.get("copy_links")),
                 )
                 update_progress(phase="object_store_inventory")
                 s3 = lister.inventory(job, local)
@@ -565,7 +573,11 @@ def main() -> int:
                 # Exclude anything that changed during either remote listing
                 # so a newer object cannot be misreported as a mismatch.
                 update_progress(phase="stability_check")
-                local = retain_unchanged_local_snapshot(job["source"], local)
+                local = retain_unchanged_local_snapshot(
+                    job["source"],
+                    local,
+                    bool(job.get("copy_links")),
+                )
                 gws_source = (
                     mirror_manifest_inventory(config, job, "source")
                     if job["name"] == "raw"

@@ -673,6 +673,7 @@ gws_sync_jobs:
     destination: "{{ gws_model_evaluation_root }}/"
     schedule: "*:09/30"
     timeout_start_sec: 12h
+    copy_links: true
   - name: manifests
     source: "{{ gws_manifest_root }}/"
     destination: "{{ gws_internal_root }}/manifests/"

@@ -100,6 +100,19 @@ class ObjectStoreInventoryTests(unittest.TestCase):
         self.assertIn("20260725.mp4", result)
         self.assertNotIn("latest.mp4", result)
 
+    def test_local_inventory_includes_dereferenced_archive_links(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "runtime.dat"
+            target.write_bytes(b"archive me")
+            (root / "linked.dat").symlink_to(target.name)
+
+            result = inventory.local_inventory(
+                str(root), [], "0s", copy_links=True
+            )
+
+        self.assertEqual(result["linked.dat"]["size"], len(b"archive me"))
+
     def test_remote_window_recheck_excludes_mutated_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

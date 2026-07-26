@@ -40,6 +40,9 @@ ssh_opts=(
 
 rsync_opts=(
   -aH
+{% if item.copy_links | default(false) %}
+  -L
+{% endif %}
   --partial
   --delay-updates
   --stats

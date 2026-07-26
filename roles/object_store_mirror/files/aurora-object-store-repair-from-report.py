@@ -49,7 +49,10 @@ def verification_settle_age(job: dict) -> str:
 
 
 def settled_paths(
-    source: Path, paths: set[str], settle_seconds: int
+    source: Path,
+    paths: set[str],
+    settle_seconds: int,
+    copy_links: bool = False,
 ) -> tuple[list[str], list[str]]:
     cutoff = dt.datetime.now(dt.timezone.utc).timestamp() - settle_seconds
     ready_with_mtime: list[tuple[float, str]] = []
@@ -62,7 +65,11 @@ def settled_paths(
         except (FileNotFoundError, ValueError):
             deferred.append(relative_path)
             continue
-        if path.is_symlink() or not path.is_file() or stat.st_mtime > cutoff:
+        if (
+            (path.is_symlink() and not copy_links)
+            or not path.is_file()
+            or stat.st_mtime > cutoff
+        ):
             deferred.append(relative_path)
             continue
         ready_with_mtime.append((stat.st_mtime, relative_path))
@@ -92,6 +99,7 @@ def repair_job(
         source,
         candidates,
         duration_seconds(verification_settle_age(job)),
+        bool(job.get("copy_links")),
     )
     result = {
         "job": name,
