@@ -69,6 +69,18 @@ def main() -> None:
     if not summary_path.exists() or not OBJECT.exists() or not OBJECT_GATE.exists():
         fail("required verification evidence is missing")
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    verification_run = timestamp(summary["generated_at"])
+    snapshot = (
+        MIRROR.parent
+        / "history"
+        / verification_run.strftime("%Y%m%dT%H%M%SZ")
+    )
+    snapshot_summary = snapshot / "summary.json"
+    if not snapshot_summary.is_file():
+        fail("immutable GWS verification snapshot is missing")
+    summary = json.loads(snapshot_summary.read_text(encoding="utf-8"))
+    if timestamp(summary["generated_at"]) != verification_run:
+        fail("immutable GWS verification snapshot is inconsistent")
     report = json.loads(OBJECT.read_text(encoding="utf-8"))
     object_gate = json.loads(OBJECT_GATE.read_text(encoding="utf-8"))
     if now - timestamp(summary["generated_at"]) > MAX_AGE:
@@ -101,8 +113,8 @@ def main() -> None:
             fail(f"GWS mirror is incomplete for {name}")
         if not state.get("product_gate_ok", False):
             fail(f"product gate is closed for {name}")
-        source_path = MIRROR / name / "source.tsv"
-        prune_path = MIRROR / name / "prune_candidates.tsv"
+        source_path = snapshot / name / "source.tsv"
+        prune_path = snapshot / name / "prune_candidates.tsv"
         if not source_path.exists() or not prune_path.exists():
             fail(f"candidate evidence is missing for {name}")
         allowed = set(prune_path.read_text(encoding="utf-8").splitlines()[1:])

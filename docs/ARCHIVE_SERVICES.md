@@ -179,4 +179,7 @@ comparison and can never authorize deletion.
 Retention permits are signed by the cloud coordinator using
 `ass_retention_signing_private_key`; edge helpers trust only the corresponding
 root-managed public key. Never commit either private-key material or an
-unencrypted key variable. Missing signing or verification keys fail closed.
+unencrypted key variable. Each permit is also built from the immutable GWS
+history directory named by its verification timestamp, never from a sequence
+of reads against the moving `latest` pointer. Missing signing, verification,
+or immutable-snapshot evidence fails closed.
