@@ -146,6 +146,7 @@ def main() -> int:
         "aurora-object-store-copy-products-wxcam.service",
         "aurora-object-store-copy-model-evaluation.service",
         "aurora-object-store-copy-manifests.service",
+        "aurora-object-store-repair.service",
         "aurora-ass-retention.timer",
     ]:
         services[name] = unit(name)
