@@ -6,3 +6,4 @@
     - gws_sync
     - object_store_mirror
     - ass_retention
+    - operations_monitor
