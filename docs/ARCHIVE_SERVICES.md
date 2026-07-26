@@ -59,6 +59,8 @@ High-cardinality product, camera, and manifest writers use the same two-phase
 pattern: a short newest-first slice followed by a bounded full-history slice.
 Thus every timer cycle reconsiders newly published chunks while historical
 gaps continue to converge instead of falling permanently outside a lookback.
+Full product inventories list each product family in smaller parallel shards;
+they never depend on one unbounded recursive object-store listing.
 An outer graceful GNU `timeout` enforces each wall-clock budget because the
 deployed legacy rclone can stop transfers yet continue scanning after its own
 `--max-duration` deadline.

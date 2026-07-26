@@ -124,10 +124,11 @@ class S3Lister:
         remote_prefixes = {item["Path"] for item in top_level if item.get("IsDir")}
         prefixes = sorted(local_prefixes | remote_prefixes)
         sharded = set(job.get("sharded_prefixes", []))
+        shard_all_prefixes = bool(job.get("shard_all_prefixes", False))
 
         def list_shallow_shards(prefix: str) -> tuple[str, list[dict]]:
             prefix_remote = f"{remote}/{prefix}"
-            if prefix not in sharded:
+            if prefix not in sharded and not shard_all_prefixes:
                 return prefix, self.list_json(prefix_remote)
 
             first_level = self.list_json(
