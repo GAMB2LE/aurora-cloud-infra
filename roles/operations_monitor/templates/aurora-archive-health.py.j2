@@ -68,7 +68,30 @@ def unit(name: str) -> dict:
         if "=" in line:
             key, value = line.split("=", 1)
             result[key] = value
+    result["_exists"] = bool(completed.returncode == 0 and result)
     return result
+
+
+def service_healthy(state: dict) -> bool:
+    if not state.get("_exists"):
+        return False
+    if state.get("ActiveState") == "failed":
+        return False
+    return state.get("Result") in {
+        "success",
+        "",
+        "done",
+        "exec-condition",
+        "condition",
+    }
+
+
+def timer_active(state: dict) -> bool:
+    return bool(state.get("_exists")) and state.get("ActiveState") == "active"
+
+
+def unit_enabled(state: dict) -> bool:
+    return bool(state.get("_exists")) and state.get("UnitFileState") == "enabled"
 
 
 def evidence_age_hours(value: object) -> float | None:
@@ -157,7 +180,7 @@ def main() -> int:
         }
     )
     services = {}
-    for name in [
+    archive_units = [
         "aurora-mirror-verify.service",
         *GWS_WRITERS,
         "aurora-object-store-inventory.service",
@@ -168,7 +191,17 @@ def main() -> int:
         "aurora-object-store-copy-manifests.service",
         "aurora-object-store-repair.service",
         "aurora-ass-retention.timer",
-    ]:
+    ]
+    source_sync_units = []
+    for stream in STREAMS:
+        stem = stream["source_sync_stem"]
+        source_sync_units.extend(
+            [
+                f"aurora-{stem}-source-sync.timer",
+                f"aurora-{stem}-source-sync.service",
+            ]
+        )
+    for name in [*archive_units, *source_sync_units]:
         services[name] = unit(name)
     metrics["mirror_verify_service_healthy_state"] = int(
         services["aurora-mirror-verify.service"].get("Result") == "success"
@@ -191,6 +224,33 @@ def main() -> int:
         services["aurora-object-store-inventory.service"].get("ActiveState")
         == "activating"
     )
+    failed_source_sync = 0
+    source_sync_enabled = 0
+    for stream in STREAMS:
+        stem = stream["source_sync_stem"]
+        prefix = PREFIX.get(stream["name"], stream["name"])
+        timer_name = f"aurora-{stem}-source-sync.timer"
+        service_name = f"aurora-{stem}-source-sync.service"
+        timer_state = services[timer_name]
+        service_state = services[service_name]
+        active = timer_active(timer_state)
+        enabled = unit_enabled(timer_state)
+        healthy = service_healthy(service_state)
+        metrics[f"{stem.replace('-', '_')}_source_sync_timer_active_state"] = int(
+            active
+        )
+        metrics[f"{stem.replace('-', '_')}_source_sync_timer_enabled_state"] = int(
+            enabled
+        )
+        metrics[f"{prefix}_source_sync_service_healthy_state"] = int(healthy)
+        failed_source_sync += int(not active) + int(not healthy)
+        source_sync_enabled += int(enabled)
+        if not active:
+            failures.append(f"source_sync_timer_inactive={timer_name}")
+        if not healthy:
+            failures.append(f"source_sync_service_unhealthy={service_name}")
+    metrics["failed_source_sync_unit_count"] = failed_source_sync
+    metrics["source_sync_enabled_count"] = source_sync_enabled
     if issues:
         failures.append(f"gws_issues={issues}")
     if object_missing:

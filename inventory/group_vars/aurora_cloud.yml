@@ -677,6 +677,7 @@ gws_sync_jobs:
 aurora_archive_streams:
   - name: cl61
     site: ass
+    source_sync_stem: cl61
     source_root: "{{ cl61_source_path }}"
     cloud_root: "{{ cl61_source_destination }}"
     archive_relpath: cl61
@@ -684,6 +685,7 @@ aurora_archive_streams:
     prune_enabled: true
   - name: rpgfmcw94
     site: ass
+    source_sync_stem: radar
     source_root: "{{ radar_source_path }}"
     cloud_root: "{{ radar_source_destination }}"
     archive_relpath: rpgfmcw94
@@ -691,6 +693,7 @@ aurora_archive_streams:
     prune_enabled: false
   - name: hatprog5
     site: ass
+    source_sync_stem: hatpro
     source_root: "{{ hatpro_source_path }}"
     cloud_root: "{{ hatpro_source_destination }}"
     archive_relpath: hatprog5
@@ -698,6 +701,7 @@ aurora_archive_streams:
     prune_enabled: true
   - name: vaisalamet
     site: ass
+    source_sync_stem: vaisalamet
     source_root: "{{ vaisalamet_source_path }}"
     cloud_root: "{{ vaisalamet_source_destination }}"
     archive_relpath: vaisalamet
@@ -705,6 +709,7 @@ aurora_archive_streams:
     prune_enabled: true
   - name: asfs_logger
     site: ass
+    source_sync_stem: asfs-logger
     source_root: "{{ asfs_logger_source_path }}"
     cloud_root: "{{ asfs_logger_source_destination }}"
     archive_relpath: asfs/crd
@@ -712,6 +717,7 @@ aurora_archive_streams:
     prune_enabled: true
   - name: asfs_fast_sonic
     site: ass
+    source_sync_stem: asfs-fast-sonic
     source_root: "{{ asfs_fast_sonic_source_path }}"
     cloud_root: "{{ asfs_fast_sonic_source_destination }}"
     archive_relpath: asfs/crd
@@ -719,6 +725,7 @@ aurora_archive_streams:
     prune_enabled: true
   - name: asfs_fast_gas
     site: ass
+    source_sync_stem: asfs-fast-gas
     source_root: "{{ asfs_fast_gas_source_path }}"
     cloud_root: "{{ asfs_fast_gas_source_destination }}"
     archive_relpath: asfs/crd
@@ -726,6 +733,7 @@ aurora_archive_streams:
     prune_enabled: true
   - name: pdu
     site: ass
+    source_sync_stem: pdu
     source_root: "{{ pdu_source_path }}"
     cloud_root: "{{ pdu_source_destination }}"
     archive_relpath: pdu
@@ -733,6 +741,7 @@ aurora_archive_streams:
     prune_enabled: true
   - name: wxcam
     site: ass
+    source_sync_stem: wxcam
     source_root: "{{ wxcam_source_path }}"
     cloud_root: "{{ wxcam_source_destination }}"
     archive_relpath: wxcam
@@ -740,6 +749,7 @@ aurora_archive_streams:
     prune_enabled: true
   - name: auroracam
     site: ass
+    source_sync_stem: auroracam
     source_root: "{{ auroracam_source_path }}"
     cloud_root: "{{ auroracam_source_destination }}"
     archive_relpath: auroracam
@@ -747,6 +757,7 @@ aurora_archive_streams:
     prune_enabled: true
   - name: power
     site: aps
+    source_sync_stem: power
     source_root: "{{ power_source_path }}"
     cloud_root: "{{ power_source_destination }}"
     archive_relpath: power/level1
