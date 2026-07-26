@@ -31,6 +31,7 @@ class ObjectStoreInventoryTests(unittest.TestCase):
         )
         config = {
             "gws_key": "/key",
+            "gws_known_hosts": "/known_hosts",
             "gws_user": "user",
             "gws_hosts": ["xfer.example"],
         }
@@ -50,6 +51,7 @@ class ObjectStoreInventoryTests(unittest.TestCase):
         command = run.call_args.args[0]
         self.assertIn("user@xfer.example", command)
         self.assertIn("cd \"/gws/products\"", command[-1])
+        self.assertIn("UserKnownHostsFile=/known_hosts", command)
 
     def test_gws_inventory_retries_the_host_pool(self) -> None:
         completed = SimpleNamespace(stdout="stable/file.nc\t42\t100.5\n")

@@ -790,6 +790,7 @@ object_store_inventory_process_limit: 16
 object_store_inventory_list_timeout_seconds: 3600
 object_store_inventory_gws_attempts: 3
 object_store_inventory_gws_retry_delay_seconds: 15
+object_store_inventory_gws_runtime_dir: /run/aurora-object-store-inventory-ssh
 object_store_inventory_history_keep: 12
 object_store_inventory_schedule: "*-*-* 03,09,15,21:20:00"
 object_store_inventory_max_age_hours: 8

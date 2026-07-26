@@ -9,6 +9,10 @@ Type=oneshot
 User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
 Environment=XDG_CACHE_HOME={{ object_store_cache_root }}
+RuntimeDirectory={{ object_store_inventory_gws_runtime_dir | basename }}
+RuntimeDirectoryMode=0700
+BindReadOnlyPaths={{ gws_ssh_private_key }}:{{ object_store_inventory_gws_runtime_dir }}/key
+BindReadOnlyPaths=/home/{{ aurora_service_user }}/.ssh/known_hosts:{{ object_store_inventory_gws_runtime_dir }}/known_hosts
 ExecStart=/usr/local/bin/aurora-object-store-inventory
 ExecStartPost=+/usr/local/sbin/aurora-object-store-verification-gate
 TimeoutStartSec=12h

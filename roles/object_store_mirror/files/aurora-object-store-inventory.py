@@ -368,6 +368,9 @@ def gws_inventory(config: dict, job: dict) -> dict[str, dict]:
         "-o",
         "StrictHostKeyChecking=accept-new",
     ]
+    known_hosts = config.get("gws_known_hosts")
+    if known_hosts:
+        ssh_base.extend(["-o", f"UserKnownHostsFile={known_hosts}"])
     failures: list[str] = []
     hosts = config.get("gws_hosts", [])
     attempts = max(1, int(config.get("gws_inventory_attempts", 3)))
