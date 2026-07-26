@@ -22,6 +22,12 @@ PREFIX = {
     "asfs_fast_sonic": "asfs_fast_sonic",
     "asfs_fast_gas": "asfs_fast_gas",
 }
+GWS_WRITERS = [
+    "aurora-gws-rsync-raw.service",
+    "aurora-gws-rsync-products.service",
+    "aurora-gws-rsync-products-wxcam.service",
+    "aurora-gws-rsync-manifests.service",
+]
 
 
 def now() -> str:
@@ -114,22 +120,33 @@ def main() -> int:
         issues += missing + mismatch
         prune_ready += int(bool(metrics[f"{prefix}_prune_ready_state"]))
 
-    raw = (
-        object_report.get("jobs", {})
-        .get("raw", {})
-        .get("source_vs_s3", {})
-    )
-    object_missing = len(raw.get("missing_from_right", []))
-    object_mismatch = len(raw.get("size_mismatch", [])) + len(
-        raw.get("checksum_mismatch", [])
-    )
+    object_missing = 0
+    object_mismatch = 0
+    raw_missing = 0
+    raw_mismatch = 0
+    for job_name, job in object_report.get("jobs", {}).items():
+        comparison = job.get("source_vs_s3") or {}
+        missing = len(comparison.get("missing_from_right", []))
+        mismatch = len(comparison.get("size_mismatch", [])) + len(
+            comparison.get("checksum_mismatch", [])
+        )
+        metric_name = job_name.replace("-", "_")
+        metrics[f"object_store_{metric_name}_missing_count"] = missing
+        metrics[f"object_store_{metric_name}_mismatch_count"] = mismatch
+        object_missing += missing
+        object_mismatch += mismatch
+        if job_name == "raw":
+            raw_missing = missing
+            raw_mismatch = mismatch
     metrics.update(
         {
             "streams_gws_issue_count": issues,
             "streams_prune_ready_count": prune_ready,
             "streams_target_count": len(STREAMS),
-            "object_store_raw_missing_count": object_missing,
-            "object_store_raw_mismatch_count": object_mismatch,
+            "object_store_raw_missing_count": raw_missing,
+            "object_store_raw_mismatch_count": raw_mismatch,
+            "object_store_all_missing_count": object_missing,
+            "object_store_all_mismatch_count": object_mismatch,
             "object_store_clean_streak": int(gate.get("clean_streak", 0)),
             "object_store_stable_parity_state": int(
                 bool(gate.get("stable_parity"))
@@ -142,6 +159,7 @@ def main() -> int:
     services = {}
     for name in [
         "aurora-mirror-verify.service",
+        *GWS_WRITERS,
         "aurora-object-store-inventory.service",
         "aurora-object-store-copy-raw.service",
         "aurora-object-store-copy-products.service",
@@ -155,6 +173,17 @@ def main() -> int:
     metrics["mirror_verify_service_healthy_state"] = int(
         services["aurora-mirror-verify.service"].get("Result") == "success"
     )
+    for service_name in GWS_WRITERS:
+        metric_name = service_name.removeprefix("aurora-").removesuffix(
+            ".service"
+        ).replace("-", "_")
+        state = services[service_name]
+        healthy = state.get("Result") == "success" and state.get(
+            "ActiveState"
+        ) != "failed"
+        metrics[f"{metric_name}_healthy_state"] = int(healthy)
+        if not healthy:
+            failures.append(f"gws_writer_unhealthy={service_name}")
     metrics["ass_retention_enabled_state"] = int(
         services["aurora-ass-retention.timer"].get("UnitFileState") == "enabled"
     )
@@ -165,9 +194,9 @@ def main() -> int:
     if issues:
         failures.append(f"gws_issues={issues}")
     if object_missing:
-        failures.append(f"object_store_raw_missing={object_missing}")
+        failures.append(f"object_store_all_missing={object_missing}")
     if object_mismatch:
-        failures.append(f"object_store_raw_mismatch={object_mismatch}")
+        failures.append(f"object_store_all_mismatch={object_mismatch}")
     if not gate.get("stable_parity", False):
         failures.append("object_store_stable_parity=false")
     for service_name, service_state in services.items():

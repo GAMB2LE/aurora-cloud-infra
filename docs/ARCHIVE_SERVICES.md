@@ -101,8 +101,9 @@ The contract contains:
 
 - per-stream GWS missing and mismatch counts;
 - per-stream coverage and retention readiness;
-- raw object-store missing and mismatch counts;
-- writer and verifier unit states;
+- per-job and aggregate object-store missing and mismatch counts;
+- raw, product, WXCam product, and manifest GWS writer states;
+- object-store writer and verifier unit states;
 - verification timestamps and the object-store clean streak.
 
 The inventory itself atomically updates
@@ -117,6 +118,10 @@ does not stop the additive writers; it only blocks pruning and alerts operators.
 The `health-v1` producer is the only code allowed to turn archive evidence into
 operator state. Browser, mobile API, reports, and notification code are
 read-only consumers of that result.
+
+A cloud-product writer failure therefore cannot be hidden by clean raw-data
+evidence, and aggregate object parity cannot be green while a non-raw job still
+has a gap.
 
 ## Safe convergence runbook
 
