@@ -108,9 +108,12 @@ The contract contains:
 
 The inventory itself atomically updates
 `/data/aurora/internal/object_store_manifests/progress.json` with its state,
-current job, completed jobs, and total job count. The health contract embeds
-that evidence and publishes a numeric running-state metric, so consumers never
-need to inspect processes or infer progress from partial manifests.
+current job, current phase, completed jobs, and total job count. A heartbeat
+refreshes `updated_at` every minute even while one historical object-store
+listing is still running. The health contract embeds that evidence and
+publishes a numeric running-state metric, so consumers can distinguish a slow
+healthy scan from a stalled one without inspecting processes or inferring
+progress from partial manifests.
 
 Missing or stale verification must be treated as unsafe. A red health result
 does not stop the additive writers; it only blocks pruning and alerts operators.
