@@ -24,6 +24,32 @@ SPEC.loader.exec_module(inventory)
 
 
 class ObjectStoreInventoryTests(unittest.TestCase):
+    def test_publish_keeps_bounded_immutable_history(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for index in range(3):
+                stage = root / f"stage-{index}"
+                stage.mkdir()
+                (stage / "comparison.json").write_text(
+                    str(index),
+                    encoding="utf-8",
+                )
+                inventory.publish(
+                    root,
+                    stage,
+                    f"2026-07-26T00:0{index}:00Z",
+                    history_keep=2,
+                )
+
+            snapshots = sorted(
+                path.name for path in (root / "history").iterdir()
+            )
+
+        self.assertEqual(
+            snapshots,
+            ["20260726T000100Z", "20260726T000200Z"],
+        )
+
     def test_verification_horizon_is_independent_of_writer_settle_age(self) -> None:
         self.assertEqual(
             inventory.verification_settle_age(

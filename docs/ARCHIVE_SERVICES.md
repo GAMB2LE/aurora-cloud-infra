@@ -117,6 +117,10 @@ listing is still running. The health contract embeds that evidence and
 publishes a numeric running-state metric, so consumers can distinguish a slow
 healthy scan from a stalled one without inspecting processes or inferring
 progress from partial manifests.
+Complete inventories are retained as immutable history, bounded by
+`object_store_inventory_history_keep` (12 reports in production). This
+preserves multiple independent proof runs without allowing large TSV evidence
+snapshots to grow without limit.
 
 Missing or stale verification must be treated as unsafe. A red health result
 does not stop the additive writers; it only blocks pruning and alerts operators.

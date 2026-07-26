@@ -9,6 +9,7 @@
   "list_workers": {{ object_store_inventory_workers | int }},
   "shard_list_workers": {{ object_store_inventory_shard_workers | int }},
   "list_process_limit": {{ object_store_inventory_process_limit | int }},
+  "history_keep": {{ object_store_inventory_history_keep | int }},
   "report_max_age_hours": {{ object_store_inventory_max_age_hours | int }},
   "jobs": {{ object_store_jobs | to_nice_json }},
   "streams": {{ aurora_archive_streams | to_nice_json }}

@@ -383,7 +383,12 @@ def render_markdown(report: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def publish(root: Path, stage: Path, generated_at: str) -> None:
+def publish(
+    root: Path,
+    stage: Path,
+    generated_at: str,
+    history_keep: int,
+) -> None:
     latest = root / "latest"
     history = root / "history" / generated_at.replace(":", "").replace("-", "")
     incoming = root / ".latest.new"
@@ -401,6 +406,11 @@ def publish(root: Path, stage: Path, generated_at: str) -> None:
         incoming.replace(latest)
     history.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(latest, history)
+    snapshots = sorted(
+        path for path in history.parent.iterdir() if path.is_dir()
+    )
+    for obsolete in snapshots[: -max(2, history_keep)]:
+        shutil.rmtree(obsolete)
 
 
 def main() -> int:
@@ -533,7 +543,12 @@ def main() -> int:
                 current_job=None,
                 phase="local_publish",
             )
-            publish(root, stage, generated_at)
+            publish(
+                root,
+                stage,
+                generated_at,
+                int(config.get("history_keep", 12)),
+            )
 
         update_progress(phase="object_store_publish")
         subprocess.run(

@@ -779,6 +779,7 @@ object_store_cache_root: "{{ aurora_state_root }}/object-store-rclone-cache"
 object_store_inventory_workers: 8
 object_store_inventory_shard_workers: 6
 object_store_inventory_process_limit: 12
+object_store_inventory_history_keep: 12
 object_store_inventory_schedule: "*-*-* 03,09,15,21:20:00"
 object_store_inventory_max_age_hours: 8
 object_store_jobs:
