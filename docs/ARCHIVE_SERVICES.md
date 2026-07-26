@@ -116,7 +116,8 @@ refreshes `updated_at` every minute even while one historical object-store
 listing is still running. The health contract embeds that evidence and
 publishes a numeric running-state metric, so consumers can distinguish a slow
 healthy scan from a stalled one without inspecting processes or inferring
-progress from partial manifests.
+progress from partial manifests. While the inventory service is running, a
+heartbeat older than five minutes is an authoritative health failure.
 Complete inventories are retained as immutable history, bounded by
 `object_store_inventory_history_keep` (12 reports in production). This
 preserves multiple independent proof runs without allowing large TSV evidence

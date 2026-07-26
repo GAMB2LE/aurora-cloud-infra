@@ -247,6 +247,29 @@ def main() -> int:
         services["aurora-object-store-inventory.service"].get("ActiveState")
         == "activating"
     )
+    progress_age_hours = evidence_age_hours(inventory_progress.get("updated_at"))
+    progress_age_minutes = (
+        progress_age_hours * 60 if progress_age_hours is not None else None
+    )
+    metrics["object_store_inventory_progress_age_minutes"] = progress_age_minutes
+    progress_recent = (
+        progress_age_minutes is not None and progress_age_minutes <= 5
+    )
+    metrics["object_store_inventory_progress_recent_state"] = int(
+        progress_recent
+    )
+    if (
+        metrics["object_store_inventory_running_state"]
+        and not progress_recent
+    ):
+        value = (
+            "missing"
+            if progress_age_minutes is None
+            else f"{progress_age_minutes:.2f}"
+        )
+        failures.append(
+            f"object_store_inventory_progress_stale_minutes={value}"
+        )
     for service_name in ARCHIVE_SERVICES:
         state = services[service_name]
         slug = service_name.removeprefix("aurora-").removesuffix(
