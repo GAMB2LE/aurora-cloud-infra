@@ -17,6 +17,14 @@
     mode: "02775"
   when: aurora_dashboard_probe_enabled | bool
 
+- name: Ensure dashboard writable runtime directory exists
+  ansible.builtin.file:
+    path: "{{ aurora_dev_product_root }}/dashboard"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "02775"
+
 - name: Install dashboard health probe
   ansible.builtin.template:
     src: aurora-dashboard-health-probe.py.j2
