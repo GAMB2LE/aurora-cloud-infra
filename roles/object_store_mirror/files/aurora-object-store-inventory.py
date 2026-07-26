@@ -52,11 +52,17 @@ def verification_settle_age(job: dict) -> str:
 
 def excluded(path: str, patterns: list[str]) -> bool:
     value = path.lstrip("/")
-    return any(
-        fnmatch.fnmatch(value, pattern.lstrip("/"))
-        or fnmatch.fnmatch(value, pattern.lstrip("/").replace("**/", "*/"))
-        for pattern in patterns
-    )
+    for pattern in patterns:
+        normalized = pattern.lstrip("/")
+        variants = {
+            normalized,
+            normalized.replace("**/", "*/"),
+        }
+        if normalized.startswith("**/"):
+            variants.add(normalized[3:])
+        if any(fnmatch.fnmatch(value, variant) for variant in variants):
+            return True
+    return False
 
 
 def local_inventory(root: str, patterns: list[str], settle_age: str) -> dict[str, dict]:
@@ -317,8 +323,75 @@ def mirror_manifest_inventory(
 
 
 def gws_inventory(config: dict, job: dict) -> dict[str, dict]:
-    """Return canonical GWS rows retained for callers of the v2 helper."""
-    return mirror_manifest_inventory(config, job, "gws")
+    """Return an independent canonical or direct GWS inventory."""
+    if job["name"] == "raw":
+        return mirror_manifest_inventory(config, job, "gws")
+    destination = job.get("gws_destination")
+    if not destination:
+        return {}
+    patterns = COMMON_EXCLUDES + job.get("exclude", [])
+    find_bits = [
+        "find",
+        ".",
+        "-type",
+        "f",
+        "-printf",
+        r"%P\t%s\t%Ts\n",
+    ]
+    remote_command = (
+        f"cd {json.dumps(destination)} && "
+        + " ".join(json.dumps(bit) for bit in find_bits)
+    )
+    ssh_base = [
+        "ssh",
+        "-i",
+        config["gws_key"],
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "IdentitiesOnly=yes",
+        "-o",
+        "ConnectTimeout=15",
+        "-o",
+        "ServerAliveInterval=15",
+        "-o",
+        "ServerAliveCountMax=4",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+    ]
+    failures: list[str] = []
+    for host in config.get("gws_hosts", []):
+        target = f"{config['gws_user']}@{host}"
+        try:
+            completed = subprocess.run(
+                [*ssh_base, target, remote_command],
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=7200,
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            failures.append(f"{host}: {error}")
+            continue
+        result: dict[str, dict] = {}
+        for line in completed.stdout.splitlines():
+            if not line:
+                continue
+            relative, size, mtime = line.split("\t")
+            if excluded(relative, patterns):
+                continue
+            result[relative] = {
+                "relative_path": relative,
+                "size": int(size),
+                "mtime": int(float(mtime)),
+                "checksum": "",
+            }
+        return result
+    raise RuntimeError(
+        f"all GWS inventory hosts failed for {job['name']}: "
+        + "; ".join(failures)
+    )
 
 
 def compare(left: dict[str, dict], right: dict[str, dict]) -> dict:
@@ -461,6 +534,10 @@ def main() -> int:
                         "uses canonical per-stream Y/M/D archive paths from "
                         "independent source/GWS verification manifests"
                     ),
+                    "gws_other": (
+                        "preserves cloud relative paths and is inventoried "
+                        "directly through a JASMIN transfer host"
+                    ),
                     "equivalence": (
                         "source_vs_s3 proves cloud-to-object parity; "
                         "source_vs_gws proves edge-source-to-GWS parity"
@@ -482,14 +559,18 @@ def main() -> int:
                 )
                 update_progress(phase="object_store_inventory")
                 s3 = lister.inventory(job, local)
-                # The source is live while a full remote listing is built.
-                # Exclude anything that changed during that window so a newer
-                # object cannot be misreported as a destructive mismatch.
-                update_progress(phase="stability_check")
-                local = retain_unchanged_local_snapshot(job["source"], local)
                 update_progress(phase="gws_inventory")
                 gws = gws_inventory(config, job)
-                gws_source = mirror_manifest_inventory(config, job, "source")
+                # The source is live while a full remote listing is built.
+                # Exclude anything that changed during either remote listing
+                # so a newer object cannot be misreported as a mismatch.
+                update_progress(phase="stability_check")
+                local = retain_unchanged_local_snapshot(job["source"], local)
+                gws_source = (
+                    mirror_manifest_inventory(config, job, "source")
+                    if job["name"] == "raw"
+                    else local
+                )
                 update_progress(phase="comparison")
                 write_tsv(stage / f"{job['name']}-local.tsv", local)
                 write_tsv(stage / f"{job['name']}-s3.tsv", s3)
@@ -513,7 +594,11 @@ def main() -> int:
                     # byte-path GWS/S3 comparison would manufacture gaps.
                     "gws_vs_s3": None,
                     "gws_evidence": (
-                        "independent canonical stream manifests"
+                        (
+                            "independent canonical stream manifests"
+                            if job["name"] == "raw"
+                            else "direct remote GWS inventory"
+                        )
                         if gws_source or gws
                         else None
                     ),

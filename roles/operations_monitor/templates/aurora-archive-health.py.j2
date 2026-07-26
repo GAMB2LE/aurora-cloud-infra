@@ -26,6 +26,7 @@ GWS_WRITERS = [
     "aurora-gws-rsync-raw.service",
     "aurora-gws-rsync-products.service",
     "aurora-gws-rsync-products-wxcam.service",
+    "aurora-gws-rsync-model-evaluation.service",
     "aurora-gws-rsync-manifests.service",
 ]
 OBJECT_WRITERS = [
@@ -178,6 +179,8 @@ def main() -> int:
 
     object_missing = 0
     object_mismatch = 0
+    gws_job_missing = 0
+    gws_job_mismatch = 0
     raw_missing = 0
     raw_mismatch = 0
     for job_name, job in object_report.get("jobs", {}).items():
@@ -191,6 +194,15 @@ def main() -> int:
         metrics[f"object_store_{metric_name}_mismatch_count"] = mismatch
         object_missing += missing
         object_mismatch += mismatch
+        gws_comparison = job.get("source_vs_gws") or {}
+        gws_missing = len(gws_comparison.get("missing_from_right", []))
+        gws_mismatch = len(gws_comparison.get("size_mismatch", [])) + len(
+            gws_comparison.get("checksum_mismatch", [])
+        )
+        metrics[f"gws_{metric_name}_missing_count"] = gws_missing
+        metrics[f"gws_{metric_name}_mismatch_count"] = gws_mismatch
+        gws_job_missing += gws_missing
+        gws_job_mismatch += gws_mismatch
         if job_name == "raw":
             raw_missing = missing
             raw_mismatch = mismatch
@@ -203,6 +215,8 @@ def main() -> int:
             "object_store_raw_mismatch_count": raw_mismatch,
             "object_store_all_missing_count": object_missing,
             "object_store_all_mismatch_count": object_mismatch,
+            "gws_all_missing_count": gws_job_missing,
+            "gws_all_mismatch_count": gws_job_mismatch,
             "object_store_clean_streak": int(gate.get("clean_streak", 0)),
             "object_store_stable_parity_state": int(
                 bool(gate.get("stable_parity"))
@@ -326,6 +340,10 @@ def main() -> int:
         failures.append(f"object_store_all_missing={object_missing}")
     if object_mismatch:
         failures.append(f"object_store_all_mismatch={object_mismatch}")
+    if gws_job_missing:
+        failures.append(f"gws_all_missing={gws_job_missing}")
+    if gws_job_mismatch:
+        failures.append(f"gws_all_mismatch={gws_job_mismatch}")
     if not gate.get("stable_parity", False):
         failures.append("object_store_stable_parity=false")
     payload = {

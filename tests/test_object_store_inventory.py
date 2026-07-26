@@ -24,6 +24,32 @@ SPEC.loader.exec_module(inventory)
 
 
 class ObjectStoreInventoryTests(unittest.TestCase):
+    def test_non_raw_gws_inventory_is_listed_independently(self) -> None:
+        completed = SimpleNamespace(
+            stdout="stable/file.nc\t42\t100.5\nlogs/skip.log\t7\t100\n"
+        )
+        config = {
+            "gws_key": "/key",
+            "gws_user": "user",
+            "gws_hosts": ["xfer.example"],
+        }
+        job = {
+            "name": "products",
+            "gws_destination": "/gws/products",
+        }
+        with mock.patch.object(
+            inventory.subprocess,
+            "run",
+            return_value=completed,
+        ) as run:
+            result = inventory.gws_inventory(config, job)
+
+        self.assertEqual(result["stable/file.nc"]["size"], 42)
+        self.assertNotIn("logs/skip.log", result)
+        command = run.call_args.args[0]
+        self.assertIn("user@xfer.example", command)
+        self.assertIn("cd \"/gws/products\"", command[-1])
+
     def test_publish_keeps_bounded_immutable_history(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

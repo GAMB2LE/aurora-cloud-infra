@@ -27,11 +27,24 @@ def main() -> int:
 
     failures: list[str] = []
     for name, values in report.get("jobs", {}).items():
-        comparison = values.get("source_vs_s3") or {}
-        for field in ("missing_from_right", "size_mismatch", "checksum_mismatch"):
-            count = len(comparison.get(field, []))
-            if count:
-                failures.append(f"{name}:{field}={count}")
+        for destination, comparison_name in (
+            ("", "source_vs_s3"),
+            ("gws_", "source_vs_gws"),
+        ):
+            comparison = values.get(comparison_name)
+            if comparison is None:
+                failures.append(f"{name}:{destination}evidence_missing")
+                continue
+            for field in (
+                "missing_from_right",
+                "size_mismatch",
+                "checksum_mismatch",
+            ):
+                count = len(comparison.get(field, []))
+                if count:
+                    failures.append(
+                        f"{name}:{destination}{field}={count}"
+                    )
 
     age_hours = (
         dt.datetime.now(dt.timezone.utc) - parse_time(generated_at)

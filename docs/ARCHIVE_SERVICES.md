@@ -65,6 +65,8 @@ Raw inventories use the same rule for every family, including the multi-terabyte
 radar archive. Families are scheduled independently, radar is listed as bounded
 year/month subtrees, and a global process semaphore limits nested listings to
 the configured `object_store_inventory_process_limit` (12 in production).
+Model-evaluation campaign data has independent additive writers to both GWS
+and object storage; it is not implicitly covered by the products job.
 
 When an inventory publishes exact missing or mismatched paths,
 `aurora-object-store-repair.path` starts the catalogue-driven repair service.
@@ -102,9 +104,11 @@ The contract contains:
 - per-stream GWS missing and mismatch counts;
 - per-stream coverage and retention readiness;
 - per-job and aggregate object-store missing and mismatch counts;
+- per-job and aggregate direct GWS missing and mismatch counts for raw,
+  products, WXCam products, model evaluation, and manifests;
 - every catalogue stream's source-sync timer and service state, including the
   independent radar and AURORACam historical backfill lanes;
-- raw, product, WXCam product, and manifest GWS writer states;
+- raw, product, WXCam product, model-evaluation, and manifest GWS writer states;
 - every GWS/object-store writer and verifier service, timer, repair path, and
   verification-gate path state;
 - verification timestamps and the object-store clean streak.
@@ -157,8 +161,10 @@ systemctl is-enabled aurora-ass-retention.timer
    preserves settled cloud-ingress relative paths, while raw data on GWS uses
    the canonical per-stream `Y/M/D` hierarchy. `source_vs_s3` therefore proves
    cloud-to-object parity, and `source_vs_gws` is built from the independent
-   canonical edge-source/GWS manifests. The service never compares the two
-   deliberately different raw path layouts directly. The verifier publishes
+   canonical edge-source/GWS manifests for raw streams. Products, WXCam
+   products, model evaluation, and manifests use an independent direct GWS
+   inventory through a JASMIN transfer host. The service never compares the
+   two deliberately different raw path layouts directly. The verifier publishes
    its complete `latest/` tree by atomic directory replacement, so readers
    cannot combine manifests from different verification runs. Object parity
    excludes symlink pointers and re-stats every source file after the remote
@@ -177,7 +183,9 @@ systemctl is-enabled aurora-ass-retention.timer
    delivery of fresh data.
 4. The repair path unit copies only the exact reported missing or mismatched
    paths. It must finish successfully before another inventory is started.
-5. Run a fresh inventory. A clean result establishes clean streak one.
+5. Run a fresh inventory. A report is clean only when every job has zero gaps
+   and mismatches against both GWS and object storage. It then establishes
+   clean streak one.
 6. Run another independent full inventory. Only that distinct second clean
    report may establish stable parity.
 7. Confirm `health-v1.json` is green and review both cloud and edge audit logs

@@ -30,7 +30,12 @@ def report(generated_at: str, *, missing: bool = False) -> dict:
                     "missing_from_right": ["missing.nc"] if missing else [],
                     "size_mismatch": [],
                     "checksum_mismatch": [],
-                }
+                },
+                "source_vs_gws": {
+                    "missing_from_right": [],
+                    "size_mismatch": [],
+                    "checksum_mismatch": [],
+                },
             }
         },
     }

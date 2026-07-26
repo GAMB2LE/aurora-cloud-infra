@@ -626,6 +626,7 @@ gws_path: /gws/ssde/j25b/gamb2le
 gws_group: gws_gamb2le
 gws_raw_root: "{{ gws_path }}/data/incoming/aurora-cloud/raw"
 gws_products_root: "{{ gws_path }}/data/output/aurora-cloud/products"
+gws_model_evaluation_root: "{{ gws_path }}/data/output/aurora-cloud/model-evaluation"
 gws_internal_root: "{{ gws_path }}/data/internal/aurora-cloud"
 # Automated timers need a real private key on the VM. Agent forwarding from the
 # admin SSH session is not sufficient for unattended systemd jobs.
@@ -667,6 +668,11 @@ gws_sync_jobs:
     exclude:
       - /wxcam.zarr
       - /wxcam.zarr/**
+  - name: model-evaluation
+    source: "{{ aurora_model_evaluation_campaign_root }}/"
+    destination: "{{ gws_model_evaluation_root }}/"
+    schedule: "*:09/30"
+    timeout_start_sec: 12h
   - name: manifests
     source: "{{ gws_manifest_root }}/"
     destination: "{{ gws_internal_root }}/manifests/"
@@ -834,7 +840,7 @@ object_store_jobs:
   - name: model-evaluation
     source: "{{ aurora_model_evaluation_campaign_root }}/"
     destination: data/output/aurora-cloud/model-evaluation
-    gws_destination: "{{ gws_path }}/data/output/aurora-cloud/model-evaluation"
+    gws_destination: "{{ gws_model_evaluation_root }}"
     schedule: "17:00"
     settle_age: 1h
     verification_settle_age: 6h
