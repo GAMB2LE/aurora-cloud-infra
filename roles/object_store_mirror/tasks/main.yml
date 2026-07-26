@@ -88,20 +88,20 @@
   loop: "{{ object_store_obsolete_unit_backups.files | default([]) }}"
   when: object_store_mirror_enabled | bool
 
-- name: Find obsolete object-store wrapper backup files
+- name: Find obsolete object-store program backup files
   ansible.builtin.find:
     paths: /usr/local/bin
-    patterns: "aurora-object-store-copy-*.before-*"
+    patterns: "aurora-object-store-*.before-*"
     file_type: file
     recurse: false
-  register: object_store_obsolete_wrapper_backups
+  register: object_store_obsolete_program_backups
   when: object_store_mirror_enabled | bool
 
-- name: Remove obsolete object-store wrapper backup files
+- name: Remove obsolete object-store program backup files
   ansible.builtin.file:
     path: "{{ item.path }}"
     state: absent
-  loop: "{{ object_store_obsolete_wrapper_backups.files | default([]) }}"
+  loop: "{{ object_store_obsolete_program_backups.files | default([]) }}"
   when: object_store_mirror_enabled | bool
 
 - name: Enable routine object-store copy timers
