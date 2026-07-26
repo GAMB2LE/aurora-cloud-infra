@@ -63,6 +63,11 @@ incomplete; it is eligible only after the same exact dual-destination evidence
 and product gate as every other stream. APS power remains non-prunable
 regardless of the global mode.
 
+The signing private key is generated out of band and is never committed or
+copied to the edge. On the cloud coordinator it is owned by `root`, readable
+only by the coordinator service group (`0640`), and its parent directory is
+`0750`. Only the derived public key is installed on ASS.
+
 Files outside the managed archive scope remain on ASS until an explicit source,
 GWS, and object-store mapping is added; the retention service must not guess.
 

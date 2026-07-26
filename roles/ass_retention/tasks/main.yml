@@ -8,6 +8,40 @@
     mode: "0755"
   when: ass_retention_enabled | bool
 
+- name: Ensure retention signing directory is service-readable
+  ansible.builtin.file:
+    path: "{{ ass_retention_signing_private_key | dirname }}"
+    state: directory
+    owner: root
+    group: "{{ aurora_service_group }}"
+    mode: "0750"
+  when: ass_retention_enabled | bool
+
+- name: Inspect retention signing key
+  ansible.builtin.stat:
+    path: "{{ ass_retention_signing_private_key }}"
+  register: ass_retention_signing_key
+  when: ass_retention_enabled | bool
+
+- name: Require an existing retention signing key
+  ansible.builtin.assert:
+    that:
+      - ass_retention_signing_key.stat.isreg | default(false)
+    fail_msg: >-
+      Generate the retention signing key out of band at
+      {{ ass_retention_signing_private_key }} before enabling the coordinator.
+      The role never creates or stores private key material.
+  when: ass_retention_enabled | bool
+
+- name: Restrict retention signing key to the coordinator service
+  ansible.builtin.file:
+    path: "{{ ass_retention_signing_private_key }}"
+    state: file
+    owner: root
+    group: "{{ aurora_service_group }}"
+    mode: "0640"
+  when: ass_retention_enabled | bool
+
 - name: Install ASS retention gate script
   ansible.builtin.template:
     src: aurora-ass-retention.py.j2
