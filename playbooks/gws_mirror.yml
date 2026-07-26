@@ -4,3 +4,4 @@
   become: true
   roles:
     - gws_sync
+    - operations_monitor
