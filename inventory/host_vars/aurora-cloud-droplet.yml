@@ -22,7 +22,7 @@ aurora_dashboard_num_procs: 1
 # Keep one worker as the normal cache-efficient setting unless the benchmark
 # demonstrates a concurrent-request improvement.
 aurora_mobile_api_workers: 1
-aurora_browser_rum_enabled: true
+aurora_browser_rum_enabled: false
 aurora_measure_plot_json_bytes: false
 aurora_dashboard_perf_log_path: "{{ aurora_dev_product_root }}/dashboard/dashboard_perf.jsonl"
 # Apply the security baseline only to the development site first. Production
