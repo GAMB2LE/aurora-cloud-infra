@@ -225,9 +225,13 @@ def record(relative: str, item: dict) -> dict:
     }
 
 
-def gws_inventory(config: dict, job: dict) -> dict[str, dict]:
+def mirror_manifest_inventory(
+    config: dict, job: dict, side: str
+) -> dict[str, dict]:
     if job["name"] != "raw":
         return {}
+    if side not in {"source", "gws"}:
+        raise ValueError(f"unsupported mirror manifest side: {side}")
     result: dict[str, dict] = {}
     latest = Path(config["gws_manifest_root"], "latest")
     if not latest.exists():
@@ -236,7 +240,7 @@ def gws_inventory(config: dict, job: dict) -> dict[str, dict]:
         stream["name"]: stream["archive_relpath"]
         for stream in config.get("streams", [])
     }
-    for path in latest.glob("*/gws.tsv"):
+    for path in latest.glob(f"*/{side}.tsv"):
         stream = path.parent.name
         archive_path = archive_paths.get(stream, stream).strip("/")
         with path.open(newline="", encoding="utf-8") as handle:
@@ -249,6 +253,11 @@ def gws_inventory(config: dict, job: dict) -> dict[str, dict]:
                     "checksum": row.get("checksum", ""),
                 }
     return result
+
+
+def gws_inventory(config: dict, job: dict) -> dict[str, dict]:
+    """Return canonical GWS rows retained for callers of the v2 helper."""
+    return mirror_manifest_inventory(config, job, "gws")
 
 
 def compare(left: dict[str, dict], right: dict[str, dict]) -> dict:
@@ -353,12 +362,19 @@ def main() -> int:
         with tempfile.TemporaryDirectory(prefix=".inventory-", dir=root) as temporary:
             stage = Path(temporary)
             report = {
-                "schema_version": 2,
+                "schema_version": 3,
                 "generated_at": generated_at,
-                "path_invariant": (
-                    f"/gws/ssde/j25b/gamb2le/data/<path> == "
-                    f"s3://{config['bucket']}/data/<path>"
-                ),
+                "layout_contract": {
+                    "s3": "preserves settled cloud-ingress relative paths",
+                    "gws_raw": (
+                        "uses canonical per-stream Y/M/D archive paths from "
+                        "independent source/GWS verification manifests"
+                    ),
+                    "equivalence": (
+                        "source_vs_s3 proves cloud-to-object parity; "
+                        "source_vs_gws proves edge-source-to-GWS parity"
+                    ),
+                },
                 "jobs": {},
             }
             for job in config["jobs"]:
@@ -376,17 +392,33 @@ def main() -> int:
                 )
                 s3 = lister.inventory(job, local)
                 gws = gws_inventory(config, job)
+                gws_source = mirror_manifest_inventory(config, job, "source")
                 write_tsv(stage / f"{job['name']}-local.tsv", local)
                 write_tsv(stage / f"{job['name']}-s3.tsv", s3)
                 if gws:
                     write_tsv(stage / f"{job['name']}-gws.tsv", gws)
+                if gws_source:
+                    write_tsv(
+                        stage / f"{job['name']}-gws-source.tsv", gws_source
+                    )
                 report["jobs"][job["name"]] = {
                     "source": job["source"],
                     "gws": job.get("gws_destination", ""),
                     "s3": f"s3://{config['bucket']}/{job['destination'].strip('/')}",
                     "source_vs_s3": compare(local, s3),
-                    "source_vs_gws": compare(local, gws) if gws else None,
-                    "gws_vs_s3": compare(gws, s3) if gws else None,
+                    "source_vs_gws": (
+                        compare(gws_source, gws)
+                        if gws_source or gws
+                        else None
+                    ),
+                    # Raw data is intentionally reorganised on GWS, so a
+                    # byte-path GWS/S3 comparison would manufacture gaps.
+                    "gws_vs_s3": None,
+                    "gws_evidence": (
+                        "independent canonical stream manifests"
+                        if gws_source or gws
+                        else None
+                    ),
                 }
                 progress["completed_jobs"].append(job["name"])
             (stage / "comparison.json").write_text(

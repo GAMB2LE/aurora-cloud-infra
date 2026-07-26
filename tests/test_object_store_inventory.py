@@ -96,6 +96,62 @@ class ObjectStoreInventoryTests(unittest.TestCase):
         )
         self.assertEqual(result["asfs/crd/fast_sonic_20260725.nc"]["size"], 42)
 
+    def test_gws_comparison_uses_canonical_source_and_gws_manifests(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            directory = root / "latest" / "hatprog5"
+            directory.mkdir(parents=True)
+            rows = (
+                "relpath\tsize\tmtime\tchecksum\n"
+                "Y2026/M07/D25/file.NC\t42\t100\t\n"
+            )
+            (directory / "source.tsv").write_text(rows, encoding="utf-8")
+            (directory / "gws.tsv").write_text(rows, encoding="utf-8")
+            config = {
+                "gws_manifest_root": str(root),
+                "streams": [
+                    {
+                        "name": "hatprog5",
+                        "archive_relpath": "hatprog5",
+                    }
+                ],
+            }
+            job = {"name": "raw"}
+
+            source = inventory.mirror_manifest_inventory(
+                config, job, "source"
+            )
+            gws = inventory.mirror_manifest_inventory(config, job, "gws")
+
+        self.assertEqual(inventory.compare(source, gws)["missing_from_right"], [])
+        self.assertIn("hatprog5/Y2026/M07/D25/file.NC", source)
+
+    def test_gws_comparison_does_not_flatten_canonical_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            directory = root / "latest" / "hatprog5"
+            directory.mkdir(parents=True)
+            (directory / "source.tsv").write_text(
+                "relpath\tsize\tmtime\tchecksum\n"
+                "Y2026/M07/D25/file.NC\t42\t100\t\n",
+                encoding="utf-8",
+            )
+            config = {
+                "gws_manifest_root": str(root),
+                "streams": [
+                    {
+                        "name": "hatprog5",
+                        "archive_relpath": "hatprog5",
+                    }
+                ],
+            }
+
+            source = inventory.mirror_manifest_inventory(
+                config, {"name": "raw"}, "source"
+            )
+
+        self.assertNotIn("hatprog5/file.NC", source)
+
     def test_shard_all_prefixes_preserves_files_in_flat_family(self) -> None:
         lister = inventory.S3Lister(
             {
