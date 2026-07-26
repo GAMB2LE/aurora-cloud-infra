@@ -360,6 +360,8 @@ def gws_inventory(config: dict, job: dict) -> dict[str, dict]:
         "-o",
         "IdentitiesOnly=yes",
         "-o",
+        "Compression=yes",
+        "-o",
         "ConnectTimeout=15",
         "-o",
         "ServerAliveInterval=15",

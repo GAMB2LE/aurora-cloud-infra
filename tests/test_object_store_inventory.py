@@ -51,6 +51,7 @@ class ObjectStoreInventoryTests(unittest.TestCase):
         command = run.call_args.args[0]
         self.assertIn("user@xfer.example", command)
         self.assertIn("cd \"/gws/products\"", command[-1])
+        self.assertIn("Compression=yes", command)
         self.assertIn("UserKnownHostsFile=/known_hosts", command)
 
     def test_gws_inventory_retries_the_host_pool(self) -> None:
