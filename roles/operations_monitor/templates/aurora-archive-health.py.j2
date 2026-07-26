@@ -28,6 +28,29 @@ GWS_WRITERS = [
     "aurora-gws-rsync-products-wxcam.service",
     "aurora-gws-rsync-manifests.service",
 ]
+OBJECT_WRITERS = [
+    "aurora-object-store-copy-raw.service",
+    "aurora-object-store-copy-products.service",
+    "aurora-object-store-copy-products-wxcam.service",
+    "aurora-object-store-copy-model-evaluation.service",
+    "aurora-object-store-copy-manifests.service",
+]
+ARCHIVE_SERVICES = [
+    "aurora-mirror-verify.service",
+    *GWS_WRITERS,
+    "aurora-object-store-inventory.service",
+    *OBJECT_WRITERS,
+    "aurora-object-store-repair.service",
+    "aurora-object-store-verification-gate.service",
+]
+ARCHIVE_TRIGGERS = [
+    "aurora-mirror-verify.timer",
+    *(name.replace(".service", ".timer") for name in GWS_WRITERS),
+    "aurora-object-store-inventory.timer",
+    *(name.replace(".service", ".timer") for name in OBJECT_WRITERS),
+    "aurora-object-store-repair.path",
+    "aurora-object-store-verification-gate.path",
+]
 
 
 def now() -> str:
@@ -191,15 +214,8 @@ def main() -> int:
     )
     services = {}
     archive_units = [
-        "aurora-mirror-verify.service",
-        *GWS_WRITERS,
-        "aurora-object-store-inventory.service",
-        "aurora-object-store-copy-raw.service",
-        "aurora-object-store-copy-products.service",
-        "aurora-object-store-copy-products-wxcam.service",
-        "aurora-object-store-copy-model-evaluation.service",
-        "aurora-object-store-copy-manifests.service",
-        "aurora-object-store-repair.service",
+        *ARCHIVE_SERVICES,
+        *ARCHIVE_TRIGGERS,
         "aurora-ass-retention.timer",
     ]
     source_sync_units = []
@@ -231,6 +247,28 @@ def main() -> int:
         services["aurora-object-store-inventory.service"].get("ActiveState")
         == "activating"
     )
+    for service_name in ARCHIVE_SERVICES:
+        state = services[service_name]
+        slug = service_name.removeprefix("aurora-").removesuffix(
+            ".service"
+        ).replace("-", "_")
+        healthy = service_healthy(state)
+        metrics[f"{slug}_service_healthy_state"] = int(healthy)
+        if not healthy:
+            failures.append(f"archive_service_unhealthy={service_name}")
+    for trigger_name in ARCHIVE_TRIGGERS:
+        state = services[trigger_name]
+        slug = trigger_name.removeprefix("aurora-").replace(".", "_").replace(
+            "-", "_"
+        )
+        active = timer_active(state)
+        enabled = unit_enabled(state)
+        metrics[f"{slug}_active_state"] = int(active)
+        metrics[f"{slug}_enabled_state"] = int(enabled)
+        if not active:
+            failures.append(f"archive_trigger_inactive={trigger_name}")
+        if not enabled:
+            failures.append(f"archive_trigger_disabled={trigger_name}")
     failed_source_sync = 0
     source_sync_enabled = 0
     for stream in STREAMS:
@@ -267,11 +305,6 @@ def main() -> int:
         failures.append(f"object_store_all_mismatch={object_mismatch}")
     if not gate.get("stable_parity", False):
         failures.append("object_store_stable_parity=false")
-    for service_name, service_state in services.items():
-        if service_name == "aurora-ass-retention.timer":
-            continue
-        if service_state.get("ActiveState") == "failed":
-            failures.append(f"service_failed={service_name}")
     payload = {
         "schema_version": "health-v1",
         "generated_at": now(),

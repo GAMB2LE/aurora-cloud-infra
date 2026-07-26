@@ -105,7 +105,8 @@ The contract contains:
 - every catalogue stream's source-sync timer and service state, including the
   independent radar and AURORACam historical backfill lanes;
 - raw, product, WXCam product, and manifest GWS writer states;
-- object-store writer and verifier unit states;
+- every GWS/object-store writer and verifier service, timer, repair path, and
+  verification-gate path state;
 - verification timestamps and the object-store clean streak.
 
 The inventory itself atomically updates
