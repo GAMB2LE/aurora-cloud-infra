@@ -94,6 +94,16 @@ def unit_enabled(state: dict) -> bool:
     return bool(state.get("_exists")) and state.get("UnitFileState") == "enabled"
 
 
+def source_sync_pairs(stream: dict) -> list[tuple[str, str, bool]]:
+    stem = stream["source_sync_stem"]
+    pairs = [(f"{stem}-source-sync", f"aurora-{stem}-source-sync", True)]
+    pairs.extend(
+        (auxiliary, f"aurora-{auxiliary}", False)
+        for auxiliary in stream.get("source_sync_auxiliary_stems", [])
+    )
+    return pairs
+
+
 def evidence_age_hours(value: object) -> float | None:
     if not isinstance(value, str) or not value:
         return None
@@ -194,13 +204,10 @@ def main() -> int:
     ]
     source_sync_units = []
     for stream in STREAMS:
-        stem = stream["source_sync_stem"]
-        source_sync_units.extend(
-            [
-                f"aurora-{stem}-source-sync.timer",
-                f"aurora-{stem}-source-sync.service",
-            ]
-        )
+        for _stem, unit_stem, _primary in source_sync_pairs(stream):
+            source_sync_units.extend(
+                [f"{unit_stem}.timer", f"{unit_stem}.service"]
+            )
     for name in [*archive_units, *source_sync_units]:
         services[name] = unit(name)
     metrics["mirror_verify_service_healthy_state"] = int(
@@ -227,28 +234,29 @@ def main() -> int:
     failed_source_sync = 0
     source_sync_enabled = 0
     for stream in STREAMS:
-        stem = stream["source_sync_stem"]
         prefix = PREFIX.get(stream["name"], stream["name"])
-        timer_name = f"aurora-{stem}-source-sync.timer"
-        service_name = f"aurora-{stem}-source-sync.service"
-        timer_state = services[timer_name]
-        service_state = services[service_name]
-        active = timer_active(timer_state)
-        enabled = unit_enabled(timer_state)
-        healthy = service_healthy(service_state)
-        metrics[f"{stem.replace('-', '_')}_source_sync_timer_active_state"] = int(
-            active
-        )
-        metrics[f"{stem.replace('-', '_')}_source_sync_timer_enabled_state"] = int(
-            enabled
-        )
-        metrics[f"{prefix}_source_sync_service_healthy_state"] = int(healthy)
-        failed_source_sync += int(not active) + int(not healthy)
-        source_sync_enabled += int(enabled)
-        if not active:
-            failures.append(f"source_sync_timer_inactive={timer_name}")
-        if not healthy:
-            failures.append(f"source_sync_service_unhealthy={service_name}")
+        for stem, unit_stem, primary in source_sync_pairs(stream):
+            timer_name = f"{unit_stem}.timer"
+            service_name = f"{unit_stem}.service"
+            timer_state = services[timer_name]
+            service_state = services[service_name]
+            active = timer_active(timer_state)
+            enabled = unit_enabled(timer_state)
+            healthy = service_healthy(service_state)
+            metric_stem = stem.replace("-", "_")
+            metrics[f"{metric_stem}_timer_active_state"] = int(active)
+            metrics[f"{metric_stem}_timer_enabled_state"] = int(enabled)
+            metrics[f"{metric_stem}_service_healthy_state"] = int(healthy)
+            if primary:
+                metrics[f"{prefix}_source_sync_service_healthy_state"] = int(
+                    healthy
+                )
+            failed_source_sync += int(not active) + int(not healthy)
+            source_sync_enabled += int(enabled)
+            if not active:
+                failures.append(f"source_sync_timer_inactive={timer_name}")
+            if not healthy:
+                failures.append(f"source_sync_service_unhealthy={service_name}")
     metrics["failed_source_sync_unit_count"] = failed_source_sync
     metrics["source_sync_enabled_count"] = source_sync_enabled
     if issues:

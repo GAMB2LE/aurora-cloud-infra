@@ -686,6 +686,8 @@ aurora_archive_streams:
   - name: rpgfmcw94
     site: ass
     source_sync_stem: radar
+    source_sync_auxiliary_stems:
+      - radar-backfill
     source_root: "{{ radar_source_path }}"
     cloud_root: "{{ radar_source_destination }}"
     archive_relpath: rpgfmcw94
@@ -750,6 +752,8 @@ aurora_archive_streams:
   - name: auroracam
     site: ass
     source_sync_stem: auroracam
+    source_sync_auxiliary_stems:
+      - auroracam-backfill
     source_root: "{{ auroracam_source_path }}"
     cloud_root: "{{ auroracam_source_destination }}"
     archive_relpath: auroracam

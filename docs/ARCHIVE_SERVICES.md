@@ -102,7 +102,8 @@ The contract contains:
 - per-stream GWS missing and mismatch counts;
 - per-stream coverage and retention readiness;
 - per-job and aggregate object-store missing and mismatch counts;
-- every catalogue stream's source-sync timer and service state;
+- every catalogue stream's source-sync timer and service state, including the
+  independent radar and AURORACam historical backfill lanes;
 - raw, product, WXCam product, and manifest GWS writer states;
 - object-store writer and verifier unit states;
 - verification timestamps and the object-store clean streak.
