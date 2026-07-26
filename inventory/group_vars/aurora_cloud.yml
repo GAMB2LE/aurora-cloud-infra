@@ -775,7 +775,7 @@ object_store_jobs:
     recent_first: 2d
     recent_max_duration: 8m
     backfill_max_duration: 22m
-    sharded_prefixes: [auroracam, wxcam, cl61, power]
+    shard_all_prefixes: true
     exclude:
       - rpgfmcw94/.radar-partials/**
   - name: products
