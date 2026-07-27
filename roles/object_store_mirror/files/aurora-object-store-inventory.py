@@ -158,16 +158,27 @@ class S3Lister:
         if recursive:
             command.insert(2, "--fast-list")
             command.insert(2, "--recursive")
-        with self.list_slots:
-            completed = subprocess.run(
-                command,
-                check=True,
-                text=True,
-                stdout=subprocess.PIPE,
-                timeout=int(
-                    self.config.get("list_timeout_seconds", 1800)
-                ),
-            )
+        attempts = max(1, int(self.config.get("s3_list_attempts", 3)))
+        retry_delay = max(
+            0, int(self.config.get("s3_list_retry_delay_seconds", 30))
+        )
+        for attempt in range(1, attempts + 1):
+            try:
+                with self.list_slots:
+                    completed = subprocess.run(
+                        command,
+                        check=True,
+                        text=True,
+                        stdout=subprocess.PIPE,
+                        timeout=int(
+                            self.config.get("list_timeout_seconds", 1800)
+                        ),
+                    )
+                break
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                if attempt == attempts:
+                    raise
+                time.sleep(retry_delay)
         return json.loads(completed.stdout or "[]")
 
     def inventory(self, job: dict, local: dict[str, dict]) -> dict[str, dict]:

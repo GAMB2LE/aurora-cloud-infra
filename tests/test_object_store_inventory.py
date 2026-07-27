@@ -428,6 +428,31 @@ class ObjectStoreInventoryTests(unittest.TestCase):
 
         self.assertEqual(run.call_args.kwargs["timeout"], 3600)
 
+    def test_s3_listing_retries_after_transient_gateway_failure(self) -> None:
+        lister = inventory.S3Lister(
+            {
+                "remote": "remote",
+                "bucket": "bucket",
+                "rclone_config": "/config",
+                "s3_list_attempts": 2,
+                "s3_list_retry_delay_seconds": 0,
+            }
+        )
+        failure = subprocess.CalledProcessError(
+            1,
+            ["/usr/bin/rclone", "lsjson"],
+        )
+
+        with mock.patch.object(
+            inventory.subprocess,
+            "run",
+            side_effect=[failure, SimpleNamespace(stdout="[]")],
+        ) as run:
+            result = lister.list_json("remote:transient-shard")
+
+        self.assertEqual(result, [])
+        self.assertEqual(run.call_count, 2)
+
     def test_remote_excluded_family_is_not_listed(self) -> None:
         calls: list[str] = []
         lister = inventory.S3Lister(
