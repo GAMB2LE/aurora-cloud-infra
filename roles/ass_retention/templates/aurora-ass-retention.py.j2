@@ -97,8 +97,7 @@ def main() -> None:
         "--canary",
         action="store_true",
         help=(
-            "Run a bounded manual canary after one fresh clean inventory; "
-            "scheduled retention still requires stable consecutive parity"
+            "Run a bounded manual canary after stable consecutive parity"
         ),
     )
     args = parser.parse_args()
@@ -140,10 +139,7 @@ def main() -> None:
         fail("object-store inventory is stale")
     if object_gate.get("last_generated_at") != report.get("generated_at"):
         fail("object-store stability gate does not describe the latest inventory")
-    if args.canary:
-        if not object_gate.get("clean", False):
-            fail("object-store parity is not clean for canary")
-    elif not object_gate.get("stable_parity", False):
+    if not object_gate.get("stable_parity", False):
         fail("object-store parity has not been clean for the required consecutive runs")
     if object_gate.get("writers_policy") != "independent":
         fail("object-store writer policy is not independently additive")

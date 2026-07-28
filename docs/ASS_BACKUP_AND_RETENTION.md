@@ -71,8 +71,8 @@ only by the coordinator service group (`0640`), and its parent directory is
 Production activation is two-stage. First deploy both sides in live mode while
 leaving `aurora-ass-retention.timer` disabled, then run a manual bounded canary
 with `aurora-ass-retention --canary --max-candidates N` (at most 5,000). The
-manual canary requires one fresh clean object-store report; the scheduled
-timer retains the stricter consecutive-clean-report requirement. The coordinator round-robins
+manual canary and the scheduled timer both require stable parity: the required
+number of consecutive fresh, clean object-store reports. The coordinator round-robins
 oldest eligible files across prune-enabled streams, never exceeds the
 configured hard per-run limit, and continues to issue permits in batches of at
 most 500 paths. Reconcile the cloud and ASS audit receipts, confirm those exact
