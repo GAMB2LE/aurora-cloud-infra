@@ -453,6 +453,59 @@ class ObjectStoreInventoryTests(unittest.TestCase):
         self.assertEqual(result, [])
         self.assertEqual(run.call_count, 2)
 
+    def test_fully_configured_shards_skip_pathological_root_listing(self) -> None:
+        lister = inventory.S3Lister(
+            {
+                "remote": "remote",
+                "bucket": "bucket",
+                "rclone_config": "/config",
+                "list_workers": 1,
+                "shard_list_workers": 1,
+            }
+        )
+        calls: list[str] = []
+
+        def fake_list_json(
+            remote: str, *, recursive: bool = True, files_only: bool = True
+        ) -> list[dict]:
+            calls.append(remote)
+            if remote.endswith("/FISH") or remote.endswith("/PANO"):
+                return []
+            raise AssertionError(f"unexpected root listing: {remote}")
+
+        lister.list_json = fake_list_json  # type: ignore[method-assign]
+        result = lister.inventory(
+            {
+                "name": "products-wxcam",
+                "destination": "products/wxcam",
+                "sharded_prefixes": ["FISH", "PANO"],
+            },
+            {
+                "FISH/20260728/frame.jpg": {
+                    "relpath": "FISH/20260728/frame.jpg",
+                    "size": 1,
+                    "mtime": 1,
+                    "checksum": None,
+                },
+                "PANO/20260728/frame.jpg": {
+                    "relpath": "PANO/20260728/frame.jpg",
+                    "size": 1,
+                    "mtime": 1,
+                    "checksum": None,
+                },
+            },
+        )
+
+        self.assertEqual(result, {})
+        self.assertNotIn("remote:bucket/products/wxcam", calls)
+        self.assertEqual(
+            calls,
+            [
+                "remote:bucket/products/wxcam/FISH",
+                "remote:bucket/products/wxcam/PANO",
+            ],
+        )
+
     def test_remote_excluded_family_is_not_listed(self) -> None:
         calls: list[str] = []
         lister = inventory.S3Lister(

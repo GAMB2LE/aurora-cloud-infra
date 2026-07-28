@@ -192,16 +192,34 @@ class S3Lister:
                 patterns,
             )
 
-        top_level = self.list_json(remote, recursive=False, files_only=False)
         local_prefixes = {path.split("/", 1)[0] for path in local if "/" in path}
-        remote_prefixes = {
-            item["Path"]
-            for item in top_level
-            if item.get("IsDir") and not tree_excluded(item["Path"])
-        }
-        prefixes = sorted(local_prefixes | remote_prefixes)
         sharded = set(job.get("sharded_prefixes", []))
         shard_all_prefixes = bool(job.get("shard_all_prefixes", False))
+        local_root_files = {path for path in local if "/" not in path}
+        shards_fully_describe_tree = (
+            bool(sharded)
+            and bool(local_prefixes)
+            and local_prefixes <= sharded
+            and not local_root_files
+        )
+        if shards_fully_describe_tree:
+            # Some S3 gateways time out listing a very large logical root even
+            # though its configured prefixes list reliably. When every local
+            # path is beneath an explicitly configured shard and there are no
+            # root-level files to reconcile, the root listing adds no source
+            # coverage and can be skipped safely.
+            top_level: list[dict] = []
+            remote_prefixes: set[str] = set()
+        else:
+            top_level = self.list_json(
+                remote, recursive=False, files_only=False
+            )
+            remote_prefixes = {
+                item["Path"]
+                for item in top_level
+                if item.get("IsDir") and not tree_excluded(item["Path"])
+            }
+        prefixes = sorted(local_prefixes | remote_prefixes)
 
         def list_shallow_shards(prefix: str) -> tuple[str, list[dict]]:
             prefix_remote = f"{remote}/{prefix}"

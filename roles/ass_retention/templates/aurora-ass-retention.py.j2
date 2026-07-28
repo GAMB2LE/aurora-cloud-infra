@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import base64
 import csv
 import datetime as dt
@@ -25,6 +26,7 @@ HELPER = {{ ass_retention_helper | to_json }}
 AUDIT = Path({{ ass_retention_audit_root | to_json }})
 SIGNING_KEY = Path({{ ass_retention_signing_private_key | to_json }})
 DRY_RUN = {{ (ass_retention_dry_run | bool) | ternary('True', 'False') }}
+MAX_CANDIDATES_PER_RUN = {{ ass_retention_max_candidates_per_run | default(50000) | int }}
 STREAMS = json.loads(
     r'''{{ aurora_archive_streams | selectattr('site', 'equalto', 'ass') | list | to_json }}'''
 )
@@ -61,7 +63,43 @@ def ssh_command() -> list[str]:
     return command
 
 
+def interleave_candidates(
+    candidates_by_stream: dict[str, list[dict]], limit: int
+) -> list[dict]:
+    for candidates in candidates_by_stream.values():
+        candidates.sort(key=lambda item: (item["mtime"], item["path"]))
+    selected: list[dict] = []
+    stream_names = sorted(candidates_by_stream)
+    while len(selected) < limit:
+        added = False
+        for stream in stream_names:
+            candidates = candidates_by_stream[stream]
+            if candidates:
+                selected.append(candidates.pop(0))
+                added = True
+                if len(selected) >= limit:
+                    break
+        if not added:
+            break
+    return selected
+
+
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--max-candidates",
+        type=int,
+        default=MAX_CANDIDATES_PER_RUN,
+        help="Bound this run below the configured hard candidate maximum",
+    )
+    args = parser.parse_args()
+    if args.max_candidates < 1:
+        fail("max candidates must be positive")
+    if args.max_candidates > MAX_CANDIDATES_PER_RUN:
+        fail(
+            f"max candidates exceeds configured hard limit "
+            f"({MAX_CANDIDATES_PER_RUN})"
+        )
     now = dt.datetime.now(dt.timezone.utc)
     if not SIGNING_KEY.is_file():
         fail("permit signing key is unavailable")
@@ -98,7 +136,7 @@ def main() -> None:
         if raw.get(field):
             fail(f"object-store raw {field} is non-empty")
 
-    candidates: list[dict] = []
+    candidates_by_stream: dict[str, list[dict]] = {}
     cutoffs: list[int] = []
     for stream in STREAMS:
         if not stream.get("prune_enabled", False):
@@ -132,7 +170,7 @@ def main() -> None:
                     candidate.relative_to(root)
                 except ValueError:
                     fail(f"candidate escapes source root for {name}")
-                candidates.append(
+                candidates_by_stream.setdefault(name, []).append(
                     {
                         "stream": name,
                         "path": str(candidate),
@@ -142,9 +180,14 @@ def main() -> None:
                 )
 
     AUDIT.mkdir(parents=True, exist_ok=True)
-    if not candidates:
+    candidate_total = sum(len(items) for items in candidates_by_stream.values())
+    if not candidate_total:
         print("ASS retention: no dual-verified files outside the retention window")
         return
+    candidates = interleave_candidates(
+        candidates_by_stream,
+        min(args.max_candidates, candidate_total),
+    )
 
     expires = now + dt.timedelta(minutes=30)
     for index in range(0, len(candidates), 500):
@@ -200,7 +243,8 @@ def main() -> None:
         audit_path.write_bytes(result.stdout)
     print(
         f"ASS retention: issued {len(candidates)} exact-path "
-        f"{'dry-run ' if DRY_RUN else ''}candidates"
+        f"{'dry-run ' if DRY_RUN else ''}candidates "
+        f"from {candidate_total} eligible"
     )
 
 

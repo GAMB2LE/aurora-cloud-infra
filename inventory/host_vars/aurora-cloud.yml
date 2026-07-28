@@ -5,3 +5,6 @@ aurora_public_ip: 130.246.212.116
 aurora_app_version: prod-20260727.1
 aurora_dashboard_session_check_ms: 15000
 aurora_dashboard_unused_session_lifetime_ms: 120000
+ass_retention_dry_run: false
+ass_retention_timer_enabled: false
+ass_retention_max_candidates_per_run: 50000

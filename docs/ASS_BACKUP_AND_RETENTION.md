@@ -68,6 +68,16 @@ copied to the edge. On the cloud coordinator it is owned by `root`, readable
 only by the coordinator service group (`0640`), and its parent directory is
 `0750`. Only the derived public key is installed on ASS.
 
+Production activation is two-stage. First deploy both sides in live mode while
+leaving `aurora-ass-retention.timer` disabled, then run a manual bounded canary
+with `aurora-ass-retention --max-candidates N`. The coordinator round-robins
+oldest eligible files across prune-enabled streams, never exceeds the
+configured hard per-run limit, and continues to issue permits in batches of at
+most 500 paths. Reconcile the cloud and ASS audit receipts, confirm those exact
+files were deleted, verify current ingest and archive health, and check disk
+recovery before enabling the daily timer. The scheduled service uses the hard
+per-run limit so backlog removal remains bounded.
+
 Files outside the managed archive scope remain on ASS until an explicit source,
 GWS, and object-store mapping is added; the retention service must not guess.
 
