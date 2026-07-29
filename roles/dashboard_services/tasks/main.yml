@@ -25,6 +25,19 @@
     group: "{{ aurora_service_group }}"
     mode: "02775"
 
+- name: Ensure development dashboard library cache directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "02775"
+  loop:
+    - "{{ aurora_dev_product_root }}/dashboard/config"
+    - "{{ aurora_dev_product_root }}/dashboard/cache"
+    - "{{ aurora_dev_product_root }}/dashboard/matplotlib"
+  when: aurora_site_env == 'development'
+
 - name: Install dashboard health probe
   ansible.builtin.template:
     src: aurora-dashboard-health-probe.py.j2
