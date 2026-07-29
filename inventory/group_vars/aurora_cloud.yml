@@ -542,14 +542,17 @@ auroracam_backfill_enabled: true
 auroracam_backfill_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 auroracam_backfill_state_file: "{{ aurora_state_root }}/auroracam-backfill.cursor"
 auroracam_backfill_scope_file: "{{ aurora_state_root }}/auroracam-backfill.scope"
-auroracam_backfill_scope_version: newest-first-v1
-auroracam_backfill_interval: 3min
-auroracam_backfill_randomized_delay: 45
+auroracam_backfill_scope_version: full-tree-catchup-v2
+auroracam_backfill_interval: 1min
+auroracam_backfill_randomized_delay: 10
 # Reserve the most recent hour for the priority lane and process older files
 # newest-first in bounded, lower-priority batches.
 auroracam_backfill_live_guard_seconds: 3600
-auroracam_backfill_batch_size: 100
-auroracam_backfill_rsync_bwlimit_kib: 256
+# The archive lane is deliberately independent of the live lane.  It scans
+# the source tree but transfers only missing immutable files; current frames
+# remain owned by the priority sync.
+auroracam_backfill_batch_size: 1000
+auroracam_backfill_rsync_bwlimit_kib: 768
 auroracam_index_interval: 2min
 auroracam_index_randomized_delay: 30
 

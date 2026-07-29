@@ -8,7 +8,10 @@ Type=oneshot
 User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
 ExecStart=/usr/local/bin/aurora-auroracam-backfill
-TimeoutStartSec=10min
+# Full-tree catch-up is bandwidth-limited and may span several hours.  The
+# live camera lane is independent, so allow this resumable archive transfer to
+# finish instead of terminating it every ten minutes.
+TimeoutStartSec=12h
 Nice=15
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
