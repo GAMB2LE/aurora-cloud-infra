@@ -81,6 +81,12 @@ files were deleted, verify current ingest and archive health, and check disk
 recovery before enabling the daily timer. The scheduled service uses the hard
 per-run limit so backlog removal remains bounded.
 
+Raw-data retention is independent of derived-product freshness. A file is
+eligible only when its source-to-cloud and source-to-GWS raw parity checks pass,
+it is older than the stream's retention window, and the ASS helper accepts its
+short-lived signed permit. A delayed Zarr or index product therefore cannot
+block retention of an otherwise dual-verified raw file.
+
 Files outside the managed archive scope remain on ASS until an explicit source,
 GWS, and object-store mapping is added; the retention service must not guess.
 

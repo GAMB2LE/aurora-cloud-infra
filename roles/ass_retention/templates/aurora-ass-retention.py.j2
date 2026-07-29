@@ -165,8 +165,6 @@ def main() -> None:
             fail(f"cloud mirror is incomplete for {name}")
         if state.get("gws_missing_count") or state.get("gws_mismatch_count"):
             fail(f"GWS mirror is incomplete for {name}")
-        if not state.get("product_gate_ok", False):
-            fail(f"product gate is closed for {name}")
         source_path = snapshot / name / "source.tsv"
         prune_path = snapshot / name / "prune_candidates.tsv"
         if not source_path.exists() or not prune_path.exists():

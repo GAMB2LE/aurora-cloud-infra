@@ -595,7 +595,10 @@ def main() -> int:
                 product_ok = int(watermark.timestamp()) >= latest_product_source
 
             prune_candidates = []
-            if product_ok and not local_missing and not local_mismatched and not gws_missing and not gws_mismatched:
+            # Raw retention is governed by raw source-to-cloud and
+            # source-to-GWS parity. Derived-product freshness is operational
+            # telemetry, not evidence that a raw edge file is unsafe to prune.
+            if not local_missing and not local_mismatched and not gws_missing and not gws_mismatched:
                 prune_candidates = mirrored_all
 
             prune_path = stream_dir / "prune_candidates.tsv"
