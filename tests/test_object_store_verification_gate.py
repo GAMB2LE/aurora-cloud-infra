@@ -41,6 +41,14 @@ def report(generated_at: str, *, missing: bool = False) -> dict:
     }
 
 
+def write_gws_summary(root: Path) -> None:
+    latest = root / "gws" / "latest"
+    latest.mkdir(parents=True, exist_ok=True)
+    (latest / "summary.json").write_text(
+        json.dumps({"streams": {}}), encoding="utf-8"
+    )
+
+
 class ObjectStoreVerificationGateTests(unittest.TestCase):
     def test_two_distinct_clean_reports_are_required(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -53,11 +61,13 @@ class ObjectStoreVerificationGateTests(unittest.TestCase):
                 json.dumps(
                     {
                         "manifest_root": str(root / "manifests"),
+                        "gws_manifest_root": str(root / "gws"),
                         "report_max_age_hours": 8,
                     }
                 ),
                 encoding="utf-8",
             )
+            write_gws_summary(root)
             gate.CATALOG = catalog
             gate.STATE = state
             gate.REQUIRED = 2
@@ -94,11 +104,13 @@ class ObjectStoreVerificationGateTests(unittest.TestCase):
                 json.dumps(
                     {
                         "manifest_root": str(root / "manifests"),
+                        "gws_manifest_root": str(root / "gws"),
                         "report_max_age_hours": 8,
                     }
                 ),
                 encoding="utf-8",
             )
+            write_gws_summary(root)
             state.write_text(
                 json.dumps({"last_generated_at": "old", "clean_streak": 1}),
                 encoding="utf-8",
@@ -130,6 +142,7 @@ class ObjectStoreVerificationGateTests(unittest.TestCase):
                 json.dumps(
                     {
                         "manifest_root": str(root / "manifests"),
+                        "gws_manifest_root": str(root / "gws"),
                         "report_max_age_hours": 8,
                     }
                 ),
@@ -152,7 +165,7 @@ class ObjectStoreVerificationGateTests(unittest.TestCase):
         self.assertFalse(rejected["clean"])
         self.assertEqual(rejected["clean_streak"], 0)
         self.assertFalse(rejected["stable_parity"])
-        self.assertEqual(rejected["failures"], ["raw:gws_evidence_missing"])
+        self.assertTrue(rejected["failures"][0].startswith("raw:gws_retention_evidence_unavailable="))
 
 
 if __name__ == "__main__":

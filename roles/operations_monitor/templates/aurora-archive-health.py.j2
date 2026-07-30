@@ -208,8 +208,12 @@ def main() -> int:
         )
         metrics[f"gws_{metric_name}_missing_count"] = gws_missing
         metrics[f"gws_{metric_name}_mismatch_count"] = gws_mismatch
-        gws_job_missing += gws_missing
-        gws_job_mismatch += gws_mismatch
+        # The raw path is covered by the per-stream, age-bounded verifier
+        # above. Keep its all-age value as telemetry, but do not turn normal
+        # live-transfer lag into an archive-retention failure.
+        if job_name != "raw":
+            gws_job_missing += gws_missing
+            gws_job_mismatch += gws_mismatch
         if job_name == "raw":
             raw_missing = missing
             raw_mismatch = mismatch
