@@ -578,6 +578,28 @@ def main() -> int:
                 gws_entries,
             )
 
+            # Retention is deliberately age-bounded.  A file still moving
+            # through the live pipeline must remain visible as telemetry, but
+            # it must not prevent deletion of an unrelated file that is older
+            # than this stream's retention window and already dual-verified.
+            retention_cutoff = now_ts - int(stream.get("retention_days", 7)) * 86400
+            retention_local_missing = [
+                relpath for relpath in local_missing
+                if int(source_entries[relpath]["mtime"]) < retention_cutoff
+            ]
+            retention_local_mismatched = [
+                relpath for relpath in local_mismatched
+                if int(source_entries[relpath]["mtime"]) < retention_cutoff
+            ]
+            retention_gws_missing = [
+                relpath for relpath in gws_missing
+                if int(source_entries[relpath]["mtime"]) < retention_cutoff
+            ]
+            retention_gws_mismatched = [
+                relpath for relpath in gws_mismatched
+                if int(source_entries[relpath]["mtime"]) < retention_cutoff
+            ]
+
             mirrored_all = sorted(set(local_mirrored).intersection(gws_mirrored))
             latest_product_source = latest_settled_product_timestamp(
                 stream,
@@ -598,7 +620,12 @@ def main() -> int:
             # Raw retention is governed by raw source-to-cloud and
             # source-to-GWS parity. Derived-product freshness is operational
             # telemetry, not evidence that a raw edge file is unsafe to prune.
-            if not local_missing and not local_mismatched and not gws_missing and not gws_mismatched:
+            if not (
+                retention_local_missing
+                or retention_local_mismatched
+                or retention_gws_missing
+                or retention_gws_mismatched
+            ):
                 prune_candidates = mirrored_all
 
             prune_path = stream_dir / "prune_candidates.tsv"
@@ -615,6 +642,10 @@ def main() -> int:
                 "local_mismatch_count": len(local_mismatched),
                 "gws_missing_count": len(gws_missing),
                 "gws_mismatch_count": len(gws_mismatched),
+                "retention_local_missing_count": len(retention_local_missing),
+                "retention_local_mismatch_count": len(retention_local_mismatched),
+                "retention_gws_missing_count": len(retention_gws_missing),
+                "retention_gws_mismatch_count": len(retention_gws_mismatched),
                 "product_gate_ok": product_ok,
                 "required_services": service_states,
                 "latest_product_source_mtime": latest_product_source,

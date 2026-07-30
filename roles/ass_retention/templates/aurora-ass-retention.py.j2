@@ -161,10 +161,21 @@ def main() -> None:
         state = summary.get("streams", {}).get(name, {})
         if state.get("error"):
             fail(f"GWS verification failed for {name}: {state['error']}")
-        if state.get("local_missing_count") or state.get("local_mismatch_count"):
-            fail(f"cloud mirror is incomplete for {name}")
-        if state.get("gws_missing_count") or state.get("gws_mismatch_count"):
-            fail(f"GWS mirror is incomplete for {name}")
+        # Only gaps outside the retention window make deletion unsafe.  Keep
+        # the all-age counters as monitoring signals; fresh files can still
+        # be in transit while older dual-verified files are safe to prune.
+        required_counts = (
+            "retention_local_missing_count",
+            "retention_local_mismatch_count",
+            "retention_gws_missing_count",
+            "retention_gws_mismatch_count",
+        )
+        if not all(field in state for field in required_counts):
+            fail(f"retention-age verification evidence is missing for {name}")
+        if state["retention_local_missing_count"] or state["retention_local_mismatch_count"]:
+            fail(f"cloud mirror is incomplete beyond retention window for {name}")
+        if state["retention_gws_missing_count"] or state["retention_gws_mismatch_count"]:
+            fail(f"GWS mirror is incomplete beyond retention window for {name}")
         source_path = snapshot / name / "source.tsv"
         prune_path = snapshot / name / "prune_candidates.tsv"
         if not source_path.exists() or not prune_path.exists():

@@ -165,16 +165,23 @@ def main() -> int:
         prefix = PREFIX.get(name, name)
         missing = int(state.get("gws_missing_count") or 0)
         mismatch = int(state.get("gws_mismatch_count") or 0)
+        retention_missing = int(state.get("retention_gws_missing_count") or 0)
+        retention_mismatch = int(state.get("retention_gws_mismatch_count") or 0)
         count = int(state.get("source_count") or 0)
         gws_count = int(state.get("gws_count") or 0)
         coverage = 100.0 if count == 0 else min(100.0, gws_count * 100.0 / count)
         metrics[f"{prefix}_gws_missing_count"] = missing
         metrics[f"{prefix}_gws_mismatch_count"] = mismatch
+        metrics[f"{prefix}_retention_gws_missing_count"] = retention_missing
+        metrics[f"{prefix}_retention_gws_mismatch_count"] = retention_mismatch
         metrics[f"{prefix}_gws_coverage_pct"] = coverage
         metrics[f"{prefix}_prune_ready_state"] = int(
             bool(state.get("prune_ready")) and bool(stream.get("prune_enabled"))
         )
-        issues += missing + mismatch
+        # Fresh in-flight gaps remain observable above but do not make
+        # seven-day retention unsafe.  The retention verifier supplies the
+        # explicitly age-bounded counters used for the health gate.
+        issues += retention_missing + retention_mismatch
         prune_ready += int(bool(metrics[f"{prefix}_prune_ready_state"]))
 
     object_missing = 0
