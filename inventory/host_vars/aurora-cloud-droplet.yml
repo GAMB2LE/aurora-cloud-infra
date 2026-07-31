@@ -8,7 +8,7 @@ aurora_public_ip: 167.172.54.82
 aurora_app_repo: https://github.com/GAMB2LE/aurora_cloud_dashboard.git
 # Exact clean dashboard commit currently validated on development. Production
 # uses the immutable release tag that points to this same revision.
-aurora_app_version: fa0176e80aa5e5ef968133d0e4a7f9d3f69115e9
+aurora_app_version: 34b36ebdf6cdf4f330e2c988ddabdb74b0524044
 # Development-only performance experiment. Panel supports reconnecting after a
 # brief disconnect, while this prevents unused phone sessions retaining a full
 # dashboard document for the production one-hour lifetime.
@@ -22,6 +22,7 @@ aurora_dashboard_num_procs: 1
 # Keep one worker as the normal cache-efficient setting unless the benchmark
 # demonstrates a concurrent-request improvement.
 aurora_mobile_api_workers: 1
+aurora_mobile_api_auth_mode: public_read_only
 aurora_browser_rum_enabled: false
 aurora_measure_plot_json_bytes: false
 aurora_dashboard_perf_log_path: "{{ aurora_dev_product_root }}/dashboard/dashboard_perf.jsonl"

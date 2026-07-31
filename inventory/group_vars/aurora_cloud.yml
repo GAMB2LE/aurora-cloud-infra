@@ -125,6 +125,9 @@ aurora_dashboard_session_check_ms: 600000
 aurora_dashboard_unused_session_lifetime_ms: 3600000
 aurora_mobile_api_host: 127.0.0.1
 aurora_mobile_api_port: 8010
+# Secure by default. Public dashboard hosts opt into bounded GET/HEAD access
+# explicitly in host_vars; privileged artifact inventory remains protected.
+aurora_mobile_api_auth_mode: required
 aurora_nginx_disabled_sites: []
 
 # JASMIN target already has /data on a 999G volume and /project on a 4T Ceph mount.
