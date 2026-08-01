@@ -825,7 +825,9 @@ object_store_jobs:
     gws_destination: "{{ gws_products_root }}"
     schedule: "*:05/30"
     settle_age: 20m
-    verification_settle_age: 6h
+    # Derived quicklooks are live operational output, not raw archive data.
+    # Let the additive copy/repair path settle them before archive parity.
+    verification_settle_age: 30h
     timeout_start_sec: 12h
     transfers: 4
     recent_first: 2d
@@ -840,7 +842,7 @@ object_store_jobs:
     gws_destination: "{{ gws_products_root }}/wxcam"
     schedule: "*:11"
     settle_age: 30m
-    verification_settle_age: 6h
+    verification_settle_age: 30h
     timeout_start_sec: 24h
     transfers: 2
     recent_first: 2d

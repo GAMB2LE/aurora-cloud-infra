@@ -197,10 +197,16 @@ class S3Lister:
         shard_all_prefixes = bool(job.get("shard_all_prefixes", False))
         local_root_files = {path for path in local if "/" not in path}
         shards_fully_describe_tree = (
-            bool(sharded)
-            and bool(local_prefixes)
-            and local_prefixes <= sharded
+            bool(local_prefixes)
             and not local_root_files
+            and (
+                (bool(sharded) and local_prefixes <= sharded)
+                # When every source path is below a first-level prefix, use
+                # those source-derived prefixes directly.  This avoids a
+                # pathological top-level S3 listing for large live-product
+                # trees while retaining authoritative source coverage.
+                or shard_all_prefixes
+            )
         )
         if shards_fully_describe_tree:
             # Some S3 gateways time out listing a very large logical root even
@@ -497,14 +503,17 @@ def render_markdown(report: dict) -> str:
         "",
         f"Generated: `{report['generated_at']}`",
         "",
-        "| Job | Source | S3 | Missing | Size mismatch |",
-        "|---|---:|---:|---:|---:|",
+        "| Job | Source | S3 | Missing | Pending upload | Size mismatch |",
+        "|---|---:|---:|---:|---:|---:|",
     ]
     for name, values in report["jobs"].items():
         check = values["source_vs_s3"]
+        pending = values.get("pending_upload", {})
         lines.append(
             f"| {name} | {check['left_count']} | {check['right_count']} | "
-            f"{len(check['missing_from_right'])} | {len(check['size_mismatch'])} |"
+            f"{len(check['missing_from_right'])} | "
+            f"{len(pending.get('missing_from_right', []))} | "
+            f"{len(check['size_mismatch'])} |"
         )
     return "\n".join(lines) + "\n"
 
@@ -605,12 +614,27 @@ def main() -> int:
                     phase="local_inventory",
                 )
                 patterns = COMMON_EXCLUDES + job.get("exclude", [])
+                # Settled products are archive evidence.  Recent derived
+                # outputs remain observable as pending uploads, but cannot
+                # reset the archive-parity gate before their configured
+                # delivery window has elapsed.
+                local_live = local_inventory(
+                    job["source"],
+                    patterns,
+                    "0s",
+                    bool(job.get("copy_links")),
+                )
                 local = local_inventory(
                     job["source"],
                     patterns,
                     verification_settle_age(job),
                     bool(job.get("copy_links")),
                 )
+                pending_upload = {
+                    path: entry
+                    for path, entry in local_live.items()
+                    if path not in local
+                }
                 update_progress(phase="gws_inventory")
                 gws = gws_inventory(config, job)
                 # Prove the usually-cheaper GWS path before starting a large
@@ -646,6 +670,8 @@ def main() -> int:
                     "gws": job.get("gws_destination", ""),
                     "s3": f"s3://{config['bucket']}/{job['destination'].strip('/')}",
                     "source_vs_s3": compare(local, s3),
+                    "pending_upload": compare(pending_upload, s3),
+                    "verification_settle_age": verification_settle_age(job),
                     "source_vs_gws": (
                         compare(gws_source, gws)
                         if gws_source or gws

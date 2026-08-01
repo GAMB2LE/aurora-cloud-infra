@@ -197,8 +197,11 @@ def main() -> int:
             comparison.get("checksum_mismatch", [])
         )
         metric_name = job_name.replace("-", "_")
+        pending = job.get("pending_upload") or {}
+        pending_missing = len(pending.get("missing_from_right", []))
         metrics[f"object_store_{metric_name}_missing_count"] = missing
         metrics[f"object_store_{metric_name}_mismatch_count"] = mismatch
+        metrics[f"object_store_{metric_name}_pending_upload_count"] = pending_missing
         object_missing += missing
         object_mismatch += mismatch
         gws_comparison = job.get("source_vs_gws") or {}
