@@ -82,8 +82,14 @@ and 50 clean comparisons before it can be reviewed; it never changes the
 configured provider. `aurora-dashboard-health-probe.timer` also compares public
 development and production response times every five minutes and records mirror
 age. A development-versus-production latency delta is an observation only: it
-does not fail the availability probe when both endpoints are healthy. It does
-not run a forecast writer or modify mirrored production products.
+does not fail the availability probe when both endpoints are healthy.
+
+Development may run advisory forecast writers only in
+`/data/aurora/dev-products/power`; it never modifies the mirrored production
+forecast products. Production runs the same advisory jobs in
+`/data/aurora/products/power`. The operating-scenario service reads the UAS
+MQTT mirror so it can learn effective-tier load evidence. Neither environment
+issues PDU commands.
 
 The development 240-hour planning forecast is advisory. It attempts a bounded
 ECMWF refresh and then a bounded cached re-anchor. If both fail, the service
@@ -91,6 +97,11 @@ retains the last published plan and exits cleanly with an explicit journal
 message; this must not be treated as an acquisition failure.
 Production remains on `AURORA_ECMWF_PROVIDER=legacy` until the parity and
 resource gates pass.
+
+Forecast and scenario services use semantic publication signatures. A run with
+unchanged SOC/load anchors, mode, ECMWF cycle, solar calibration, battery
+parameters, and model version updates service state without rewriting the
+public Zarr or adding a duplicate verification issue.
 
 ## Development-only display performance work
 
