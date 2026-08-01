@@ -72,7 +72,7 @@ The deployed syncs currently cover:
 - ASFS Logger
 - ASFS Fast Sonic
 - ASFS Fast Gas
-- PDU
+- ASS PDU
 - Power
 - WXcam
 - MX4 camera FTP ingest on the ASS Linux data volume
@@ -94,8 +94,8 @@ ASFS science and fast-sonic syncs use the current CRD source directory
 
 ## Archive transfer model
 
-The current archive design uses independent additive writers from the Aurora
-VM to both:
+The current backup design uses independent additive writers from the
+production Aurora VM to both:
 
 - JASMIN GWS under `/gws/ssde/j25b/gamb2le`; and
 - the configured `gamb2le-o` object-store bucket.
@@ -107,12 +107,24 @@ GWS transfer uses systemd timers plus rsync-over-SSH failover across:
 3. `xfer-vm-02.jasmin.ac.uk`
 
 Verification manifests are generated for source, local raw, GWS, and object
-copies. The fail-closed gate requires two complete, distinct reports with zero
-missing or mismatched files in both destinations before retention can become
-eligible. Product sync is split into core products and WXcam products so the
-large WXcam media tree cannot delay smaller product artifacts. The dashboard
-only reads the resulting infrastructure-owned health contract; it does not run
-archive writers, probes, verification, repair, or retention.
+copies. Raw object parity remains strict for files older than six hours. Live
+derived products and quicklooks receive a 30-hour settle window and appear as
+`pending_upload` while they are still too new to be archive evidence. Pending
+files do not reset the clean streak; settled gaps do. Product sync is split
+into core products and WXcam products so the large WXcam media tree cannot
+delay smaller product artifacts, and verification lists bounded
+source-derived shards instead of one unbounded product-tree request.
+
+The fail-closed stability gate requires two complete, distinct clean reports.
+ASS files are retained for at least seven days and are deleted only by exact,
+signed permits after cloud, GWS, and object-store proof. APS Power is archived
+but non-prunable. The dashboard only reads the resulting
+infrastructure-owned health contract; it does not run archive writers, probes,
+verification, repair, or retention. The development live mirror and weekly
+PBS guest backups do not count as science-data archive parity.
+
+See [Backups and Archive Services](ARCHIVE_SERVICES.md) for the complete flow,
+status meanings, schedules, and evidence paths.
 
 ## Production and development state
 
@@ -148,8 +160,10 @@ standalone repo-local Pages site.
   and rollback rules
 - **Failover** for emergency promotion history and troubleshooting
 - **Reverse Tunnels** for cloud-side source access and staged rollout checks
-- **Data Locations** for source, local raw, local product, GWS archive, and
-  active Zarr paths
+- **Data Locations** for source, local raw, local product, GWS, object-store,
+  evidence, and active Zarr paths
+- **Backups and Archive Services** for the authoritative copy, verification,
+  repair, status, and retention contract
 - **Source Syncs** for per-instrument sync behavior and deployment details
 - **MX4 Camera FTP Ingest** for the MOBOTIX camera FTP endpoint and camera-side
   exposure/upload settings

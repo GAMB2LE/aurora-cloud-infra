@@ -64,3 +64,12 @@ No private key is installed for this source.
 The priority and archive lanes use separate locks and checkpoints under
 `/var/lib/aurora-cloud/`, so they can progress independently. The archive
 cursor moves from newer to older files only after each bounded batch succeeds.
+
+## Backup and retention
+
+Every canonical camera JPEG is archived additively under `auroracam/` on both
+GWS and object storage. The metadata Zarr is a rebuildable product and does not
+replace the JPEG archive. ASS keeps each JPEG for at least seven days and the
+edge helper can remove only an unchanged exact file named by a signed permit
+after cloud, GWS, and object-store proof. See
+[Backups and Archive Services](ARCHIVE_SERVICES.md).

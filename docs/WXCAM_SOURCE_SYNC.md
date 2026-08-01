@@ -60,3 +60,16 @@ No private key is installed for this source.
 
 The sync script uses `/var/lib/aurora-cloud/wxcam-sync.lock` so a long-running
 rsync cannot overlap with the next timer tick.
+
+## Backup and retention
+
+Archive and retention scope is deliberately limited to FISH/PANO HDR JPG and
+MP4 files. AUTO/LONG/SHORT files remain outside this cloud-managed backup and
+cannot be pruned by it. In-scope HDR media is archived additively to the raw
+prefixes on GWS and object storage and retained on ASS for at least seven days.
+The SQLite catalogue, daily videos, and hourly thumbnails are product archives;
+the local mutable `wxcam.zarr` is excluded because it is reproducible from raw
+HDR imagery. A fresh product that is not yet archived is reported as
+`pending_upload` during its 30-hour settle window; it participates in stable
+parity only after that window. See
+[Backups and Archive Services](ARCHIVE_SERVICES.md).

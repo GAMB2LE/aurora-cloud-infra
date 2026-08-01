@@ -45,3 +45,12 @@ false.
 Processing timer:
 
 - `aurora-asfs-fast-sonic-append.timer`
+
+## Backup and retention
+
+Only the fast-sonic filename family described above is verified for this
+stream, although it shares `/asfs/crd` with science and fast-gas files. The
+matching raw files are archived additively to GWS and object storage and kept
+on ASS for at least seven days. Deletion requires an exact signed permit backed
+by cloud, GWS, and object-store proof. The derived Zarr is not raw-retention
+evidence. See [Backups and Archive Services](ARCHIVE_SERVICES.md).

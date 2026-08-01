@@ -21,6 +21,12 @@ intended public split is:
 Only move `data.gamb2le.co.uk` to the droplet if a full public failover is
 explicitly initiated. Only one host should run writer timers at a time.
 
+The standby mirror is not archive evidence. A promoted host may resume GWS and
+object-store writers only after its source paths, archive credentials, and
+current comparison evidence are verified. Keep retention stopped during a
+promotion until two new complete clean inventories have established stable
+parity from the promoted writer.
+
 ## Roles
 
 - `aurora-cloud`: `aurora_failover_role: primary`,

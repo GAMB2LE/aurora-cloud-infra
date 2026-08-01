@@ -45,3 +45,12 @@ Processing timers:
 
 - `aurora-asfs-logger-append.timer`
 - `aurora-asfs-logger-quicklooks.timer`
+
+## Backup and retention
+
+Only the science filename family described above is verified for this stream,
+although it shares `/asfs/crd` with fast-sonic and fast-gas files. The matching
+raw CRD files are archived additively to GWS and object storage and kept on ASS
+for at least seven days. Deletion requires an exact signed permit backed by all
+three checked copies. Derived ASFS Zarrs and quicklooks are not raw-retention
+evidence. See [Backups and Archive Services](ARCHIVE_SERVICES.md).

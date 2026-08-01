@@ -26,6 +26,19 @@ normal writer timers: it uses `aurora-dev-live-pull.timer` and development-only
 paths for experiments. See [Production and Development](docs/PRODUCTION_DEVELOPMENT.md)
 for the complete release, cutover, and rollback policy.
 
+## Backup Contract
+
+Production copies raw and selected derived data additively to both the JASMIN
+GWS and the `gamb2le-o` object store. The development mirror and Proxmox guest
+backups are useful recovery layers, but neither counts as raw-data retention
+evidence. ASS deletes only exact files older than seven days after cloud, GWS,
+and object-store verification; APS Power is not pruned. Fresh derived products
+not yet archived remain visible as pending uploads until their 30-hour
+verification window expires. See
+[Backups and Archive Services](docs/ARCHIVE_SERVICES.md) for the
+complete status model and [ASS Backup and Retention](docs/ASS_BACKUP_AND_RETENTION.md)
+for deletion safeguards.
+
 ## Safe First Commands
 
 Run commands from this repository using the pinned `uv` environment:
@@ -48,8 +61,8 @@ changes.
 - [Documentation home](docs/index.md): scope and current deployment contract
 - [Production and Development](docs/PRODUCTION_DEVELOPMENT.md): roles, release policy, and rollback
 - [Data Locations](docs/DATA_LOCATIONS.md): raw, product, state, and archive paths
-- [Archive Services](docs/ARCHIVE_SERVICES.md): GWS and object-store writers,
-  verification, monitoring contract, and retention coordinator
+- [Backups and Archive Services](docs/ARCHIVE_SERVICES.md): what is copied,
+  where it goes, verification windows, repair, alerts, and retention
 - [ASS Backup and Retention](docs/ASS_BACKUP_AND_RETENTION.md): fail-closed
   verification gates and the exact edge-pruning boundary
 - [Source Syncs](docs/RADAR_SOURCE_SYNC.md): start with the stream-specific guides in the docs navigation

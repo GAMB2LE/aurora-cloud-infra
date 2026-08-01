@@ -3,6 +3,13 @@
 This file keeps the initial rebuild plan and historical audit notes. For the
 current deployed contract, see the repo home page and the per-source sync docs.
 
+The GWS-only notes below predate the current backup system. Production now has
+independent additive writers to both the JASMIN GWS and `gamb2le-o` object
+storage, sharded verification with explicit settle windows, exact repair, and
+signed seven-day ASS retention. Use
+[Backups and Archive Services](ARCHIVE_SERVICES.md), not this historical plan,
+for current archive or pruning decisions.
+
 ## Initial Audited Target
 
 - Host: `aurora-cloud-workstation-ssh`

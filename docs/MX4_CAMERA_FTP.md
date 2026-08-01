@@ -132,3 +132,13 @@ printf 'ls /home/aurora/data/cl61\nbye\n' | sftp -b - aurora@100.124.55.22
 On `2026-07-07`, all four cameras accepted the settings, stored the
 configuration, and uploaded fresh JPEGs into their per-camera day folders with
 the `camera-name_YYYY-MM-DD_HH-MM.jpg` filename format.
+
+## Backup boundary
+
+FTP delivery only proves that a camera frame reached ASS. The separate
+AURORACam source sync copies canonical JPEGs to the production cloud raw mirror,
+then additive writers copy them to GWS and object storage. A frame remains on
+ASS for at least seven days and can be deleted only by the restricted retention
+helper after exact cloud, GWS, and object-store verification. See
+[AURORACam Source Sync](AURORACAM_SOURCE_SYNC.md) and
+[Backups and Archive Services](ARCHIVE_SERVICES.md).

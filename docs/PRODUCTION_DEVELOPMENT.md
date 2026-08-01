@@ -49,6 +49,8 @@ Production owns:
 - quicklook timers
 - Operations monitor and alert timers
 - GWS archive sync and verification timers
+- object-store writers, sharded inventory, exact repair, archive health, and
+  the retention coordinator
 
 Development owns:
 
@@ -64,6 +66,12 @@ The development mirror pulls production raw, products, internal state, and
 required service state about every five minutes. It uses rsync locking,
 `--partial`, `--delay-updates`, and `--delete-delay` so incomplete transfers do
 not replace complete products.
+
+That mirror is for service availability and development testing. It is not an
+independent long-term archive and never counts as GWS/object-store parity or as
+permission to prune ASS. When production ownership moves during a deliberate
+failover, archive-writer and retention ownership must move as one explicitly
+reviewed unit; two hosts must never coordinate deletion concurrently.
 
 Development also runs `aurora-ecmwf-provider-shadow.timer`. This performs a
 read-only comparison of the latest mirrored deterministic ECMWF GRIB with the

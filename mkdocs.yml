@@ -34,7 +34,7 @@ nav:
   - Reverse Tunnels: REVERSE_TUNNELS.md
   - Reverse Tunnel Rollout: REVERSE_TUNNEL_ROLLOUT.md
   - Data Locations: DATA_LOCATIONS.md
-  - Archive Services: ARCHIVE_SERVICES.md
+  - Backups and Archive Services: ARCHIVE_SERVICES.md
   - ASS Backup and Retention: ASS_BACKUP_AND_RETENTION.md
   - Source Syncs:
       - CL61: CL61_SOURCE_SYNC.md
@@ -43,6 +43,8 @@ nav:
       - Vaisala MET: VAISALAMET_SOURCE_SYNC.md
       - ASFS Logger: ASFS_LOGGER_SOURCE_SYNC.md
       - ASFS Fast Sonic: ASFS_FAST_SONIC_SOURCE_SYNC.md
+      - ASFS Fast Gas: ASFS_FAST_GAS_SOURCE_SYNC.md
+      - ASS PDU: PDU_SOURCE_SYNC.md
       - Power: POWER_SOURCE_SYNC.md
       - WXcam: WXCAM_SOURCE_SYNC.md
       - MX4 Cameras: MX4_CAMERA_FTP.md

@@ -54,6 +54,38 @@ not be treated as an independent production writer.
    cat /data/aurora/internal/dev-live-mirror/last_success.json
    ```
 
+## Read archive status correctly
+
+The development mirror is not a backup gate. Archive authority comes from the
+production `health-v1` contract, which combines cloud, GWS, and object-store
+evidence. For a red archive card, collect these read-only checks on production:
+
+```bash
+sudo systemctl status aurora-mirror-verify.service --no-pager
+sudo systemctl status aurora-object-store-inventory.service --no-pager
+sudo systemctl status aurora-object-store-repair.service --no-pager
+sudo systemctl status aurora-ass-retention.timer --no-pager
+cat /data/aurora/internal/object_store_manifests/progress.json
+cat /var/lib/aurora-cloud/object-store-verification-gate/state.json
+cat /data/aurora/internal/archive_status/health-v1.json
+```
+
+Interpret the result before escalating:
+
+| Signal | Meaning |
+| --- | --- |
+| `pending_upload` | A product is still inside its 30-hour settle window; it is visible but is not a parity failure. |
+| settled `missing` or `mismatch` | A real archive gap; exact repair and a new inventory are required. |
+| inventory running with heartbeat under five minutes old | Slow but progressing verification. |
+| running with heartbeat over five minutes old | Stalled verifier. |
+| clean streak `1` | First clean report; stable parity still needs a second distinct report. |
+| `stable_parity=true` | Global archive stability gate is satisfied. |
+| `prune_ready=true` | One raw stream has exact age-bounded candidates; this alone is not deletion permission. |
+
+Do not start pruning, edit manifests, or clear an alert manually. Writers and
+exact repair continue independently; retention fails closed until fresh
+evidence passes.
+
 ## Locate the failed stage
 
 Use the Operations Dashboard and `latest_report.md` to distinguish these
@@ -63,7 +95,7 @@ states; do not treat every red card as a single outage.
 | --- | --- | --- |
 | Source is stale, but the dashboard is otherwise healthy | Instrument or edge-host acquisition | Compare the newest source timestamp with the local raw mirror. |
 | Source is current, but local data/product is stale | Source sync, append, or quicklook job | Check the named stream's timer/service and its recent journal. |
-| Local product is current, but GWS is behind | Archive transfer or verification | Check GWS rsync/manifests; do not prune source data. |
+| Local product is current, but GWS or object storage is behind | Archive transfer, settle window, or verification | Distinguish pending from a settled gap; do not prune source data. |
 | Data are current but the page is incomplete or slow | Dashboard, nginx, or Panel | Check the public endpoint card, `aurora-dashboard.service`, and nginx. |
 | Development differs from Production | Development mirror | Check `aurora-dev-live-pull.timer` and `last_success.json`. |
 
