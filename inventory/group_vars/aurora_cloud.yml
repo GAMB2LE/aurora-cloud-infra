@@ -105,13 +105,6 @@ aurora_les_root: "{{ aurora_data_root }}/les"
 aurora_les_campaign_root: "{{ aurora_les_root }}/campaigns"
 aurora_model_evaluation_campaign_root: "{{ aurora_data_root }}/model-evaluation/campaigns/aurora_iceland_model_evaluation_v1"
 aurora_les_runtime_root: "{{ aurora_les_root }}/runtimes"
-aurora_les_runtime_dir: "{{ aurora_les_runtime_root }}/aurora-les-operational-current"
-aurora_les_python: "{{ aurora_data_root }}/les/runtimes/cloudnetpy-model-eval/bin/python3"
-aurora_les_campaign_config: configs/campaigns/aurora_leeds_operational_20260521_rolling.yaml
-aurora_les_target: latest-ready
-aurora_les_skip_completed: true
-aurora_les_era5_lag_days: 5
-aurora_les_run_timeout_seconds: 86400
 aurora_panel_host: 127.0.0.1
 aurora_panel_port: 5006
 # Production has 16 CPUs and currently runs the dashboard as a single Panel
@@ -298,7 +291,6 @@ aurora_processing_timers:
   ops_monitor_append: "{{ aurora_writer_timers_enabled }}"
   ops_monitor_alerts: "{{ aurora_writer_timers_enabled }}"
   ops_monitor_quicklooks: "{{ aurora_writer_timers_enabled }}"
-  les_operational_run: "{{ aurora_writer_timers_enabled }}"
   wxcam_catalog: "{{ aurora_writer_timers_enabled }}"
   # The pixel Zarr duplicates full RGB camera frames, is not used by either
   # dashboard, and grew to 635 GB. Canonical HDR JPG/MP4 files remain in the

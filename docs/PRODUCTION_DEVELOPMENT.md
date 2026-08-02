@@ -55,6 +55,9 @@ Production owns:
 Development owns:
 
 - the public development dashboard
+- the isolated AURORA Iceland model-evaluation science workspace and
+  evaluator-owned replay/daily units on data-ocean; these are not normal
+  dashboard writer timers
 - independent `aurora-dev-live-pull-<stage>.timer` units for each raw or
   product family
 - the shared `aurora-dev-live-pull@.service` template used by those timers
@@ -63,6 +66,12 @@ Development owns:
 - experimental paths only:
   - `/project/aurora/dev-raw`
   - `/data/aurora/dev-products`
+
+The model-evaluation exception is deliberate: `aurora-model-evaluation` owns
+its executable units, science environment, and campaign products. The
+`dashboard_services` role neither installs nor starts them. Approved compact
+campaign artifacts can be published to the production dashboard and archive
+roots without giving data-ocean ownership of normal instrument writers.
 
 Most development stages pull production raw, products, internal state, and
 required service state about every five minutes. AURORACam raw and product
