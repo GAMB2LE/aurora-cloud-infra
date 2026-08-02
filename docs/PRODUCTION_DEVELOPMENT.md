@@ -55,17 +55,27 @@ Production owns:
 Development owns:
 
 - the public development dashboard
-- `aurora-dev-live-pull.timer`
+- independent `aurora-dev-live-pull-<stage>.timer` units for each raw or
+  product family
+- the shared `aurora-dev-live-pull@.service` template used by those timers
 - a mirror-lag success stamp at
   `/data/aurora/internal/dev-live-mirror/last_success.json`
 - experimental paths only:
   - `/project/aurora/dev-raw`
   - `/data/aurora/dev-products`
 
-The development mirror pulls production raw, products, internal state, and
-required service state about every five minutes. It uses rsync locking,
-`--partial`, `--delay-updates`, and `--delete-delay` so incomplete transfers do
-not replace complete products.
+Most development stages pull production raw, products, internal state, and
+required service state about every five minutes. AURORACam raw and product
+stages run every two minutes. Every stage has its own lock and status JSON, so
+a large camera or radar scan cannot block Power or dashboard summaries. The
+legacy combined `aurora-dev-live-pull.timer` is installed for compatibility but
+disabled while staged timers are active.
+
+The mirror uses `--partial`, `--delay-updates`, and `--delete-delay` so an
+incomplete transfer does not replace a complete product. Only a successful
+`product-dashboard` stage updates the public
+`/data/aurora/internal/dev-live-mirror/last_success.json` stamp used for common
+dashboard freshness.
 
 That mirror is for service availability and development testing. It is not an
 independent long-term archive and never counts as GWS/object-store parity or as
@@ -113,10 +123,10 @@ quicklooks, WXcam thumbnails, and daily videos every five minutes. The manifest
 is an atomic, bounded input for a future CDN or object-store publishing job; it
 does not publish raw data and does not move any Zarr store.
 
-Development also uses a short unused-Panel-session lifetime so backgrounded
+Development expires unused Panel documents after one minute so backgrounded
 phone sessions stop retaining full server-side documents promptly. Production
-retains its existing lifetime unless a separately reviewed production release
-changes it.
+uses two minutes. Both hosts check every 15 seconds and retain a 24-hour
+session-token lifetime.
 
 ## Release Policy
 
@@ -201,9 +211,11 @@ production writer timers are enabled there.
 On data-ocean:
 
 ```bash
-sudo systemctl is-active aurora-dashboard.service nginx.service aurora-dev-live-pull.timer
+sudo systemctl is-active aurora-dashboard.service nginx.service
+sudo systemctl list-timers --all 'aurora-dev-live-pull-*.timer'
 sudo systemctl list-timers --all 'aurora-*'
-sudo journalctl -u aurora-dev-live-pull.service --since '30 minutes ago' --no-pager
+sudo journalctl -u 'aurora-dev-live-pull@*.service' --since '30 minutes ago' --no-pager
+ls -1 /var/lib/aurora-cloud/dev-live-mirror/*.json
 cat /data/aurora/internal/dev-live-mirror/last_success.json
 ```
 
@@ -211,7 +223,8 @@ Expected result:
 
 - app returns the full dashboard document
 - development banner is visible
-- mirror lag is green in Operations
+- staged mirror timers are active and the legacy combined timer is inactive
+- dashboard-product mirror lag is green in Operations
 - normal production-path writer timers are disabled
 - AURORACam, WXcam, Power, and Operations load from mirrored data
 

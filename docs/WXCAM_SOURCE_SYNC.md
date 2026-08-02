@@ -1,4 +1,4 @@
-# Wxcam Source Sync
+# WXcam Source Sync
 
 - Source: `aurora@100.124.55.22:/home/aurora/data/wxcam`
 - Target raw directory: `/project/aurora/raw/wxcam`
@@ -8,7 +8,7 @@
 - Local derived pixel Zarr:
   `/data/aurora/products/wxcam/wxcam.zarr`
 
-The wxcam source contains nested `FISH/` and `PANO/` trees. The deployed sync
+The WXcam source contains nested `FISH/` and `PANO/` trees. The deployed sync
 retains HDR JPG and MP4 files from both streams locally. `AUTO`/`LONG`/`SHORT`
 files remain on the camera host and are not cataloged, Zarr-appended, or
 archived from this VM.
@@ -32,7 +32,7 @@ HDR JPG stream, while the interactive browser uses stitched HDR MP4 products.
 The wxcam pixel Zarr is a local mutable working store and starts at
 `2026-07-04T00:00:00Z`. It is reproducible from the archived HDR imagery and
 is deliberately excluded from the additive GWS and object-store product
-writers. Immutable raw HDR files, the catalogue, daily videos, and hourly
+writers. Immutable raw HDR files, the catalog, daily videos, and hourly
 thumbnails are archived. The derived Zarr is never accepted as retention
 evidence.
 
@@ -67,7 +67,7 @@ Archive and retention scope is deliberately limited to FISH/PANO HDR JPG and
 MP4 files. AUTO/LONG/SHORT files remain outside this cloud-managed backup and
 cannot be pruned by it. In-scope HDR media is archived additively to the raw
 prefixes on GWS and object storage and retained on ASS for at least seven days.
-The SQLite catalogue, daily videos, and hourly thumbnails are product archives;
+The SQLite catalog, daily videos, and hourly thumbnails are product archives;
 the local mutable `wxcam.zarr` is excluded because it is reproducible from raw
 HDR imagery. A fresh product that is not yet archived is reported as
 `pending_upload` during its 30-hour settle window; it participates in stable

@@ -28,7 +28,7 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Operator Quickstart: OPERATOR_QUICKSTART.md
-  - Rebuild Plan: PLAN.md
+  - Historical Rebuild Plan: PLAN.md
   - Production and Development: PRODUCTION_DEVELOPMENT.md
   - Failover: FAILOVER.md
   - Reverse Tunnels: REVERSE_TUNNELS.md

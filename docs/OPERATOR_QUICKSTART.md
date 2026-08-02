@@ -49,8 +49,9 @@ not be treated as an independent production writer.
 
    ```bash
    ssh aurora-cloud-droplet
-   sudo systemctl is-active aurora-dashboard.service nginx.service aurora-dev-live-pull.timer
-   sudo journalctl -u aurora-dev-live-pull.service --since '30 minutes ago' --no-pager
+   sudo systemctl is-active aurora-dashboard.service nginx.service
+   sudo systemctl list-timers --all 'aurora-dev-live-pull-*.timer'
+   sudo journalctl -u 'aurora-dev-live-pull@*.service' --since '30 minutes ago' --no-pager
    cat /data/aurora/internal/dev-live-mirror/last_success.json
    ```
 
@@ -97,7 +98,7 @@ states; do not treat every red card as a single outage.
 | Source is current, but local data/product is stale | Source sync, append, or quicklook job | Check the named stream's timer/service and its recent journal. |
 | Local product is current, but GWS or object storage is behind | Archive transfer, settle window, or verification | Distinguish pending from a settled gap; do not prune source data. |
 | Data are current but the page is incomplete or slow | Dashboard, nginx, or Panel | Check the public endpoint card, `aurora-dashboard.service`, and nginx. |
-| Development differs from Production | Development mirror | Check `aurora-dev-live-pull.timer` and `last_success.json`. |
+| Development differs from Production | Development mirror | Check the staged `aurora-dev-live-pull-*.timer` units, per-stage JSON, and `last_success.json`. |
 
 Configured paths and stream-specific commands are in [Data Locations](DATA_LOCATIONS.md)
 and the **Source Syncs** pages. Use the Operations Dashboard as the source of

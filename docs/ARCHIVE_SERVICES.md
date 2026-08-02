@@ -30,7 +30,7 @@ archives:
 | JASMIN GWS | Additive long-term archive | Yes |
 | `gamb2le-o` object store | Independent additive long-term archive | Yes |
 | Development/data-ocean mirror | Development availability and UI testing | No |
-| Derived Zarrs, quicklooks, catalogues, and videos | Rebuildable or presentation products | No |
+| Derived Zarrs, quicklooks, catalogs, and videos | Rebuildable or presentation products | No |
 | Proxmox/PBS guest backups | Recovery of virtual machines and configuration | No; they are not science-data parity evidence |
 
 “Additive” means that writers copy new or changed files but never propagate a
@@ -51,7 +51,7 @@ Its generic operations collector may copy contract metrics into presentation
 snapshots for compatibility, but it must not SSH-probe the GWS, parse archive
 manifests, inspect archive writer units, or infer prune readiness.
 
-## Canonical stream catalogue
+## Canonical stream catalog
 
 `inventory/group_vars/aurora_cloud.yml` contains `aurora_archive_streams`.
 Each entry defines the edge source, cloud raw root, archive-relative path,
@@ -65,7 +65,7 @@ remains non-prunable pending a separate source and archive policy review.
 The prune-managed ASS streams are CL61, radar, HATPRO, Vaisala MET, ASFS
 science, ASFS fast sonic, ASFS fast gas, PDU, WXcam HDR media, and AURORACam.
 APS Power is archived but explicitly excluded from edge pruning. Files under
-the bulk raw tree that are not in this catalogue can still be copied by the raw
+the bulk raw tree that are not in this catalog can still be copied by the raw
 writers, but they cannot be deleted from an edge host by the retention system.
 
 ## Data flow
@@ -107,7 +107,7 @@ live products do not oscillate between “present” and “missing”.
 | --- | --- | ---: | ---: | --- |
 | `raw` | Complete production raw mirror, excluding temporary radar partials | 15 min | 6 h | GWS raw and object-store raw |
 | `products` | Selected products and quicklooks, excluding the WXcam subtree | 20 min | 30 h | GWS products and object-store products |
-| `products-wxcam` | WXcam catalogue, daily videos, and thumbnails; not `wxcam.zarr` | 30 min | 30 h | GWS WXcam products and object-store WXcam products |
+| `products-wxcam` | WXcam catalog, daily videos, and thumbnails; not `wxcam.zarr` | 30 min | 30 h | GWS WXcam products and object-store WXcam products |
 | `model-evaluation` | Campaign products, dereferencing approved symlinked inputs | 1 h | 6 h | GWS and object-store model-evaluation roots |
 | `manifests` | GWS verification evidence, excluding operational logs | 5 min | 2 h | GWS internal and object-store manifest roots |
 
@@ -182,12 +182,12 @@ regular, restorable files under their campaign-relative paths.
 
 WXCam's live `wxcam.zarr` is a mutable derived working store and is
 intentionally excluded from both product archives. Its immutable raw HDR
-imagery, catalogue, daily videos, and hourly thumbnails remain covered.
+imagery, catalog, daily videos, and hourly thumbnails remain covered.
 Because the Zarr is reproducible from archived imagery, it is never accepted
 as retention evidence.
 
 When an inventory publishes exact missing or mismatched paths,
-`aurora-object-store-repair.path` starts the catalogue-driven repair service.
+`aurora-object-store-repair.path` starts the catalog-driven repair service.
 It revalidates every settled source file, rejects paths outside the configured
 source root, follows symlinks only for jobs explicitly marked `copy_links`,
 orders candidates newest first, and performs only
@@ -227,7 +227,7 @@ The contract contains:
   settle window;
 - per-job and aggregate direct GWS missing and mismatch counts for raw,
   products, WXCam products, model evaluation, and manifests;
-- every catalogue stream's source-sync timer and service state, including the
+- every catalog stream's source-sync timer and service state, including the
   independent radar and AURORACam historical backfill lanes;
 - raw, product, WXCam product, model-evaluation, and manifest GWS writer states;
 - every GWS/object-store writer and verifier service, timer, repair path, and

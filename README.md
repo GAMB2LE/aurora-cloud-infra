@@ -22,9 +22,11 @@ and
 | Development | `https://data-ocean.gamb2le.co.uk/app` | Public development service with live mirrored production data. |
 
 Production owns the normal raw and product paths. Development must not run
-normal writer timers: it uses `aurora-dev-live-pull.timer` and development-only
-paths for experiments. See [Production and Development](docs/PRODUCTION_DEVELOPMENT.md)
-for the complete release, cutover, and rollback policy.
+normal writer timers. Independent `aurora-dev-live-pull-<stage>.timer` units
+mirror each raw or product family, while development-only experiments write to
+isolated paths. See
+[Production and Development](docs/PRODUCTION_DEVELOPMENT.md) for the complete
+release, mirror, and rollback policy.
 
 ## Backup Contract
 
