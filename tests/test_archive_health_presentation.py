@@ -58,8 +58,24 @@ class ArchiveHealthPresentationTests(unittest.TestCase):
 
         self.assertEqual(result["level"], "amber")
         self.assertEqual(result["title"], "Archive parity is being confirmed")
-        self.assertIn("One more distinct clean strict audit", result["detail"])
+        self.assertIn("One complete clean strict audit", result["detail"])
         self.assertTrue(result["pruning_paused"])
+
+    def test_incremental_repair_recheck_is_explained(self):
+        result = operator_status(
+            ["object_store_stable_parity=false"],
+            self.base_metrics(),
+            {
+                "clean": True,
+                "stable_parity": False,
+                "verification_mode": "incremental",
+            },
+            {"state": "complete"},
+        )
+
+        self.assertEqual(result["level"], "amber")
+        self.assertIn("exact-path repair recheck", result["detail"])
+        self.assertIn("complete clean strict audit", result["detail"])
 
 
 if __name__ == "__main__":

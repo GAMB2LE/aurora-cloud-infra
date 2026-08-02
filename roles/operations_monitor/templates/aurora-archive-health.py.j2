@@ -237,16 +237,23 @@ def operator_status(
             "pruning_paused": True,
         }
     if latest_complete_clean and not gate.get("stable_parity", False):
+        incremental = gate.get("verification_mode") == "incremental"
         if progress.get("state") in {"running", "publishing"}:
-            confirmation = "A second distinct strict audit is running now."
+            confirmation = "A complete strict audit is running now."
         else:
-            confirmation = "One more distinct clean strict audit is required."
+            confirmation = "One complete clean strict audit is still required."
+        latest_evidence = (
+            "The exact-path repair recheck found no remaining GWS or "
+            "object-store gaps."
+            if incremental
+            else "The latest complete audit found no GWS or object-store gaps."
+        )
         return {
             "level": "amber",
             "title": "Archive parity is being confirmed",
             "detail": (
-                "The latest complete audit found no GWS or object-store gaps. "
-                f"{confirmation} New pruning remains paused until confirmation completes."
+                f"{latest_evidence} {confirmation} New pruning remains paused "
+                "until confirmation completes."
             ),
             "pruning_paused": True,
         }
@@ -403,13 +410,21 @@ def main() -> int:
         *ARCHIVE_TRIGGERS,
         "aurora-ass-retention.timer",
     ]
+    incremental_units = []
+    if inventory_progress.get("verification_mode") == "incremental":
+        verified_jobs = inventory_progress.get("verified_jobs")
+        if isinstance(verified_jobs, list):
+            incremental_units = [
+                f"aurora-object-store-inventory-incremental@{job}.service"
+                for job in verified_jobs
+            ]
     source_sync_units = []
     for stream in STREAMS:
         for _stem, unit_stem, _primary in source_sync_pairs(stream):
             source_sync_units.extend(
                 [f"{unit_stem}.timer", f"{unit_stem}.service"]
             )
-    for name in [*archive_units, *source_sync_units]:
+    for name in [*archive_units, *incremental_units, *source_sync_units]:
         services[name] = unit(name)
     metrics["mirror_verify_service_healthy_state"] = int(
         services["aurora-mirror-verify.service"].get("Result") == "success"
@@ -428,9 +443,15 @@ def main() -> int:
     metrics["ass_retention_enabled_state"] = int(
         services["aurora-ass-retention.timer"].get("UnitFileState") == "enabled"
     )
+    inventory_units = [
+        "aurora-object-store-inventory.service",
+        *incremental_units,
+    ]
     metrics["object_store_inventory_running_state"] = int(
-        services["aurora-object-store-inventory.service"].get("ActiveState")
-        == "activating"
+        any(
+            services[name].get("ActiveState") == "activating"
+            for name in inventory_units
+        )
     )
     progress_age_hours = evidence_age_hours(inventory_progress.get("updated_at"))
     progress_age_minutes = (

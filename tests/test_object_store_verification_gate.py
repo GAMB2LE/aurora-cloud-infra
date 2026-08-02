@@ -93,6 +93,104 @@ class ObjectStoreVerificationGateTests(unittest.TestCase):
             self.assertEqual(second_state["clean_streak"], 2)
             self.assertTrue(second_state["stable_parity"])
 
+    def test_incremental_repair_recheck_requires_a_clean_full_audit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            latest = root / "manifests" / "latest"
+            latest.mkdir(parents=True)
+            catalog = root / "catalog.json"
+            state = root / "state.json"
+            catalog.write_text(
+                json.dumps(
+                    {
+                        "manifest_root": str(root / "manifests"),
+                        "gws_manifest_root": str(root / "gws"),
+                        "report_max_age_hours": 8,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            write_gws_summary(root)
+            gate.CATALOG = catalog
+            gate.STATE = state
+            gate.REQUIRED = 2
+
+            first = dt.datetime.now(dt.timezone.utc)
+            dirty = report(first.isoformat(), missing=True)
+            dirty.update(
+                {
+                    "verification_mode": "full",
+                    "verified_jobs": ["raw"],
+                    "evidence_floor_generated_at": first.isoformat(),
+                }
+            )
+            (latest / "comparison.json").write_text(
+                json.dumps(dirty), encoding="utf-8"
+            )
+            self.assertEqual(gate.main(), 0)
+
+            second = first + dt.timedelta(seconds=1)
+            repaired = report(second.isoformat())
+            repaired.update(
+                {
+                    "verification_mode": "incremental",
+                    "verified_jobs": ["raw"],
+                    "base_generated_at": first.isoformat(),
+                    "base_report_sha256": "abc123",
+                    "evidence_floor_generated_at": first.isoformat(),
+                    "incremental_depth": 1,
+                }
+            )
+            (latest / "comparison.json").write_text(
+                json.dumps(repaired), encoding="utf-8"
+            )
+            self.assertEqual(gate.main(), 0)
+            repaired_state = json.loads(state.read_text(encoding="utf-8"))
+            self.assertTrue(repaired_state["clean"])
+            self.assertEqual(repaired_state["clean_streak"], 1)
+            self.assertEqual(repaired_state["full_clean_reports_in_streak"], 0)
+            self.assertFalse(repaired_state["stable_parity"])
+
+            third = second + dt.timedelta(seconds=1)
+            incremental = report(third.isoformat())
+            incremental.update(
+                {
+                    "verification_mode": "incremental",
+                    "verified_jobs": ["raw"],
+                    "base_generated_at": second.isoformat(),
+                    "base_report_sha256": "def456",
+                    "evidence_floor_generated_at": first.isoformat(),
+                    "incremental_depth": 2,
+                }
+            )
+            (latest / "comparison.json").write_text(
+                json.dumps(incremental), encoding="utf-8"
+            )
+            self.assertEqual(gate.main(), 0)
+            incremental_state = json.loads(state.read_text(encoding="utf-8"))
+            self.assertEqual(incremental_state["clean_streak"], 2)
+            self.assertEqual(incremental_state["full_clean_reports_in_streak"], 0)
+            self.assertFalse(incremental_state["stable_parity"])
+
+            fourth = third + dt.timedelta(seconds=1)
+            full = report(fourth.isoformat())
+            full.update(
+                {
+                    "verification_mode": "full",
+                    "verified_jobs": ["raw"],
+                    "evidence_floor_generated_at": fourth.isoformat(),
+                }
+            )
+            (latest / "comparison.json").write_text(
+                json.dumps(full), encoding="utf-8"
+            )
+            self.assertEqual(gate.main(), 0)
+            final_state = json.loads(state.read_text(encoding="utf-8"))
+
+        self.assertEqual(final_state["clean_streak"], 3)
+        self.assertEqual(final_state["full_clean_reports_in_streak"], 1)
+        self.assertTrue(final_state["stable_parity"])
+
     def test_dirty_report_resets_clean_streak(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

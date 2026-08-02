@@ -272,7 +272,8 @@ The contract contains:
 The operator status deliberately separates transfer lag from archive loss:
 
 - **green** means the newest-first delivery lane is healthy and two distinct
-  strict audits have confirmed GWS and object-store parity;
+  clean reports, including at least one complete full audit in the current
+  streak, have confirmed GWS and object-store parity;
 - **amber** means a clean audit is awaiting its independent confirmation, or a
   fresh audit/listing is delayed while the last stable audit remains clean;
 - **red** means the last complete audit measured missing or mismatched files,
@@ -317,8 +318,8 @@ The status terms have precise meanings:
 | inventory `running` with a recent heartbeat | A complete sharded scan is still progressing | Wait; do not infer a stall from report age alone |
 | previous report clean, verification delayed | Current proof is unavailable but there is no measured gap | Amber; pruning is paused until a complete audit succeeds |
 | inventory heartbeat older than five minutes while running | Verifier is stalled | Investigate the inventory service and its current shard |
-| `clean=true`, streak `1` | One complete clean report | Not yet stable parity |
-| `stable_parity=true` | Two distinct complete clean reports | Global object-store stability gate is satisfied |
+| `clean=true`, streak `1` | One clean report; this may be a bounded exact-repair recheck | Not yet stable parity |
+| `stable_parity=true` | Two distinct clean reports, with at least one complete full audit in the streak | Global object-store stability gate is satisfied |
 | stream `prune_ready=true` | That raw stream has exact age-bounded GWS/cloud candidates | Necessary but not sufficient for deletion |
 
 The `health-v1` producer is the only code allowed to turn archive evidence into
@@ -378,12 +379,31 @@ cat /data/aurora/internal/archive_dispatch/status.json
    delivery of fresh data.
 4. The repair path unit copies only the exact reported missing or mismatched
    paths. It must finish successfully before another inventory is started.
-5. Run a fresh inventory. A report is clean only when every settled job has
+   When a recent full report has a gap in one family, refresh only that family
+   with the bounded incremental unit, for example:
+
+   ```bash
+   sudo systemctl start aurora-object-store-inventory-incremental@model-evaluation.service
+   ```
+
+   The resulting report is still complete: it freshly inventories the named
+   family and inherits the just-published evidence for unaffected families.
+   It records the base report timestamp and SHA-256, is limited to a
+   four-hour-old base and two incremental generations, and uses the same
+   atomic publication and GWS/object comparisons as a full run. The global
+   inventory lock prevents a full and incremental run from publishing at the
+   same time. The verification gate accepts it only when every family that
+   failed in the base report was refreshed. An incremental clean report can
+   establish the first clean result after repair, but it cannot establish
+   stable parity without a subsequent clean full audit.
+5. Run a fresh full inventory. A report is clean only when every settled job has
    zero gaps and mismatches against both GWS and object storage and all
    retention-age raw GWS counters are zero. Pending product uploads do not
-   count as gaps. The clean report establishes clean streak one.
-6. Run another independent full inventory. Only that distinct second clean
-   report may establish stable parity.
+   count as gaps. If step 4 produced a clean incremental report, this full
+   report is the independent confirmation; otherwise it establishes clean
+   streak one and another full run is required. Stable parity always requires
+   two distinct clean reports and at least one full clean audit in the current
+   streak.
 7. Confirm `health-v1.json` is green and review both cloud and edge audit logs
    before any dry-run retention canary.
 
