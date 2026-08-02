@@ -70,3 +70,12 @@ allowing pruning.
 The Zarr keeps the standard temperature profile (`T_PROF`) separate from the
 composite temperature profile (`T_PROF_CMP`) because those source files can
 share timestamps while containing different profile values.
+
+## Backup and retention
+
+The canonical recursive `Yyyyy/Mmm/Ddd/` raw tree is archived additively to
+both GWS and object storage. Legacy flat duplicates are ignored by parity and
+cannot authorize pruning. ASS keeps a canonical raw file for at least seven
+days and deletes it only through an exact signed permit after cloud, GWS, and
+object-store proof. The HATPRO Zarr and quicklooks are product archives, not
+raw-retention evidence. See [Backups and Archive Services](ARCHIVE_SERVICES.md).

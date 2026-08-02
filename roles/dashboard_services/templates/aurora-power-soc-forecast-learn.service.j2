@@ -8,6 +8,6 @@ User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
 WorkingDirectory={{ aurora_app_dir }}
 EnvironmentFile=/etc/aurora-dashboard.env
-ExecStart={{ aurora_venv }}/bin/python generate_power_soc_forecast.py --power-zarr {{ aurora_zarr.power }} --pdu-zarr {{ aurora_zarr.pdu }} --output-zarr {{ aurora_zarr.power_soc_forecast }} --cache-dir {{ aurora_paths.products_power_ecmwf_solar_forecast }} --state {{ aurora_paths.products_power }}/power_soc_forecast_state.json --archive-zarr {{ aurora_zarr.power_soc_forecast_archive }} --skill-zarr {{ aurora_zarr.power_soc_forecast_skill }} --hindcast-zarr {{ aurora_zarr.power_soc_hindcast }} --horizon-hours 96 --refresh-from-cache --no-archive-forecast --max-power-age-minutes 20
+ExecStart={{ aurora_venv }}/bin/python generate_power_soc_forecast.py --power-zarr {{ aurora_zarr.power }} --pdu-zarr {{ aurora_zarr.pdu }} --output-zarr {{ aurora_zarr.power_soc_forecast }} --cache-dir {{ aurora_paths.products_power_ecmwf_solar_forecast }} --state {{ aurora_power_forecast_root }}/power_soc_forecast_state.json --archive-zarr {{ aurora_zarr.power_soc_forecast_archive }} --skill-zarr {{ aurora_zarr.power_soc_forecast_skill }} --hindcast-zarr {{ aurora_zarr.power_soc_hindcast }} --horizon-hours 96 --refresh-from-cache --no-archive-forecast --max-power-age-minutes 20
 Nice=10
 TimeoutStartSec=300

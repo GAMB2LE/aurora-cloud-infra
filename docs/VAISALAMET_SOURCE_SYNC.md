@@ -32,3 +32,12 @@ Processing timers:
 
 - `aurora-vaisalamet-append.timer`
 - `aurora-vaisalamet-quicklooks.timer`
+
+## Backup and retention
+
+Matching raw `.dat` files are archived additively to the Vaisala MET prefixes
+on both GWS and object storage. ASS keeps them for at least seven days; only an
+unchanged file proven in the cloud and both archives can be removed through a
+signed exact-path permit. The Zarr and quicklooks are separately archived
+products and do not substitute for raw proof. See
+[Backups and Archive Services](ARCHIVE_SERVICES.md).

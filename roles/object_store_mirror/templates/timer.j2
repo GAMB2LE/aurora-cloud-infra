@@ -1,0 +1,11 @@
+[Unit]
+Description=Schedule Aurora object-store copy ({{ item.0.name }})
+
+[Timer]
+OnCalendar={{ item.0.schedule }}
+RandomizedDelaySec=60
+Persistent=true
+Unit=aurora-object-store-copy-{{ item.0.name }}.service
+
+[Install]
+WantedBy=timers.target

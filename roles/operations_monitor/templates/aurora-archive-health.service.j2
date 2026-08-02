@@ -1,0 +1,14 @@
+[Unit]
+Description=Publish Aurora archive health contract
+After=network-online.target
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+ExecStart=/usr/local/bin/aurora-archive-health
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths={{ archive_monitor_output_root }}

@@ -1,0 +1,277 @@
+#!/usr/bin/env python3
+"""Issue short-lived exact-path ASS retention permits after dual archive proof."""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import csv
+import datetime as dt
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+MIRROR = Path({{ gws_manifest_root | to_json }}) / "latest"
+OBJECT = Path({{ object_store_manifest_root | to_json }}) / "latest/comparison.json"
+OBJECT_GATE = Path({{ aurora_state_root | to_json }}) / "object-store-verification-gate/state.json"
+MAX_AGE = dt.timedelta(hours={{ ass_retention_manifest_max_age_hours | int }})
+HOST = {{ edge_source_sync_ass_host | to_json }}
+PORT = {{ edge_source_sync_ass_port | int }}
+USER = {{ aurora_service_user | to_json }}
+AUTH = {{ edge_source_sync_auth | to_json }}
+KEY = {{ edge_source_sync_ssh_key_path | to_json }}
+KNOWN = f"/home/{USER}/.ssh/known_hosts"
+HELPER = {{ ass_retention_helper | to_json }}
+AUDIT = Path({{ ass_retention_audit_root | to_json }})
+SIGNING_KEY = Path({{ ass_retention_signing_private_key | to_json }})
+DRY_RUN = {{ (ass_retention_dry_run | bool) | ternary('True', 'False') }}
+MAX_CANDIDATES_PER_RUN = {{ ass_retention_max_candidates_per_run | default(50000) | int }}
+MAX_CANARY_CANDIDATES = 5000
+STREAMS = json.loads(
+    r'''{{ aurora_archive_streams | selectattr('site', 'equalto', 'ass') | list | to_json }}'''
+)
+
+
+def timestamp(value: str) -> dt.datetime:
+    return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def fail(message: str) -> None:
+    print(f"ASS retention blocked: {message}", file=sys.stderr)
+    raise SystemExit(2)
+
+
+def ssh_command() -> list[str]:
+    command = [
+        "ssh",
+        "-p",
+        str(PORT),
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "IdentitiesOnly=yes",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-o",
+        f"UserKnownHostsFile={KNOWN}",
+    ]
+    if AUTH == "tailscale":
+        command.extend(["-o", "IdentityFile=none", "-o", "PubkeyAuthentication=no"])
+    else:
+        command.extend(["-i", KEY])
+    command.append(f"{USER}@{HOST}")
+    return command
+
+
+def interleave_candidates(
+    candidates_by_stream: dict[str, list[dict]], limit: int
+) -> list[dict]:
+    for candidates in candidates_by_stream.values():
+        candidates.sort(key=lambda item: (item["mtime"], item["path"]))
+    selected: list[dict] = []
+    stream_names = sorted(candidates_by_stream)
+    while len(selected) < limit:
+        added = False
+        for stream in stream_names:
+            candidates = candidates_by_stream[stream]
+            if candidates:
+                selected.append(candidates.pop(0))
+                added = True
+                if len(selected) >= limit:
+                    break
+        if not added:
+            break
+    return selected
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--max-candidates",
+        type=int,
+        default=MAX_CANDIDATES_PER_RUN,
+        help="Bound this run below the configured hard candidate maximum",
+    )
+    parser.add_argument(
+        "--canary",
+        action="store_true",
+        help=(
+            "Run a bounded manual canary after one fresh clean inventory; "
+            "scheduled retention requires stable consecutive parity"
+        ),
+    )
+    args = parser.parse_args()
+    if args.max_candidates < 1:
+        fail("max candidates must be positive")
+    if args.max_candidates > MAX_CANDIDATES_PER_RUN:
+        fail(
+            f"max candidates exceeds configured hard limit "
+            f"({MAX_CANDIDATES_PER_RUN})"
+        )
+    if args.canary and args.max_candidates > MAX_CANARY_CANDIDATES:
+        fail(
+            f"canary max candidates exceeds {MAX_CANARY_CANDIDATES}"
+        )
+    now = dt.datetime.now(dt.timezone.utc)
+    if not SIGNING_KEY.is_file():
+        fail("permit signing key is unavailable")
+    summary_path = MIRROR / "summary.json"
+    if not summary_path.exists() or not OBJECT.exists() or not OBJECT_GATE.exists():
+        fail("required verification evidence is missing")
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    verification_run = timestamp(summary["generated_at"])
+    snapshot = (
+        MIRROR.parent
+        / "history"
+        / verification_run.strftime("%Y%m%dT%H%M%SZ")
+    )
+    snapshot_summary = snapshot / "summary.json"
+    if not snapshot_summary.is_file():
+        fail("immutable GWS verification snapshot is missing")
+    summary = json.loads(snapshot_summary.read_text(encoding="utf-8"))
+    if timestamp(summary["generated_at"]) != verification_run:
+        fail("immutable GWS verification snapshot is inconsistent")
+    report = json.loads(OBJECT.read_text(encoding="utf-8"))
+    object_gate = json.loads(OBJECT_GATE.read_text(encoding="utf-8"))
+    if now - timestamp(summary["generated_at"]) > MAX_AGE:
+        fail("GWS verification is stale")
+    if now - timestamp(report["generated_at"]) > MAX_AGE:
+        fail("object-store inventory is stale")
+    if object_gate.get("last_generated_at") != report.get("generated_at"):
+        fail("object-store stability gate does not describe the latest inventory")
+    if args.canary:
+        if not object_gate.get("clean", False):
+            fail("object-store parity is not clean for canary")
+    elif not object_gate.get("stable_parity", False):
+        fail("object-store parity has not been clean for the required consecutive runs")
+    if object_gate.get("writers_policy") != "independent":
+        fail("object-store writer policy is not independently additive")
+    raw = report.get("jobs", {}).get("raw", {}).get("source_vs_s3", {})
+    for field in ("missing_from_right", "size_mismatch", "checksum_mismatch"):
+        if raw.get(field):
+            fail(f"object-store raw {field} is non-empty")
+
+    candidates_by_stream: dict[str, list[dict]] = {}
+    cutoffs: list[int] = []
+    for stream in STREAMS:
+        if not stream.get("prune_enabled", False):
+            continue
+        name = stream["name"]
+        state = summary.get("streams", {}).get(name, {})
+        if state.get("error"):
+            fail(f"GWS verification failed for {name}: {state['error']}")
+        # Only gaps outside the retention window make deletion unsafe.  Keep
+        # the all-age counters as monitoring signals; fresh files can still
+        # be in transit while older dual-verified files are safe to prune.
+        required_counts = (
+            "retention_local_missing_count",
+            "retention_local_mismatch_count",
+            "retention_gws_missing_count",
+            "retention_gws_mismatch_count",
+        )
+        if not all(field in state for field in required_counts):
+            fail(f"retention-age verification evidence is missing for {name}")
+        if state["retention_local_missing_count"] or state["retention_local_mismatch_count"]:
+            fail(f"cloud mirror is incomplete beyond retention window for {name}")
+        if state["retention_gws_missing_count"] or state["retention_gws_mismatch_count"]:
+            fail(f"GWS mirror is incomplete beyond retention window for {name}")
+        source_path = snapshot / name / "source.tsv"
+        prune_path = snapshot / name / "prune_candidates.tsv"
+        if not source_path.exists() or not prune_path.exists():
+            fail(f"candidate evidence is missing for {name}")
+        allowed = set(prune_path.read_text(encoding="utf-8").splitlines()[1:])
+        cutoff = int(
+            (now - dt.timedelta(days=int(stream["retention_days"]))).timestamp()
+        )
+        cutoffs.append(cutoff)
+        with source_path.open(newline="", encoding="utf-8") as handle:
+            for row in csv.DictReader(handle, delimiter="\t"):
+                if row["relpath"] not in allowed or int(row["mtime"]) >= cutoff:
+                    continue
+                root = Path(stream["source_root"])
+                candidate = root / row["relpath"]
+                try:
+                    candidate.relative_to(root)
+                except ValueError:
+                    fail(f"candidate escapes source root for {name}")
+                candidates_by_stream.setdefault(name, []).append(
+                    {
+                        "stream": name,
+                        "path": str(candidate),
+                        "size": int(row["size"]),
+                        "mtime": int(row["mtime"]),
+                    }
+                )
+
+    AUDIT.mkdir(parents=True, exist_ok=True)
+    candidate_total = sum(len(items) for items in candidates_by_stream.values())
+    if not candidate_total:
+        print("ASS retention: no dual-verified files outside the retention window")
+        return
+    candidates = interleave_candidates(
+        candidates_by_stream,
+        min(args.max_candidates, candidate_total),
+    )
+
+    expires = now + dt.timedelta(minutes=30)
+    for index in range(0, len(candidates), 500):
+        batch = candidates[index : index + 500]
+        permit = {
+            "schema_version": 1,
+            "site": "ass",
+            "generated_at": now.isoformat().replace("+00:00", "Z"),
+            "expires_at": expires.isoformat().replace("+00:00", "Z"),
+            "verification_run": summary["generated_at"],
+            "object_store_run": report["generated_at"],
+            "cutoff_epoch": min(cutoffs),
+            "dry_run": DRY_RUN,
+            "candidates": batch,
+        }
+        payload = json.dumps(
+            permit,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+        signature = subprocess.run(
+            [
+                "/usr/bin/openssl",
+                "dgst",
+                "-sha256",
+                "-sign",
+                str(SIGNING_KEY),
+            ],
+            input=payload,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        ).stdout
+        envelope = (
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "payload": base64.b64encode(payload).decode(),
+                    "signature": base64.b64encode(signature).decode(),
+                },
+                sort_keys=True,
+            )
+            + "\n"
+        ).encode()
+        result = subprocess.run(
+            [*ssh_command(), "sudo", "-n", HELPER, "--permit", "-"],
+            input=envelope,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        audit_path = AUDIT / f"{now:%Y%m%dT%H%M%SZ}-{index // 500:04d}.json"
+        audit_path.write_bytes(result.stdout)
+    print(
+        f"ASS retention: issued {len(candidates)} exact-path "
+        f"{'dry-run ' if DRY_RUN else ''}candidates "
+        f"from {candidate_total} eligible"
+    )
+
+
+if __name__ == "__main__":
+    main()

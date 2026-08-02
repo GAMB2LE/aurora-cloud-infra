@@ -1,0 +1,86 @@
+---
+- name: Ensure retention evidence directory exists
+  ansible.builtin.file:
+    path: "{{ ass_retention_audit_root }}"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "0755"
+  when: ass_retention_enabled | bool
+
+- name: Ensure retention signing directory is service-readable
+  ansible.builtin.file:
+    path: "{{ ass_retention_signing_private_key | dirname }}"
+    state: directory
+    owner: root
+    group: "{{ aurora_service_group }}"
+    mode: "0750"
+  when: ass_retention_enabled | bool
+
+- name: Inspect retention signing key
+  ansible.builtin.stat:
+    path: "{{ ass_retention_signing_private_key }}"
+  register: ass_retention_signing_key
+  when: ass_retention_enabled | bool
+
+- name: Require an existing retention signing key
+  ansible.builtin.assert:
+    that:
+      - ass_retention_signing_key.stat.isreg | default(false)
+    fail_msg: >-
+      Generate the retention signing key out of band at
+      {{ ass_retention_signing_private_key }} before enabling the coordinator.
+      The role never creates or stores private key material.
+  when: ass_retention_enabled | bool
+
+- name: Restrict retention signing key to the coordinator service
+  ansible.builtin.file:
+    path: "{{ ass_retention_signing_private_key }}"
+    state: file
+    owner: root
+    group: "{{ aurora_service_group }}"
+    mode: "0640"
+  when: ass_retention_enabled | bool
+
+- name: Install ASS retention gate script
+  ansible.builtin.template:
+    src: aurora-ass-retention.py.j2
+    dest: /usr/local/bin/aurora-ass-retention
+    owner: root
+    group: root
+    mode: "0755"
+  when: ass_retention_enabled | bool
+
+- name: Install ASS retention units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - aurora-ass-retention.service
+    - aurora-ass-retention.timer
+  when: ass_retention_enabled | bool
+
+- name: Enable ASS retention timer
+  ansible.builtin.systemd:
+    name: aurora-ass-retention.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - ass_retention_enabled | bool
+    - ass_retention_timer_enabled | bool
+    - not ansible_check_mode
+
+- name: Disable ASS retention timer when requested
+  ansible.builtin.systemd:
+    name: aurora-ass-retention.timer
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  when:
+    - ass_retention_enabled | bool
+    - not ass_retention_timer_enabled | bool
+    - not ansible_check_mode

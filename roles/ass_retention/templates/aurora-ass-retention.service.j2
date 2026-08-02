@@ -1,0 +1,19 @@
+[Unit]
+Description=Prune ASS raw data only after GWS and object-store verification
+After=network-online.target aurora-mirror-verify.service aurora-object-store-inventory.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+ExecStart=/usr/local/bin/aurora-ass-retention
+TimeoutStartSec=6h
+Nice=15
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths={{ ass_retention_audit_root }}

@@ -21,12 +21,25 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/{{ aurora_domain }}/privkey.pem;
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+{% if aurora_nginx_security_headers | default(false) | bool %}
+    include /etc/nginx/snippets/aurora-dashboard-security-headers.conf;
+{% endif %}
+    server_tokens off;
+    client_max_body_size 1m;
+{% if aurora_nginx_rate_limits | default(false) | bool %}
+    limit_req_status 429;
+    limit_conn_status 429;
+{% endif %}
 
     location = / {
         return 302 /app;
     }
 
     location ^~ /mobile/v1/ {
+{% if aurora_nginx_rate_limits | default(false) | bool %}
+        limit_req zone=aurora_mobile_api burst=20 nodelay;
+        limit_conn aurora_per_ip 8;
+{% endif %}
         proxy_pass http://{{ aurora_mobile_api_host }}:{{ aurora_mobile_api_port }}/;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -50,9 +63,53 @@ server {
         proxy_send_timeout 300s;
         expires 7d;
         add_header Cache-Control "public, max-age=604800, immutable" always;
+{% if aurora_nginx_security_headers | default(false) | bool %}
+        include /etc/nginx/snippets/aurora-dashboard-security-headers.conf;
+{% endif %}
+    }
+
+    # Versioned or timestamped dashboard media is safe to cache at the edge.
+    # Dynamic Panel documents and websocket routes remain uncached below.
+    location ^~ /dashboard-assets/ {
+        proxy_pass http://{{ aurora_panel_host }}:{{ aurora_panel_port }};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        expires 7d;
+        add_header Cache-Control "public, max-age=604800, immutable" always;
+{% if aurora_nginx_security_headers | default(false) | bool %}
+        include /etc/nginx/snippets/aurora-dashboard-security-headers.conf;
+{% endif %}
+    }
+
+    location ^~ /wxcam-media/ {
+        proxy_pass http://{{ aurora_panel_host }}:{{ aurora_panel_port }};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        expires 1h;
+        add_header Cache-Control "public, max-age=3600, stale-while-revalidate=300" always;
+{% if aurora_nginx_security_headers | default(false) | bool %}
+        include /etc/nginx/snippets/aurora-dashboard-security-headers.conf;
+{% endif %}
+    }
+
+    location ^~ /auroracam-media/ {
+        proxy_pass http://{{ aurora_panel_host }}:{{ aurora_panel_port }};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        expires 1h;
+        add_header Cache-Control "public, max-age=3600, stale-while-revalidate=300" always;
+{% if aurora_nginx_security_headers | default(false) | bool %}
+        include /etc/nginx/snippets/aurora-dashboard-security-headers.conf;
+{% endif %}
     }
 
     location / {
+{% if aurora_nginx_rate_limits | default(false) | bool %}
+        limit_conn aurora_per_ip 12;
+{% endif %}
         proxy_pass http://{{ aurora_panel_host }}:{{ aurora_panel_port }};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -130,6 +187,33 @@ server {
         proxy_send_timeout 300s;
         expires 7d;
         add_header Cache-Control "public, max-age=604800, immutable" always;
+    }
+
+    location ^~ /dashboard-assets/ {
+        proxy_pass http://{{ aurora_panel_host }}:{{ aurora_panel_port }};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        expires 7d;
+        add_header Cache-Control "public, max-age=604800, immutable" always;
+    }
+
+    location ^~ /wxcam-media/ {
+        proxy_pass http://{{ aurora_panel_host }}:{{ aurora_panel_port }};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        expires 1h;
+        add_header Cache-Control "public, max-age=3600, stale-while-revalidate=300" always;
+    }
+
+    location ^~ /auroracam-media/ {
+        proxy_pass http://{{ aurora_panel_host }}:{{ aurora_panel_port }};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        expires 1h;
+        add_header Cache-Control "public, max-age=3600, stale-while-revalidate=300" always;
     }
 
     location / {

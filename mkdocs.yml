@@ -1,5 +1,5 @@
 site_name: Aurora Cloud Infrastructure
-site_description: Ansible configuration for rebuilding the Aurora cloud dashboard host
+site_description: Ansible configuration for rebuilding the Aurora cloud data and presentation hosts
 repo_name: GAMB2LE/aurora-cloud-infra
 repo_url: https://github.com/GAMB2LE/aurora-cloud-infra
 docs_dir: docs
@@ -27,12 +27,15 @@ markdown_extensions:
 
 nav:
   - Home: index.md
-  - Rebuild Plan: PLAN.md
+  - Operator Quickstart: OPERATOR_QUICKSTART.md
+  - Historical Rebuild Plan: PLAN.md
   - Production and Development: PRODUCTION_DEVELOPMENT.md
   - Failover: FAILOVER.md
   - Reverse Tunnels: REVERSE_TUNNELS.md
   - Reverse Tunnel Rollout: REVERSE_TUNNEL_ROLLOUT.md
   - Data Locations: DATA_LOCATIONS.md
+  - Backups and Archive Services: ARCHIVE_SERVICES.md
+  - ASS Backup and Retention: ASS_BACKUP_AND_RETENTION.md
   - Source Syncs:
       - CL61: CL61_SOURCE_SYNC.md
       - Cloud Radar: RADAR_SOURCE_SYNC.md
@@ -40,6 +43,8 @@ nav:
       - Vaisala MET: VAISALAMET_SOURCE_SYNC.md
       - ASFS Logger: ASFS_LOGGER_SOURCE_SYNC.md
       - ASFS Fast Sonic: ASFS_FAST_SONIC_SOURCE_SYNC.md
+      - ASFS Fast Gas: ASFS_FAST_GAS_SOURCE_SYNC.md
+      - ASS PDU: PDU_SOURCE_SYNC.md
       - Power: POWER_SOURCE_SYNC.md
       - WXcam: WXCAM_SOURCE_SYNC.md
       - MX4 Cameras: MX4_CAMERA_FTP.md

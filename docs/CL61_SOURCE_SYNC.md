@@ -73,6 +73,16 @@ The CL61 timers are enabled in Ansible:
 
 `aurora-cl61-source-sync.timer` is enabled once source SSH is authorized.
 
+## Backup and retention
+
+CL61 NetCDF files are copied additively from the cloud raw mirror to both
+`.../raw/cl61` on the JASMIN GWS and
+`s3://gamb2le-o/data/incoming/aurora-cloud/raw/cl61`. ASS keeps each source
+file for at least seven days. Only exact files proven in the cloud, GWS, and
+object store can be named in a signed deletion permit. The derived CL61 Zarr
+and quicklooks are archived as products but are not raw-retention evidence.
+See [Backups and Archive Services](ARCHIVE_SERVICES.md).
+
 ## Legacy Source Push
 
 The source host has an existing user timer,

@@ -1,0 +1,385 @@
+#!/usr/bin/env python3
+"""Publish a stable read-only health contract for archive consumers."""
+
+from __future__ import annotations
+
+import datetime as dt
+import json
+from pathlib import Path
+import subprocess
+
+OUTPUT = Path({{ archive_monitor_latest_path | to_json }})
+GWS = Path({{ gws_manifest_root | to_json }}) / "latest/summary.json"
+OBJECT = Path({{ object_store_manifest_root | to_json }}) / "latest/comparison.json"
+INVENTORY_PROGRESS = Path({{ object_store_manifest_root | to_json }}) / "progress.json"
+GATE = Path({{ aurora_state_root | to_json }}) / "object-store-verification-gate/state.json"
+STREAMS = json.loads(r'''{{ aurora_archive_streams | to_json }}''')
+EVIDENCE_MAX_AGE_HOURS = {{ object_store_inventory_max_age_hours | int }}
+PREFIX = {
+    "rpgfmcw94": "radar",
+    "hatprog5": "hatpro",
+    "asfs_logger": "asfs_logger",
+    "asfs_fast_sonic": "asfs_fast_sonic",
+    "asfs_fast_gas": "asfs_fast_gas",
+}
+GWS_WRITERS = [
+    "aurora-gws-rsync-raw.service",
+    "aurora-gws-rsync-products.service",
+    "aurora-gws-rsync-products-wxcam.service",
+    "aurora-gws-rsync-model-evaluation.service",
+    "aurora-gws-rsync-manifests.service",
+]
+OBJECT_WRITERS = [
+    "aurora-object-store-copy-raw.service",
+    "aurora-object-store-copy-products.service",
+    "aurora-object-store-copy-products-wxcam.service",
+    "aurora-object-store-copy-model-evaluation.service",
+    "aurora-object-store-copy-manifests.service",
+]
+ARCHIVE_SERVICES = [
+    "aurora-mirror-verify.service",
+    *GWS_WRITERS,
+    "aurora-object-store-inventory.service",
+    *OBJECT_WRITERS,
+    "aurora-object-store-repair.service",
+    "aurora-object-store-verification-gate.service",
+]
+ARCHIVE_TRIGGERS = [
+    "aurora-mirror-verify.timer",
+    *(name.replace(".service", ".timer") for name in GWS_WRITERS),
+    "aurora-object-store-inventory.timer",
+    *(name.replace(".service", ".timer") for name in OBJECT_WRITERS),
+    "aurora-object-store-repair.path",
+    "aurora-object-store-verification-gate.path",
+]
+
+
+def now() -> str:
+    return dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def read(path: Path) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def unit(name: str) -> dict:
+    completed = subprocess.run(
+        [
+            "systemctl",
+            "show",
+            name,
+            "-p",
+            "ActiveState",
+            "-p",
+            "SubState",
+            "-p",
+            "Result",
+            "-p",
+            "UnitFileState",
+            "-p",
+            "ExecMainExitTimestamp",
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    result = {}
+    for line in completed.stdout.splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            result[key] = value
+    result["_exists"] = bool(completed.returncode == 0 and result)
+    return result
+
+
+def service_healthy(state: dict) -> bool:
+    if not state.get("_exists"):
+        return False
+    if state.get("ActiveState") == "failed":
+        return False
+    return state.get("Result") in {
+        "success",
+        "",
+        "done",
+        "exec-condition",
+        "condition",
+    }
+
+
+def timer_active(state: dict) -> bool:
+    return bool(state.get("_exists")) and state.get("ActiveState") == "active"
+
+
+def unit_enabled(state: dict) -> bool:
+    return bool(state.get("_exists")) and state.get("UnitFileState") == "enabled"
+
+
+def source_sync_pairs(stream: dict) -> list[tuple[str, str, bool]]:
+    stem = stream["source_sync_stem"]
+    pairs = [(f"{stem}-source-sync", f"aurora-{stem}-source-sync", True)]
+    pairs.extend(
+        (auxiliary, f"aurora-{auxiliary}", False)
+        for auxiliary in stream.get("source_sync_auxiliary_stems", [])
+    )
+    return pairs
+
+
+def evidence_age_hours(value: object) -> float | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        timestamp = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return (
+        dt.datetime.now(dt.timezone.utc) - timestamp
+    ).total_seconds() / 3600
+
+
+def main() -> int:
+    gws = read(GWS)
+    object_report = read(OBJECT)
+    inventory_progress = read(INVENTORY_PROGRESS)
+    gate = read(GATE)
+    metrics: dict[str, object] = {}
+    failures: list[str] = []
+    gws_age = evidence_age_hours(gws.get("generated_at"))
+    object_age = evidence_age_hours(object_report.get("generated_at"))
+    if gws_age is None:
+        failures.append("gws_evidence_missing")
+    elif gws_age > EVIDENCE_MAX_AGE_HOURS:
+        failures.append(f"gws_evidence_stale_hours={gws_age:.2f}")
+    if object_age is None:
+        failures.append("object_store_evidence_missing")
+    elif object_age > EVIDENCE_MAX_AGE_HOURS:
+        failures.append(f"object_store_evidence_stale_hours={object_age:.2f}")
+    issues = 0
+    prune_ready = 0
+    for stream in STREAMS:
+        name = stream["name"]
+        state = gws.get("streams", {}).get(name, {})
+        prefix = PREFIX.get(name, name)
+        missing = int(state.get("gws_missing_count") or 0)
+        mismatch = int(state.get("gws_mismatch_count") or 0)
+        retention_missing = int(state.get("retention_gws_missing_count") or 0)
+        retention_mismatch = int(state.get("retention_gws_mismatch_count") or 0)
+        count = int(state.get("source_count") or 0)
+        gws_count = int(state.get("gws_count") or 0)
+        coverage = 100.0 if count == 0 else min(100.0, gws_count * 100.0 / count)
+        metrics[f"{prefix}_gws_missing_count"] = missing
+        metrics[f"{prefix}_gws_mismatch_count"] = mismatch
+        metrics[f"{prefix}_retention_gws_missing_count"] = retention_missing
+        metrics[f"{prefix}_retention_gws_mismatch_count"] = retention_mismatch
+        metrics[f"{prefix}_gws_coverage_pct"] = coverage
+        metrics[f"{prefix}_prune_ready_state"] = int(
+            bool(state.get("prune_ready")) and bool(stream.get("prune_enabled"))
+        )
+        # Fresh in-flight gaps remain observable above but do not make
+        # seven-day retention unsafe.  The retention verifier supplies the
+        # explicitly age-bounded counters used for the health gate.
+        issues += retention_missing + retention_mismatch
+        prune_ready += int(bool(metrics[f"{prefix}_prune_ready_state"]))
+
+    object_missing = 0
+    object_mismatch = 0
+    gws_job_missing = 0
+    gws_job_mismatch = 0
+    raw_missing = 0
+    raw_mismatch = 0
+    for job_name, job in object_report.get("jobs", {}).items():
+        comparison = job.get("source_vs_s3") or {}
+        missing = len(comparison.get("missing_from_right", []))
+        mismatch = len(comparison.get("size_mismatch", [])) + len(
+            comparison.get("checksum_mismatch", [])
+        )
+        metric_name = job_name.replace("-", "_")
+        pending = job.get("pending_upload") or {}
+        pending_missing = len(pending.get("missing_from_right", []))
+        metrics[f"object_store_{metric_name}_missing_count"] = missing
+        metrics[f"object_store_{metric_name}_mismatch_count"] = mismatch
+        metrics[f"object_store_{metric_name}_pending_upload_count"] = pending_missing
+        object_missing += missing
+        object_mismatch += mismatch
+        gws_comparison = job.get("source_vs_gws") or {}
+        gws_missing = len(gws_comparison.get("missing_from_right", []))
+        gws_mismatch = len(gws_comparison.get("size_mismatch", [])) + len(
+            gws_comparison.get("checksum_mismatch", [])
+        )
+        metrics[f"gws_{metric_name}_missing_count"] = gws_missing
+        metrics[f"gws_{metric_name}_mismatch_count"] = gws_mismatch
+        # The raw path is covered by the per-stream, age-bounded verifier
+        # above. Keep its all-age value as telemetry, but do not turn normal
+        # live-transfer lag into an archive-retention failure.
+        if job_name != "raw":
+            gws_job_missing += gws_missing
+            gws_job_mismatch += gws_mismatch
+        if job_name == "raw":
+            raw_missing = missing
+            raw_mismatch = mismatch
+    metrics.update(
+        {
+            "streams_gws_issue_count": issues,
+            "streams_prune_ready_count": prune_ready,
+            "streams_target_count": len(STREAMS),
+            "object_store_raw_missing_count": raw_missing,
+            "object_store_raw_mismatch_count": raw_mismatch,
+            "object_store_all_missing_count": object_missing,
+            "object_store_all_mismatch_count": object_mismatch,
+            "gws_all_missing_count": gws_job_missing,
+            "gws_all_mismatch_count": gws_job_mismatch,
+            "object_store_clean_streak": int(gate.get("clean_streak", 0)),
+            "object_store_stable_parity_state": int(
+                bool(gate.get("stable_parity"))
+            ),
+            "object_store_writers_independent_state": int(
+                gate.get("writers_policy") == "independent"
+            ),
+        }
+    )
+    services = {}
+    archive_units = [
+        *ARCHIVE_SERVICES,
+        *ARCHIVE_TRIGGERS,
+        "aurora-ass-retention.timer",
+    ]
+    source_sync_units = []
+    for stream in STREAMS:
+        for _stem, unit_stem, _primary in source_sync_pairs(stream):
+            source_sync_units.extend(
+                [f"{unit_stem}.timer", f"{unit_stem}.service"]
+            )
+    for name in [*archive_units, *source_sync_units]:
+        services[name] = unit(name)
+    metrics["mirror_verify_service_healthy_state"] = int(
+        services["aurora-mirror-verify.service"].get("Result") == "success"
+    )
+    for service_name in GWS_WRITERS:
+        metric_name = service_name.removeprefix("aurora-").removesuffix(
+            ".service"
+        ).replace("-", "_")
+        state = services[service_name]
+        healthy = state.get("Result") == "success" and state.get(
+            "ActiveState"
+        ) != "failed"
+        metrics[f"{metric_name}_healthy_state"] = int(healthy)
+        if not healthy:
+            failures.append(f"gws_writer_unhealthy={service_name}")
+    metrics["ass_retention_enabled_state"] = int(
+        services["aurora-ass-retention.timer"].get("UnitFileState") == "enabled"
+    )
+    metrics["object_store_inventory_running_state"] = int(
+        services["aurora-object-store-inventory.service"].get("ActiveState")
+        == "activating"
+    )
+    progress_age_hours = evidence_age_hours(inventory_progress.get("updated_at"))
+    progress_age_minutes = (
+        progress_age_hours * 60 if progress_age_hours is not None else None
+    )
+    metrics["object_store_inventory_progress_age_minutes"] = progress_age_minutes
+    progress_recent = (
+        progress_age_minutes is not None and progress_age_minutes <= 5
+    )
+    metrics["object_store_inventory_progress_recent_state"] = int(
+        progress_recent
+    )
+    if (
+        metrics["object_store_inventory_running_state"]
+        and not progress_recent
+    ):
+        value = (
+            "missing"
+            if progress_age_minutes is None
+            else f"{progress_age_minutes:.2f}"
+        )
+        failures.append(
+            f"object_store_inventory_progress_stale_minutes={value}"
+        )
+    for service_name in ARCHIVE_SERVICES:
+        state = services[service_name]
+        slug = service_name.removeprefix("aurora-").removesuffix(
+            ".service"
+        ).replace("-", "_")
+        healthy = service_healthy(state)
+        metrics[f"{slug}_service_healthy_state"] = int(healthy)
+        if not healthy:
+            failures.append(f"archive_service_unhealthy={service_name}")
+    for trigger_name in ARCHIVE_TRIGGERS:
+        state = services[trigger_name]
+        slug = trigger_name.removeprefix("aurora-").replace(".", "_").replace(
+            "-", "_"
+        )
+        active = timer_active(state)
+        enabled = unit_enabled(state)
+        metrics[f"{slug}_active_state"] = int(active)
+        metrics[f"{slug}_enabled_state"] = int(enabled)
+        if not active:
+            failures.append(f"archive_trigger_inactive={trigger_name}")
+        if not enabled:
+            failures.append(f"archive_trigger_disabled={trigger_name}")
+    failed_source_sync = 0
+    source_sync_enabled = 0
+    for stream in STREAMS:
+        prefix = PREFIX.get(stream["name"], stream["name"])
+        for stem, unit_stem, primary in source_sync_pairs(stream):
+            timer_name = f"{unit_stem}.timer"
+            service_name = f"{unit_stem}.service"
+            timer_state = services[timer_name]
+            service_state = services[service_name]
+            active = timer_active(timer_state)
+            enabled = unit_enabled(timer_state)
+            healthy = service_healthy(service_state)
+            metric_stem = stem.replace("-", "_")
+            metrics[f"{metric_stem}_timer_active_state"] = int(active)
+            metrics[f"{metric_stem}_timer_enabled_state"] = int(enabled)
+            metrics[f"{metric_stem}_service_healthy_state"] = int(healthy)
+            if primary:
+                metrics[f"{prefix}_source_sync_service_healthy_state"] = int(
+                    healthy
+                )
+            failed_source_sync += int(not active) + int(not healthy)
+            source_sync_enabled += int(enabled)
+            if not active:
+                failures.append(f"source_sync_timer_inactive={timer_name}")
+            if not healthy:
+                failures.append(f"source_sync_service_unhealthy={service_name}")
+    metrics["failed_source_sync_unit_count"] = failed_source_sync
+    metrics["source_sync_enabled_count"] = source_sync_enabled
+    if issues:
+        failures.append(f"gws_issues={issues}")
+    if object_missing:
+        failures.append(f"object_store_all_missing={object_missing}")
+    if object_mismatch:
+        failures.append(f"object_store_all_mismatch={object_mismatch}")
+    if gws_job_missing:
+        failures.append(f"gws_all_missing={gws_job_missing}")
+    if gws_job_mismatch:
+        failures.append(f"gws_all_mismatch={gws_job_mismatch}")
+    if not gate.get("stable_parity", False):
+        failures.append("object_store_stable_parity=false")
+    payload = {
+        "schema_version": "health-v1",
+        "generated_at": now(),
+        "overall_level": "red" if failures else "green",
+        "failures": failures,
+        "metrics": metrics,
+        "services": services,
+        "evidence": {
+            "gws_generated_at": gws.get("generated_at"),
+            "object_store_generated_at": object_report.get("generated_at"),
+            "object_store_gate": gate,
+            "object_store_inventory_progress": inventory_progress,
+        },
+    }
+    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    temporary = OUTPUT.with_suffix(".tmp")
+    temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(OUTPUT)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,7 @@
+---
+- name: Configure non-destructive Aurora object-store mirroring and evidence
+  hosts: aurora_cloud
+  become: true
+  roles:
+    - object_store_mirror
+    - operations_monitor

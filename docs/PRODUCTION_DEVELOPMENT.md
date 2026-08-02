@@ -49,21 +49,39 @@ Production owns:
 - quicklook timers
 - Operations monitor and alert timers
 - GWS archive sync and verification timers
+- object-store writers, sharded inventory, exact repair, archive health, and
+  the retention coordinator
 
 Development owns:
 
 - the public development dashboard
-- `aurora-dev-live-pull.timer`
+- independent `aurora-dev-live-pull-<stage>.timer` units for each raw or
+  product family
+- the shared `aurora-dev-live-pull@.service` template used by those timers
 - a mirror-lag success stamp at
   `/data/aurora/internal/dev-live-mirror/last_success.json`
 - experimental paths only:
   - `/project/aurora/dev-raw`
   - `/data/aurora/dev-products`
 
-The development mirror pulls production raw, products, internal state, and
-required service state about every five minutes. It uses rsync locking,
-`--partial`, `--delay-updates`, and `--delete-delay` so incomplete transfers do
-not replace complete products.
+Most development stages pull production raw, products, internal state, and
+required service state about every five minutes. AURORACam raw and product
+stages run every two minutes. Every stage has its own lock and status JSON, so
+a large camera or radar scan cannot block Power or dashboard summaries. The
+legacy combined `aurora-dev-live-pull.timer` is installed for compatibility but
+disabled while staged timers are active.
+
+The mirror uses `--partial`, `--delay-updates`, and `--delete-delay` so an
+incomplete transfer does not replace a complete product. Only a successful
+`product-dashboard` stage updates the public
+`/data/aurora/internal/dev-live-mirror/last_success.json` stamp used for common
+dashboard freshness.
+
+That mirror is for service availability and development testing. It is not an
+independent long-term archive and never counts as GWS/object-store parity or as
+permission to prune ASS. When production ownership moves during a deliberate
+failover, archive-writer and retention ownership must move as one explicitly
+reviewed unit; two hosts must never coordinate deletion concurrently.
 
 Development also runs `aurora-ecmwf-provider-shadow.timer`. This performs a
 read-only comparison of the latest mirrored deterministic ECMWF GRIB with the
@@ -74,8 +92,14 @@ and 50 clean comparisons before it can be reviewed; it never changes the
 configured provider. `aurora-dashboard-health-probe.timer` also compares public
 development and production response times every five minutes and records mirror
 age. A development-versus-production latency delta is an observation only: it
-does not fail the availability probe when both endpoints are healthy. It does
-not run a forecast writer or modify mirrored production products.
+does not fail the availability probe when both endpoints are healthy.
+
+Development may run advisory forecast writers only in
+`/data/aurora/dev-products/power`; it never modifies the mirrored production
+forecast products. Production runs the same advisory jobs in
+`/data/aurora/products/power`. The operating-scenario service reads the UAS
+MQTT mirror so it can learn effective-tier load evidence. Neither environment
+issues PDU commands.
 
 The development 240-hour planning forecast is advisory. It attempts a bounded
 ECMWF refresh and then a bounded cached re-anchor. If both fail, the service
@@ -83,6 +107,26 @@ retains the last published plan and exits cleanly with an explicit journal
 message; this must not be treated as an acquisition failure.
 Production remains on `AURORA_ECMWF_PROVIDER=legacy` until the parity and
 resource gates pass.
+
+Forecast and scenario services use semantic publication signatures. A run with
+unchanged SOC/load anchors, mode, ECMWF cycle, solar calibration, battery
+parameters, and model version updates service state without rewriting the
+public Zarr or adding a duplicate verification issue.
+
+## Development-only display performance work
+
+The development host may run bounded presentation experiments that do not
+change raw data, product Zarrs, source synchronization, or writer ownership.
+
+`aurora-dashboard-display-manifest.timer` inventories prewarmed Plotly JSON,
+quicklooks, WXcam thumbnails, and daily videos every five minutes. The manifest
+is an atomic, bounded input for a future CDN or object-store publishing job; it
+does not publish raw data and does not move any Zarr store.
+
+Development expires unused Panel documents after one minute so backgrounded
+phone sessions stop retaining full server-side documents promptly. Production
+uses two minutes. Both hosts check every 15 seconds and retain a 24-hour
+session-token lifetime.
 
 ## Release Policy
 
@@ -114,18 +158,20 @@ uv run ansible-playbook playbooks/dashboard_release.yml --limit <host>
 ```
 
 Use the runtime release playbook when preparing or repairing the complete
-dashboard service set, including source sync, GWS, nginx, and development
-mirror units. Keep writers disabled while preparing a production host:
+dashboard service set, including source sync, nginx, and development mirror
+units. It deliberately does not reapply GWS, object-store, verification,
+archive-monitoring, or retention services:
 
 ```bash
-uv run ansible-playbook playbooks/dashboard_runtime_release.yml --limit <host> --check --diff -e aurora_writer_timers_enabled=false
-uv run ansible-playbook playbooks/dashboard_runtime_release.yml --limit <host> -e aurora_writer_timers_enabled=false
+uv run ansible-playbook playbooks/dashboard_runtime_release.yml --limit <host> --check --diff
+uv run ansible-playbook playbooks/dashboard_runtime_release.yml --limit <host>
 ```
 
 The runtime playbook assumes the host baseline, storage, and network roles have
 already been provisioned. Run `playbooks/site.yml` separately for those host
 baseline changes; its check mode can report package/service ordering failures
 when a package is absent and would only be installed during the same run.
+Apply archive services independently with `playbooks/archive_services.yml`.
 
 Do not deploy untagged experimental changes directly to production.
 
@@ -165,9 +211,11 @@ production writer timers are enabled there.
 On data-ocean:
 
 ```bash
-sudo systemctl is-active aurora-dashboard.service nginx.service aurora-dev-live-pull.timer
+sudo systemctl is-active aurora-dashboard.service nginx.service
+sudo systemctl list-timers --all 'aurora-dev-live-pull-*.timer'
 sudo systemctl list-timers --all 'aurora-*'
-sudo journalctl -u aurora-dev-live-pull.service --since '30 minutes ago' --no-pager
+sudo journalctl -u 'aurora-dev-live-pull@*.service' --since '30 minutes ago' --no-pager
+ls -1 /var/lib/aurora-cloud/dev-live-mirror/*.json
 cat /data/aurora/internal/dev-live-mirror/last_success.json
 ```
 
@@ -175,7 +223,8 @@ Expected result:
 
 - app returns the full dashboard document
 - development banner is visible
-- mirror lag is green in Operations
+- staged mirror timers are active and the legacy combined timer is inactive
+- dashboard-product mirror lag is green in Operations
 - normal production-path writer timers are disabled
 - AURORACam, WXcam, Power, and Operations load from mirrored data
 

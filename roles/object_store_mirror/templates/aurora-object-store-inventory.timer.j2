@@ -1,0 +1,10 @@
+[Unit]
+Description=Schedule Aurora object-store inventory
+
+[Timer]
+OnCalendar={{ object_store_inventory_schedule }}
+RandomizedDelaySec=60
+Persistent=true
+
+[Install]
+WantedBy=timers.target

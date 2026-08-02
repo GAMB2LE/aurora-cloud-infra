@@ -1,7 +1,7 @@
 [project]
 name = "aurora-cloud-infra"
 version = "0.1.0"
-description = "Ansible control project for the Aurora cloud dashboard host"
+description = "Ansible control project for the Aurora cloud data and presentation hosts"
 requires-python = ">=3.12"
 dependencies = [
   "ansible==13.6.0",

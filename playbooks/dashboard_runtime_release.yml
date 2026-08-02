@@ -20,5 +20,4 @@
     - dashboard_app
     - dashboard_services
     - nginx
-    - gws_sync
     - standby_replication

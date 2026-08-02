@@ -1,0 +1,7 @@
+---
+- name: Configure additive Aurora GWS mirroring and verification
+  hosts: aurora_cloud
+  become: true
+  roles:
+    - gws_sync
+    - operations_monitor

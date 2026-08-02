@@ -8,6 +8,40 @@
   ansible.builtin.set_fact:
     aurora_tls_available: "{{ aurora_tls_cert.stat.exists }}"
 
+- name: Install Aurora security response headers
+  ansible.builtin.template:
+    src: aurora-dashboard-security-headers.conf.j2
+    dest: /etc/nginx/snippets/aurora-dashboard-security-headers.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: aurora_nginx_security_headers | default(false) | bool
+  notify: Reload nginx
+
+- name: Remove disabled Aurora security response headers
+  ansible.builtin.file:
+    path: /etc/nginx/snippets/aurora-dashboard-security-headers.conf
+    state: absent
+  when: not (aurora_nginx_security_headers | default(false) | bool)
+  notify: Reload nginx
+
+- name: Install Aurora API rate-limit zones
+  ansible.builtin.template:
+    src: aurora-dashboard-rate-limits.conf.j2
+    dest: /etc/nginx/conf.d/aurora-dashboard-rate-limits.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: aurora_nginx_rate_limits | default(false) | bool
+  notify: Reload nginx
+
+- name: Remove disabled Aurora API rate-limit zones
+  ansible.builtin.file:
+    path: /etc/nginx/conf.d/aurora-dashboard-rate-limits.conf
+    state: absent
+  when: not (aurora_nginx_rate_limits | default(false) | bool)
+  notify: Reload nginx
+
 - name: Install nginx site
   ansible.builtin.template:
     src: aurora-dashboard.nginx.j2

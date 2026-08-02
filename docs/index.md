@@ -1,7 +1,8 @@
 # Aurora Cloud Infrastructure
 
 This repo contains the Ansible configuration used to build and operate the
-Aurora cloud dashboard hosts on JASMIN Cloud and the DigitalOcean droplet.
+Aurora cloud data and presentation hosts on JASMIN Cloud and the DigitalOcean
+droplet.
 
 ## What this repo covers
 
@@ -19,8 +20,9 @@ Aurora cloud dashboard hosts on JASMIN Cloud and the DigitalOcean droplet.
 - Production public hostname: `data.gamb2le.co.uk` on JASMIN
 - Development public hostname: `data-ocean.gamb2le.co.uk` on DigitalOcean
 - Production is the authoritative live writer.
-- Development stays live by running `aurora-dev-live-pull.timer` and mirroring
-  production about every five minutes.
+- Development stays live through independently scheduled
+  `aurora-dev-live-pull-<stage>.timer` units. Most stages run about every five
+  minutes; latency-sensitive AURORACam stages run every two minutes.
 - Raw mirror root: `/project/aurora/raw`
 - Product root: `/data/aurora/products`
 - Development experiment roots: `/project/aurora/dev-raw` and
@@ -28,9 +30,11 @@ Aurora cloud dashboard hosts on JASMIN Cloud and the DigitalOcean droplet.
 - Dashboard app checkout: `/opt/aurora-cloud-dashboard`
 - Public frontend: `nginx` on `80/443`
 - Private Panel backend: `127.0.0.1:5006`
-- Dashboard sessions use a `15 s` websocket keepalive, `1 h` unused-session
-  lifetime, and `24 h` session-token expiration to improve recovery after
-  short mobile backgrounding events.
+- Dashboard sessions use a `15 s` websocket keepalive and cleanup check.
+  Unused documents expire after `2 min` on Production and `1 min` on
+  Development; session tokens expire after `24 h`.
+- Both public mobile API endpoints run in bounded `public_read_only` mode.
+  Administrative artifact inventory remains token-protected.
 - `/wxcam-media` is served from `/data/aurora/products/wxcam` so WXcam MP4s
   stream over normal HTTP with byte-range support.
 - `/auroracam-media` is served from `/project/aurora/raw/auroracam` so MX4
@@ -70,6 +74,8 @@ The deployed syncs currently cover:
 - Vaisala MET
 - ASFS Logger
 - ASFS Fast Sonic
+- ASFS Fast Gas
+- ASS PDU
 - Power
 - WXcam
 - MX4 camera FTP ingest on the ASS Linux data volume
@@ -89,22 +95,39 @@ from the CL61 SSH/SFTP path.
 ASFS science and fast-sonic syncs use the current CRD source directory
 (`/home/aurora/data/asfs/raw/crd`) and the May 2 onward retained data window.
 
-## GWS transfer model
+## Archive transfer model
 
-The current backup and archive design is push-based from the Aurora VM to:
+The current backup design uses independent additive writers from the
+production Aurora VM to both:
 
-`/gws/ssde/j25b/gamb2le`
+- JASMIN GWS under `/gws/ssde/j25b/gamb2le`; and
+- the configured `gamb2le-o` object-store bucket.
 
-It uses systemd timers plus rsync-over-SSH failover across:
+GWS transfer uses systemd timers plus rsync-over-SSH failover across:
 
 1. `xfer-vm-03.jasmin.ac.uk`
 2. `xfer-vm-01.jasmin.ac.uk`
 3. `xfer-vm-02.jasmin.ac.uk`
 
-Verification manifests are generated for source, local raw, and GWS copies so
-upstream pruning decisions can be made against evidence rather than trust.
-Product sync is split into core products and WXcam products so the large WXcam
-media tree cannot delay the smaller product artifacts.
+Verification manifests are generated for source, local raw, GWS, and object
+copies. Raw object parity remains strict for files older than six hours. Live
+derived products and quicklooks receive a 30-hour settle window and appear as
+`pending_upload` while they are still too new to be archive evidence. Pending
+files do not reset the clean streak; settled gaps do. Product sync is split
+into core products and WXcam products so the large WXcam media tree cannot
+delay smaller product artifacts, and verification lists bounded
+source-derived shards instead of one unbounded product-tree request.
+
+The fail-closed stability gate requires two complete, distinct clean reports.
+ASS files are retained for at least seven days and are deleted only by exact,
+signed permits after cloud, GWS, and object-store proof. APS Power is archived
+but non-prunable. The dashboard only reads the resulting
+infrastructure-owned health contract; it does not run archive writers, probes,
+verification, repair, or retention. The development live mirror and weekly
+PBS guest backups do not count as science-data archive parity.
+
+See [Backups and Archive Services](ARCHIVE_SERVICES.md) for the complete flow,
+status meanings, schedules, and evidence paths.
 
 ## Production and development state
 
@@ -114,18 +137,18 @@ append, quicklook, Operations, alert, and GWS writer timers after cutover.
 
 `aurora-cloud-droplet` on DigitalOcean is the public development endpoint for
 `data-ocean.gamb2le.co.uk`. It should not run normal production-path writer
-timers. It mirrors production with `aurora-dev-live-pull.timer`, displays the
-development banner, and reports mirror lag in the Operations Dashboard.
+timers. Independent staged timers mirror production raw and product families,
+the site displays the development banner, and Operations reports the public
+dashboard-product mirror lag.
 
 Unattended Tailscale SSH from the droplet to `ass-proxmox-linux` and
 `aps-proxmox-linux` must use an `accept` policy for Linux user `aurora`, not an
 interactive `check` policy. CL61 source sync now uses the ASS Linux data path
 at `100.124.55.22:/home/aurora/data/cl61`.
 
-The active droplet data disk is 1TB-class and is shared by `/data` and
-`/project`. The last resource audit still showed the smaller `4 vCPU / 7.8 GiB`
-compute size with no swap; resize to `8 vCPU / 16 GiB` or add swap for safer
-live-processing headroom.
+The active droplet data disk is shared by `/data` and `/project`. Use the live
+Operations and host metrics before making a capacity decision; historical VM
+sizes in this documentation are not a scaling recommendation.
 
 Docs are published through the central `GAMB2LE/mkdocs-portal` build only. This
 repo keeps `trigger-docs.yml` for portal dispatch and no longer deploys a
@@ -133,13 +156,18 @@ standalone repo-local Pages site.
 
 ## Key docs in this site
 
-- **Rebuild Plan** for host rebuild and recovery notes
+- **Operator Quickstart** for the concise, read-only login and system-health
+  check used during an incident
+- **Historical Rebuild Plan** for the original build record; do not use it as a
+  current operations runbook
 - **Production and Development** for host roles, release policy, mirror checks,
   and rollback rules
-- **Failover** for emergency promotion history and troubleshooting
+- **Failover** for the current manual promotion and failback gates
 - **Reverse Tunnels** for cloud-side source access and staged rollout checks
-- **Data Locations** for source, local raw, local product, GWS archive, and
-  active Zarr paths
+- **Data Locations** for source, local raw, local product, GWS, object-store,
+  evidence, and active Zarr paths
+- **Backups and Archive Services** for the authoritative copy, verification,
+  repair, status, and retention contract
 - **Source Syncs** for per-instrument sync behavior and deployment details
 - **MX4 Camera FTP Ingest** for the MOBOTIX camera FTP endpoint and camera-side
   exposure/upload settings

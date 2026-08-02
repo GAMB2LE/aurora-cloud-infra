@@ -3,6 +3,7 @@
   ansible.builtin.systemd:
     name: aurora-dashboard.service
     state: restarted
+    daemon_reload: true
   when:
     - not ansible_check_mode
     - ansible_facts.service_mgr == "systemd"

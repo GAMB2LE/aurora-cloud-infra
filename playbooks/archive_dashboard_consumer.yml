@@ -1,0 +1,28 @@
+---
+- name: Release the read-only archive health dashboard consumer
+  hosts: aurora_cloud
+  become: true
+  roles:
+    - dashboard_app
+  tasks:
+    - name: Point dashboard consumers at the infrastructure health contract
+      ansible.builtin.lineinfile:
+        path: /etc/aurora-dashboard.env
+        regexp: "^ARCHIVE_HEALTH_PATH="
+        line: "ARCHIVE_HEALTH_PATH={{ archive_monitor_latest_path }}"
+        create: false
+      notify:
+        - Restart archive dashboard
+        - Restart archive mobile API
+  handlers:
+    - name: Restart archive dashboard
+      ansible.builtin.systemd:
+        name: aurora-dashboard.service
+        state: restarted
+        daemon_reload: true
+
+    - name: Restart archive mobile API
+      ansible.builtin.systemd:
+        name: aurora-mobile-api.service
+        state: restarted
+        daemon_reload: true

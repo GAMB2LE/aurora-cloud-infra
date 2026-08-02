@@ -95,7 +95,7 @@ aurora_app_repo: https://github.com/GAMB2LE/aurora_cloud_dashboard.git
 # Exact dashboard release containing the fast SOC/mode re-anchor and stale-input
 # guards. Host vars repeat this pin so either environment cannot downgrade the
 # live checkout during a routine deployment.
-aurora_app_version: prod-20260721.10
+aurora_app_version: prod-20260726.1
 aurora_infra_repo_dir: /tmp/aurora-cloud-infra-codex
 aurora_python: /usr/bin/python3
 aurora_venv: "{{ aurora_app_dir }}/venv"
@@ -118,8 +118,16 @@ aurora_panel_port: 5006
 # process. Keep development lean while allowing production requests to avoid
 # queueing behind a long interactive render.
 aurora_dashboard_num_procs: "{{ 2 if aurora_is_production else 1 }}"
+# Keep production's established session policy unchanged. Development overrides
+# these values so abandoned mobile sessions do not retain a full Panel document
+# for an hour while performance work is evaluated.
+aurora_dashboard_session_check_ms: 600000
+aurora_dashboard_unused_session_lifetime_ms: 3600000
 aurora_mobile_api_host: 127.0.0.1
 aurora_mobile_api_port: 8010
+# Secure by default. Public dashboard hosts opt into bounded GET/HEAD access
+# explicitly in host_vars; privileged artifact inventory remains protected.
+aurora_mobile_api_auth_mode: required
 aurora_nginx_disabled_sites: []
 
 # JASMIN target already has /data on a 999G volume and /project on a 4T Ceph mount.
@@ -156,6 +164,9 @@ aurora_power_operating_root: >-
   {{ (aurora_dev_product_root ~ '/power')
      if aurora_is_development
      else (aurora_product_root ~ '/power') }}
+# The deterministic/ensemble forecast consumes mirrored power and PDU inputs on
+# development, but every derived artifact must remain in the isolated dev tree.
+aurora_power_forecast_root: "{{ aurora_power_operating_root }}"
 aurora_power_planning_forecast_path: "{{ aurora_power_operating_root }}/power_soc_planning_forecast.zarr"
 aurora_power_planning_forecast_cache: "{{ aurora_power_operating_root }}/ecmwf_solar_planning"
 aurora_power_planning_forecast_state: "{{ aurora_power_operating_root }}/power_soc_planning_state.json"
@@ -168,6 +179,9 @@ aurora_power_operating_model_state_path: "{{ aurora_power_operating_root }}/powe
 aurora_power_operating_recommendations_path: "{{ aurora_power_operating_root }}/power_operating_recommendations.json"
 aurora_power_display_summary_path: "{{ aurora_product_root }}/power/power_display_summary.zarr"
 aurora_power_display_energy_path: "{{ aurora_product_root }}/power/power_display_energy.zarr"
+aurora_power_current_display_path: "{{ aurora_product_root }}/power/power_current_display.zarr"
+aurora_power_forecast_display_path: "{{ aurora_product_root }}/power/power_forecast_display.zarr"
+aurora_power_display_manifest_path: "{{ aurora_product_root }}/power/power_display_manifest.json"
 aurora_log_root: /var/log/aurora-cloud
 aurora_state_root: /var/lib/aurora-cloud
 
@@ -193,8 +207,8 @@ aurora_paths:
   products_asfs_fast_sonic: "{{ aurora_product_root }}/asfs_fast_sonic"
   products_asfs_fast_gas: "{{ aurora_product_root }}/asfs_fast_gas"
   products_power: "{{ aurora_product_root }}/power"
-  products_power_ecmwf_solar_forecast: "{{ aurora_product_root }}/power/ecmwf_solar_forecast"
-  products_power_ecmwf_solar_ensemble: "{{ aurora_product_root }}/power/ecmwf_solar_ensemble"
+  products_power_ecmwf_solar_forecast: "{{ aurora_power_forecast_root }}/ecmwf_solar_forecast"
+  products_power_ecmwf_solar_ensemble: "{{ aurora_power_forecast_root }}/ecmwf_solar_ensemble"
   products_ops_monitor: "{{ aurora_product_root }}/ops_monitor"
   products_ops_monitor_health: "{{ aurora_product_root }}/ops_monitor/health"
   products_wxcam: "{{ aurora_product_root }}/wxcam"
@@ -203,7 +217,6 @@ aurora_paths:
   quicklooks: "{{ aurora_product_root }}/quicklooks"
 
 wxcam_zarr_start_time: "2026-07-04T00:00:00Z"
-wxcam_zarr_gws_path: "{{ gws_path }}/data/output/aurora-cloud/products/wxcam/wxcam.zarr"
 wxcam_zarr_mount_path: "{{ aurora_product_root }}/wxcam/wxcam.zarr"
 
 aurora_zarr:
@@ -216,13 +229,13 @@ aurora_zarr:
   asfs_fast_gas: "{{ aurora_product_root }}/asfs_fast_gas/asfs_fast_gas.zarr"
   power: "{{ aurora_product_root }}/power/power.zarr"
   pdu: "{{ aurora_product_root }}/power/pdu.zarr"
-  power_soc_forecast: "{{ aurora_product_root }}/power/power_soc_forecast.zarr"
-  power_soc_forecast_archive: "{{ aurora_product_root }}/power/power_soc_forecast_archive.zarr"
-  power_soc_forecast_skill: "{{ aurora_product_root }}/power/power_soc_forecast_skill.zarr"
-  power_soc_hindcast: "{{ aurora_product_root }}/power/power_soc_hindcast.zarr"
-  power_soc_ensemble: "{{ aurora_product_root }}/power/power_soc_ensemble_forecast.zarr"
-  power_soc_ensemble_archive: "{{ aurora_product_root }}/power/power_soc_ensemble_archive.zarr"
-  power_soc_ensemble_skill: "{{ aurora_product_root }}/power/power_soc_ensemble_skill.zarr"
+  power_soc_forecast: "{{ aurora_power_forecast_root }}/power_soc_forecast.zarr"
+  power_soc_forecast_archive: "{{ aurora_power_forecast_root }}/power_soc_forecast_archive.zarr"
+  power_soc_forecast_skill: "{{ aurora_power_forecast_root }}/power_soc_forecast_skill.zarr"
+  power_soc_hindcast: "{{ aurora_power_forecast_root }}/power_soc_hindcast.zarr"
+  power_soc_ensemble: "{{ aurora_power_forecast_root }}/power_soc_ensemble_forecast.zarr"
+  power_soc_ensemble_archive: "{{ aurora_power_forecast_root }}/power_soc_ensemble_archive.zarr"
+  power_soc_ensemble_skill: "{{ aurora_power_forecast_root }}/power_soc_ensemble_skill.zarr"
   ops_monitor: "{{ aurora_product_root }}/ops_monitor/ops_monitor.zarr"
   wxcam: "{{ wxcam_zarr_mount_path }}"
   auroracam: "{{ aurora_product_root }}/auroracam/auroracam.zarr"
@@ -532,14 +545,17 @@ auroracam_backfill_enabled: true
 auroracam_backfill_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 auroracam_backfill_state_file: "{{ aurora_state_root }}/auroracam-backfill.cursor"
 auroracam_backfill_scope_file: "{{ aurora_state_root }}/auroracam-backfill.scope"
-auroracam_backfill_scope_version: newest-first-v1
-auroracam_backfill_interval: 3min
-auroracam_backfill_randomized_delay: 45
+auroracam_backfill_scope_version: full-tree-catchup-v2
+auroracam_backfill_interval: 1min
+auroracam_backfill_randomized_delay: 10
 # Reserve the most recent hour for the priority lane and process older files
 # newest-first in bounded, lower-priority batches.
 auroracam_backfill_live_guard_seconds: 3600
-auroracam_backfill_batch_size: 100
-auroracam_backfill_rsync_bwlimit_kib: 256
+# The archive lane is deliberately independent of the live lane.  It scans
+# the source tree but transfers only missing immutable files; current frames
+# remain owned by the priority sync.
+auroracam_backfill_batch_size: 1000
+auroracam_backfill_rsync_bwlimit_kib: 768
 auroracam_index_interval: 2min
 auroracam_index_randomized_delay: 30
 
@@ -615,6 +631,7 @@ gws_path: /gws/ssde/j25b/gamb2le
 gws_group: gws_gamb2le
 gws_raw_root: "{{ gws_path }}/data/incoming/aurora-cloud/raw"
 gws_products_root: "{{ gws_path }}/data/output/aurora-cloud/products"
+gws_model_evaluation_root: "{{ gws_path }}/data/output/aurora-cloud/model-evaluation"
 gws_internal_root: "{{ gws_path }}/data/internal/aurora-cloud"
 # Automated timers need a real private key on the VM. Agent forwarding from the
 # admin SSH session is not sufficient for unattended systemd jobs.
@@ -624,6 +641,9 @@ gws_manifest_root: /data/aurora/internal/mirror_manifests
 gws_manifest_history_keep: 48
 gws_manifest_checksum_mode: none
 gws_manifest_spot_modulus: 20
+gws_verification_local_settle_seconds: 600
+gws_verification_gws_settle_seconds: 2700
+gws_verification_product_settle_seconds: 900
 gws_verification_enabled: true
 gws_verification_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 gws_sync_randomized_delay_sec: 60
@@ -653,13 +673,228 @@ gws_sync_jobs:
     exclude:
       - /wxcam.zarr
       - /wxcam.zarr/**
+  - name: model-evaluation
+    source: "{{ aurora_model_evaluation_campaign_root }}/"
+    destination: "{{ gws_model_evaluation_root }}/"
+    schedule: "*:09/30"
+    timeout_start_sec: 12h
+    copy_links: true
   - name: manifests
     source: "{{ gws_manifest_root }}/"
     destination: "{{ gws_internal_root }}/manifests/"
     schedule: "*:06/10"
+    exclude:
+      - /logs/**
 
-# SSHFS mount is required for the GWS-only WXcam pixel Zarr. Bulk raw and
-# non-WXcam product mirroring still use the rsync jobs above.
+# Canonical archive catalogue. GWS, object-store, monitoring, and retention
+# roles consume this list rather than maintaining independent path maps.
+aurora_archive_streams:
+  - name: cl61
+    site: ass
+    source_sync_stem: cl61
+    source_root: "{{ cl61_source_path }}"
+    cloud_root: "{{ cl61_source_destination }}"
+    archive_relpath: cl61
+    retention_days: 7
+    prune_enabled: true
+  - name: rpgfmcw94
+    site: ass
+    source_sync_stem: radar
+    source_sync_auxiliary_stems:
+      - radar-backfill
+    source_root: "{{ radar_source_path }}"
+    cloud_root: "{{ radar_source_destination }}"
+    archive_relpath: rpgfmcw94
+    retention_days: 7
+    prune_enabled: true
+  - name: hatprog5
+    site: ass
+    source_sync_stem: hatpro
+    source_root: "{{ hatpro_source_path }}"
+    cloud_root: "{{ hatpro_source_destination }}"
+    archive_relpath: hatprog5
+    retention_days: 7
+    prune_enabled: true
+  - name: vaisalamet
+    site: ass
+    source_sync_stem: vaisalamet
+    source_root: "{{ vaisalamet_source_path }}"
+    cloud_root: "{{ vaisalamet_source_destination }}"
+    archive_relpath: vaisalamet
+    retention_days: 7
+    prune_enabled: true
+  - name: asfs_logger
+    site: ass
+    source_sync_stem: asfs-logger
+    source_root: "{{ asfs_logger_source_path }}"
+    cloud_root: "{{ asfs_logger_source_destination }}"
+    archive_relpath: asfs/crd
+    retention_days: 7
+    prune_enabled: true
+  - name: asfs_fast_sonic
+    site: ass
+    source_sync_stem: asfs-fast-sonic
+    source_root: "{{ asfs_fast_sonic_source_path }}"
+    cloud_root: "{{ asfs_fast_sonic_source_destination }}"
+    archive_relpath: asfs/crd
+    retention_days: 7
+    prune_enabled: true
+  - name: asfs_fast_gas
+    site: ass
+    source_sync_stem: asfs-fast-gas
+    source_root: "{{ asfs_fast_gas_source_path }}"
+    cloud_root: "{{ asfs_fast_gas_source_destination }}"
+    archive_relpath: asfs/crd
+    retention_days: 7
+    prune_enabled: true
+  - name: pdu
+    site: ass
+    source_sync_stem: pdu
+    source_root: "{{ pdu_source_path }}"
+    cloud_root: "{{ pdu_source_destination }}"
+    archive_relpath: pdu
+    retention_days: 7
+    prune_enabled: true
+  - name: wxcam
+    site: ass
+    source_sync_stem: wxcam
+    source_root: "{{ wxcam_source_path }}"
+    cloud_root: "{{ wxcam_source_destination }}"
+    archive_relpath: wxcam
+    retention_days: 7
+    prune_enabled: true
+  - name: auroracam
+    site: ass
+    source_sync_stem: auroracam
+    source_sync_auxiliary_stems:
+      - auroracam-backfill
+    source_root: "{{ auroracam_source_path }}"
+    cloud_root: "{{ auroracam_source_destination }}"
+    archive_relpath: auroracam
+    retention_days: 7
+    prune_enabled: true
+  - name: power
+    site: aps
+    source_sync_stem: power
+    source_root: "{{ power_source_path }}"
+    cloud_root: "{{ power_source_destination }}"
+    archive_relpath: power/level1
+    retention_days: 7
+    prune_enabled: false
+
+object_store_mirror_enabled: "{{ aurora_is_production }}"
+object_store_mirror_timer_enabled: "{{ aurora_writer_timers_enabled }}"
+object_store_remote: gamb2le-object-store
+object_store_bucket: gamb2le-o
+object_store_rclone_config: /etc/aurora-object-store/rclone.conf
+object_store_manifest_root: "{{ aurora_data_root }}/internal/object_store_manifests"
+object_store_log_root: /var/log/aurora-cloud/object-store
+object_store_cache_root: "{{ aurora_state_root }}/object-store-rclone-cache"
+object_store_inventory_workers: 8
+object_store_inventory_shard_workers: 16
+object_store_inventory_process_limit: 16
+object_store_inventory_list_timeout_seconds: 3600
+object_store_inventory_gws_attempts: 3
+object_store_inventory_gws_retry_delay_seconds: 15
+object_store_inventory_gws_runtime_dir: /run/aurora-object-store-inventory-ssh
+object_store_inventory_history_keep: 12
+object_store_inventory_schedule: "*-*-* 03,09,15,21:20:00"
+object_store_inventory_max_age_hours: 8
+object_store_jobs:
+  - name: raw
+    source: "{{ aurora_raw_root }}/"
+    destination: data/incoming/aurora-cloud/raw
+    gws_destination: "{{ gws_raw_root }}"
+    schedule: "*:04/30"
+    # Verification deliberately trails live writers. This is far inside the
+    # seven-day retention horizon but longer than writer cadence + full scan.
+    settle_age: 15m
+    verification_settle_age: 6h
+    timeout_start_sec: 48h
+    transfers: 4
+    full_history: true
+    recent_first: 2d
+    recent_max_duration: 8m
+    backfill_max_duration: 22m
+    shard_all_prefixes: true
+    exclude:
+      - rpgfmcw94/.radar-partials/**
+  - name: products
+    source: "{{ aurora_product_root }}/"
+    destination: data/output/aurora-cloud/products
+    gws_destination: "{{ gws_products_root }}"
+    schedule: "*:05/30"
+    settle_age: 20m
+    # Derived quicklooks are live operational output, not raw archive data.
+    # Let the additive copy/repair path settle them before archive parity.
+    verification_settle_age: 30h
+    timeout_start_sec: 12h
+    transfers: 4
+    recent_first: 2d
+    recent_max_duration: 8m
+    backfill_max_duration: 17m
+    shard_all_prefixes: true
+    exclude:
+      - wxcam/**
+  - name: products-wxcam
+    source: "{{ aurora_paths.products_wxcam }}/"
+    destination: data/output/aurora-cloud/products/wxcam
+    gws_destination: "{{ gws_products_root }}/wxcam"
+    schedule: "*:11"
+    settle_age: 30m
+    verification_settle_age: 30h
+    timeout_start_sec: 24h
+    transfers: 2
+    recent_first: 2d
+    recent_max_duration: 10m
+    backfill_max_duration: 35m
+    sharded_prefixes: [FISH, PANO]
+    exclude:
+      - wxcam.zarr/**
+  - name: model-evaluation
+    source: "{{ aurora_model_evaluation_campaign_root }}/"
+    destination: data/output/aurora-cloud/model-evaluation
+    gws_destination: "{{ gws_model_evaluation_root }}"
+    schedule: "17:00"
+    settle_age: 1h
+    verification_settle_age: 6h
+    timeout_start_sec: 12h
+    transfers: 4
+    copy_links: true
+  - name: manifests
+    source: "{{ gws_manifest_root }}/"
+    destination: data/internal/aurora-cloud/manifests/gws
+    gws_destination: "{{ gws_internal_root }}/manifests"
+    schedule: "*:12"
+    settle_age: 5m
+    verification_settle_age: 2h
+    timeout_start_sec: 12h
+    transfers: 4
+    recent_first: 2d
+    recent_max_duration: 4m
+    backfill_max_duration: 8m
+    exclude:
+      - logs/**
+
+ass_retention_enabled: "{{ aurora_is_production }}"
+# Held closed until the restricted edge helper is explicitly approved,
+# installed, and its dry-run audit canary has been reviewed.
+ass_retention_timer_enabled: false
+ass_retention_schedule: "*-*-* 03:30:00 UTC"
+ass_retention_manifest_max_age_hours: 8
+ass_retention_dry_run: true
+ass_retention_helper: /usr/local/sbin/aurora-edge-prune-exact
+ass_retention_audit_root: "{{ aurora_data_root }}/internal/retention"
+ass_retention_signing_private_key: /etc/aurora-retention/signing-key.pem
+
+archive_monitor_enabled: "{{ aurora_is_production }}"
+archive_monitor_timer_enabled: "{{ aurora_is_production }}"
+archive_monitor_output_root: "{{ aurora_data_root }}/internal/archive_status"
+archive_monitor_latest_path: "{{ archive_monitor_output_root }}/health-v1.json"
+archive_monitor_interval: 2min
+
+# Optional operator convenience mount only. Production writers, verifiers,
+# dashboards, and derived products must not depend on SSHFS.
 gws_sshfs_enabled: false
 gws_sshfs_mountpoint: /mnt/gws/gamb2le
 

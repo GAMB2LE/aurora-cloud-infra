@@ -46,3 +46,12 @@ Processing timers:
 
 - `aurora-power-append.timer`
 - `aurora-power-quicklooks.timer`
+
+## Backup and retention
+
+Matching APS Power CSV files are copied additively to GWS and object storage,
+and the derived Power products are archived separately. APS is explicitly
+non-prunable: no cloud permit can authorize deletion from
+`/data/power/level1`, regardless of archive health. Enabling APS retention
+requires a separate policy review in both cloud and edge infrastructure repos.
+See [Backups and Archive Services](ARCHIVE_SERVICES.md).

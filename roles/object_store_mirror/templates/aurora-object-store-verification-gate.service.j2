@@ -1,0 +1,14 @@
+[Unit]
+Description=Record Aurora object-store verification state
+After=aurora-object-store-inventory.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/local/sbin/aurora-object-store-verification-gate
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths={{ aurora_state_root }}/object-store-verification-gate

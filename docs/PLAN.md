@@ -1,7 +1,20 @@
-# Aurora Cloud Rebuild Plan
+# Historical AURORA Cloud Rebuild Plan
 
-This file keeps the initial rebuild plan and historical audit notes. For the
-current deployed contract, see the repo home page and the per-source sync docs.
+This file preserves the initial May 2026 rebuild plan and audit notes. It is
+historical evidence, not an executable runbook. Host addresses, capacities,
+service states, and commands below may be obsolete.
+
+For current work, start with [Operator Quickstart](OPERATOR_QUICKSTART.md),
+[Production and Development](PRODUCTION_DEVELOPMENT.md), and the relevant
+source-sync page. Never use this page to make an archive, retention, or
+failover decision.
+
+The GWS-only notes below predate the current backup system. Production now has
+independent additive writers to both the JASMIN GWS and `gamb2le-o` object
+storage, sharded verification with explicit settle windows, exact repair, and
+signed seven-day ASS retention. Use
+[Backups and Archive Services](ARCHIVE_SERVICES.md), not this historical plan,
+for current archive or pruning decisions.
 
 ## Initial Audited Target
 

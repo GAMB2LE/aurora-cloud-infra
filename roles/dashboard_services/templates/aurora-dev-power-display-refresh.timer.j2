@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh development compact Power display products
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=10min
+OnUnitInactiveSec=10min
+RandomizedDelaySec=30
+Unit=aurora-dev-power-display-refresh.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,7 @@
+---
+- name: Configure fail-closed Aurora retention coordination
+  hosts: aurora_cloud
+  become: true
+  roles:
+    - ass_retention
+    - operations_monitor

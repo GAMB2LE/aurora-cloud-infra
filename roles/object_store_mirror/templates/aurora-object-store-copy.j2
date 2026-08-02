@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source_path={{ item.source | quote }}
+destination={{ (object_store_remote ~ ':' ~ object_store_bucket ~ '/' ~ item.destination) | quote }}
+log_root={{ object_store_log_root | quote }}
+job={{ item.name | quote }}
+
+mkdir -p "$log_root"
+log_file="$log_root/$job-$(date -u +%Y%m%dT%H%M%SZ).log"
+
+run_bounded() {
+  local duration="$1"
+  shift
+  set +e
+  /usr/bin/timeout --signal=TERM --kill-after=2m "$duration" /usr/bin/rclone "$@"
+  local rc=$?
+  set -e
+  # GNU timeout returns 124 when the wall-clock budget is reached. TERM can
+  # surface as 143 on older rclone builds. Both mean the bounded slice yielded
+  # as designed; every other failure remains fatal.
+  if [[ $rc -ne 0 && $rc -ne 124 && $rc -ne 143 ]]; then
+    return "$rc"
+  fi
+}
+
+base_args=(
+  copy "$source_path" "$destination"
+  "--config={{ object_store_rclone_config }}"
+  --no-traverse
+  --min-age {{ item.settle_age | quote }}
+  --checkers 8
+  --transfers {{ item.transfers | default(4) | quote }}
+  --s3-upload-concurrency 4
+  --s3-chunk-size 64M
+  --contimeout 30s
+  --timeout 10m
+  --retries 4
+  --low-level-retries 10
+  --stats 1m
+  --log-file "$log_file"
+  --log-level INFO
+)
+{% if item.lookback is defined and item.recent_first is not defined %}
+base_args+=(--max-age {{ item.lookback | quote }})
+{% endif %}
+{% if item.copy_links | default(false) %}
+base_args+=(--copy-links)
+{% endif %}
+base_args+=(--exclude '**/.git/**')
+base_args+=(--exclude '**/.venv/**')
+base_args+=(--exclude '**/__pycache__/**')
+base_args+=(--exclude '**/.cache/**')
+base_args+=(--exclude '**/*.lock')
+base_args+=(--exclude '**/*.partial')
+base_args+=(--exclude '**/*.part')
+base_args+=(--exclude '**/*.tmp')
+base_args+=(--exclude '**/*-wal')
+base_args+=(--exclude '**/*-shm')
+base_args+=(--exclude '**/logs/**')
+base_args+=(--exclude '**/*backup*.zarr/**')
+base_args+=(--exclude '**/*schema-backup*.zarr/**')
+{% for pattern in item.exclude | default([]) %}
+base_args+=(--exclude {{ pattern | quote }})
+{% endfor %}
+{% if item.max_duration is defined and item.recent_first is not defined %}
+base_args+=(--max-duration {{ item.max_duration | quote }})
+{% endif %}
+{% if item.order_by is defined and item.recent_first is not defined %}
+base_args+=(--order-by {{ item.order_by | quote }})
+{% endif %}
+
+# Copy is intentionally additive. Object-store-only history is never removed.
+{% if item.recent_first is defined %}
+# Reserve the first slice of every run for new observations. The bounded
+# full-history slice then advances backlog without allowing it to starve live
+# data on the next timer activation.
+recent_args=("${base_args[@]}")
+recent_args+=(
+  --max-age {{ item.recent_first | quote }}
+  --max-duration {{ item.recent_max_duration | default('8m') | quote }}
+  --order-by modtime,descending
+)
+run_bounded {{ item.recent_max_duration | default('8m') | quote }} "${recent_args[@]}"
+
+backfill_args=("${base_args[@]}")
+backfill_args+=(
+  --max-duration {{ item.backfill_max_duration | default('22m') | quote }}
+  --order-by modtime,descending
+)
+run_bounded {{ item.backfill_max_duration | default('22m') | quote }} "${backfill_args[@]}"
+{% else %}
+{% if item.max_duration is defined %}
+run_bounded {{ item.max_duration | quote }} "${base_args[@]}"
+{% else %}
+exec /usr/bin/rclone "${base_args[@]}"
+{% endif %}
+{% endif %}

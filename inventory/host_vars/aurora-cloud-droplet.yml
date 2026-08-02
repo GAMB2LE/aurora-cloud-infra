@@ -6,7 +6,42 @@ aurora_failover_role: standby
 aurora_domain: data-ocean.gamb2le.co.uk
 aurora_public_ip: 167.172.54.82
 aurora_app_repo: https://github.com/GAMB2LE/aurora_cloud_dashboard.git
-aurora_app_version: dev-20260721.10
+# Exact clean dashboard commit currently validated on development. Production
+# uses the immutable release tag that points to this same revision.
+aurora_app_version: 731f2e2775b2c6576d580f463725b6d79f25a102
+# Development-only performance experiment. Panel supports reconnecting after a
+# brief disconnect, while this prevents unused phone sessions retaining a full
+# dashboard document. Production currently uses a two-minute lifetime.
+aurora_dashboard_session_check_ms: 15000
+aurora_dashboard_unused_session_lifetime_ms: 60000
+# The July 2026 development comparison found two Panel workers slower than
+# one for this cache-heavy dashboard. Keep a single worker until a new
+# benchmark demonstrates a workload-level gain.
+aurora_dashboard_num_procs: 1
+# This is changed only for a short, development-local API worker benchmark.
+# Keep one worker as the normal cache-efficient setting unless the benchmark
+# demonstrates a concurrent-request improvement.
+aurora_mobile_api_workers: 1
+aurora_mobile_api_auth_mode: public_read_only
+aurora_browser_rum_enabled: false
+aurora_measure_plot_json_bytes: false
+aurora_dashboard_perf_log_path: "{{ aurora_dev_product_root }}/dashboard/dashboard_perf.jsonl"
+# Apply the security baseline only to the development site first. Production
+# remains unchanged until this has been observed on the public development URL.
+aurora_nginx_security_headers: true
+aurora_nginx_rate_limits: true
+aurora_dashboard_allowed_origins:
+  - "{{ aurora_domain }}"
+  - "{{ aurora_domain }}:443"
+
+# These compact display products are generated on development. Keep them
+# outside the mirrored production product tree so the five-minute mirror cannot
+# remove a valid development build that production has not published yet.
+aurora_power_display_summary_path: "{{ aurora_dev_product_root }}/power/power_display_summary.zarr"
+aurora_power_display_energy_path: "{{ aurora_dev_product_root }}/power/power_display_energy.zarr"
+aurora_power_current_display_path: "{{ aurora_dev_product_root }}/power/power_current_display.zarr"
+aurora_power_forecast_display_path: "{{ aurora_dev_product_root }}/power/power_forecast_display.zarr"
+aurora_power_display_manifest_path: "{{ aurora_dev_product_root }}/power/power_display_manifest.json"
 
 # The droplet has its own public development hostname. Full public failover is
 # manual and should not be done by changing this development baseline silently.
@@ -26,8 +61,11 @@ aurora_standby_replication_known_hosts:
 # CL61 is now written to the shared ASS Linux data path and is reachable from
 # the droplet via Tailscale SSH as the aurora user.
 
-# Planned-offline/no-data states during the JASMIN outage should not leave
-# failed oneshot units behind. Keep core append/sync/health timers running.
+# Development consumes replicated inputs and only writes its isolated display
+# and forecast products. Keep source/append timers disabled, but run the SOC
+# pipeline so calibration and verification evidence accumulate independently.
 aurora_processing_timers:
+  power_soc_forecast: true
+  power_soc_ensemble: true
   les_operational_run: false
   wxcam_daily_videos: "{{ aurora_writer_timers_enabled }}"

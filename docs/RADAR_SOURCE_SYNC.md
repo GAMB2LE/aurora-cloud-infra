@@ -10,12 +10,13 @@
 The source stores hourly radar files under a recursive `Yyyyy/Mmm/Ddd/` tree.
 The sync preserves the complete native tree, including LV0/LV1 binaries,
 LV0/LV1 NetCDF, and instrument JPG files. Relative paths are unchanged from
-edge to cloud raw storage and GWS:
+edge to cloud raw storage, GWS, and object storage:
 
 ```text
 /home/aurora/data/rpgfmcw94/Yyyyy/Mmm/Ddd/...
   -> /project/aurora/raw/rpgfmcw94/Yyyyy/Mmm/Ddd/...
   -> /gws/ssde/j25b/gamb2le/data/incoming/aurora-cloud/raw/rpgfmcw94/Yyyyy/Mmm/Ddd/...
+  -> s3://gamb2le-o/data/incoming/aurora-cloud/raw/rpgfmcw94/Yyyyy/Mmm/Ddd/...
 ```
 
 Only `*LV1.NC` files feed the dashboard Zarr and its processing-watermark
@@ -69,3 +70,13 @@ The radar timers are enabled in Ansible:
 
 `aurora-radar-source-sync.timer` is enabled once source Tailscale SSH access is
 authorized.
+
+## Backup and retention
+
+The archive scope includes the complete native LV0/LV1 binary, NetCDF, and JPG
+tree, not only the LV1 NetCDF files used by the dashboard. Object verification
+partitions this multi-terabyte family into bounded year/month shards. ASS keeps
+each radar file for at least seven days and the retention helper can remove it
+only after exact cloud, GWS, and object-store proof. `.radar-partials` is local
+resumable worker state and is never archive or deletion evidence. See
+[Backups and Archive Services](ARCHIVE_SERVICES.md).
