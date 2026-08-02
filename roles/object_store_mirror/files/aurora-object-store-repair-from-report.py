@@ -9,9 +9,11 @@ are rechecked for settle age before transfer.
 from __future__ import annotations
 
 import argparse
+import csv
 import datetime as dt
 import json
 from pathlib import Path
+from pathlib import PurePosixPath
 import subprocess
 import tempfile
 
@@ -53,22 +55,40 @@ def settled_paths(
     paths: set[str],
     settle_seconds: int,
     copy_links: bool = False,
+    evidence: dict[str, dict] | None = None,
 ) -> tuple[list[str], list[str]]:
     cutoff = dt.datetime.now(dt.timezone.utc).timestamp() - settle_seconds
     ready_with_mtime: list[tuple[float, str]] = []
     deferred: list[str] = []
     for relative_path in paths:
-        path = source / relative_path
+        relative = PurePosixPath(relative_path)
+        if relative.is_absolute() or ".." in relative.parts:
+            deferred.append(relative_path)
+            continue
+        path = source.joinpath(*relative.parts)
         try:
-            path.resolve(strict=False).relative_to(source.resolve())
+            # Ordinary jobs must remain physically below the configured root.
+            # A copy_links job explicitly archives the bytes behind approved
+            # source-present symlinks, which may target a shared runtime tree.
+            if not copy_links:
+                path.resolve(strict=True).relative_to(source.resolve())
             stat = path.stat()
         except (FileNotFoundError, ValueError):
             deferred.append(relative_path)
             continue
+        expected = evidence.get(relative_path) if evidence is not None else None
         if (
             (path.is_symlink() and not copy_links)
             or not path.is_file()
             or stat.st_mtime > cutoff
+            or (
+                evidence is not None
+                and (
+                    expected is None
+                    or int(stat.st_size) != int(expected["size"])
+                    or int(stat.st_mtime) != int(expected["mtime"])
+                )
+            )
         ):
             deferred.append(relative_path)
             continue
@@ -83,12 +103,25 @@ def settled_paths(
     return ready, sorted(deferred)
 
 
+def read_local_evidence(report: Path, name: str) -> dict[str, dict]:
+    path = report.parent / f"{name}-local.tsv"
+    result: dict[str, dict] = {}
+    with path.open(newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle, delimiter="\t"):
+            result[row["relative_path"]] = {
+                "size": int(row["size"]),
+                "mtime": int(float(row["mtime"])),
+            }
+    return result
+
+
 def repair_job(
     name: str,
     job: dict,
     report_job: dict,
     catalog: dict,
     dry_run: bool,
+    evidence: dict[str, dict] | None = None,
 ) -> dict:
     comparison = report_job["source_vs_s3"]
     candidates = set(comparison.get("missing_from_right", []))
@@ -100,6 +133,7 @@ def repair_job(
         candidates,
         duration_seconds(verification_settle_age(job)),
         bool(job.get("copy_links")),
+        evidence,
     )
     result = {
         "job": name,
@@ -167,6 +201,7 @@ def main() -> int:
                 report["jobs"][name],
                 catalog,
                 args.dry_run,
+                read_local_evidence(args.report, name),
             )
         )
     print(json.dumps({"report": report["generated_at"], "jobs": results}, indent=2))

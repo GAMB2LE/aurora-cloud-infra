@@ -71,6 +71,62 @@ class ObjectStoreRepairTests(unittest.TestCase):
         self.assertEqual(ready, ["linked.dat"])
         self.assertEqual(deferred, [])
 
+    def test_external_link_requires_matching_immutable_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            source.mkdir()
+            target = root / "shared-runtime.dat"
+            target.write_bytes(b"approved input")
+            link = source / "linked.dat"
+            link.symlink_to(target)
+            stat = link.stat()
+            evidence = {
+                "linked.dat": {
+                    "size": stat.st_size,
+                    "mtime": int(stat.st_mtime),
+                }
+            }
+
+            ready, deferred = repair.settled_paths(
+                source,
+                {"linked.dat"},
+                0,
+                copy_links=True,
+                evidence=evidence,
+            )
+            target.write_bytes(b"changed after verification")
+            changed_ready, changed_deferred = repair.settled_paths(
+                source,
+                {"linked.dat"},
+                0,
+                copy_links=True,
+                evidence=evidence,
+            )
+
+        self.assertEqual(ready, ["linked.dat"])
+        self.assertEqual(deferred, [])
+        self.assertEqual(changed_ready, [])
+        self.assertEqual(changed_deferred, ["linked.dat"])
+
+    def test_local_evidence_is_read_from_report_sibling(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            report = root / "comparison.json"
+            report.write_text("{}", encoding="utf-8")
+            (root / "model-evaluation-local.tsv").write_text(
+                "relative_path\tsize\tmtime\tchecksum\n"
+                "linked.dat\t42\t100.0\t\n",
+                encoding="utf-8",
+            )
+
+            evidence = repair.read_local_evidence(report, "model-evaluation")
+
+        self.assertEqual(
+            evidence,
+            {"linked.dat": {"size": 42, "mtime": 100}},
+        )
+
     def test_repair_uses_catalogue_and_exact_files_from_list(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
