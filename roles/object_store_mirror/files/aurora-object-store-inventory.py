@@ -3,10 +3,13 @@
 
 from __future__ import annotations
 
+import argparse
 import csv
 from concurrent.futures import as_completed, ThreadPoolExecutor
 import datetime as dt
+import fcntl
 import fnmatch
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -32,6 +35,28 @@ COMMON_EXCLUDES = [
     "**/*backup*.zarr/**",
     "**/*schema-backup*.zarr/**",
 ]
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--job",
+        action="append",
+        help=(
+            "Refresh only this catalogue job; may be repeated. Requires "
+            "--reuse-latest so unaffected jobs retain their last full "
+            "evidence."
+        ),
+    )
+    parser.add_argument(
+        "--reuse-latest",
+        action="store_true",
+        help=(
+            "Publish a complete incremental report using the latest report "
+            "as its base."
+        ),
+    )
+    return parser.parse_args()
 
 
 def utc_now() -> str:
@@ -680,28 +705,106 @@ def inventory_job(
     }
 
 
+def load_incremental_base(
+    root: Path,
+    config: dict,
+    selected_names: set[str],
+) -> tuple[dict, str]:
+    """Load a recent complete report that can safely back an incremental run."""
+    report_path = root / "latest" / "comparison.json"
+    raw = report_path.read_bytes()
+    report = json.loads(raw)
+    configured_names = {job["name"] for job in config["jobs"]}
+    report_names = set(report.get("jobs", {}))
+    if report_names != configured_names:
+        raise RuntimeError(
+            "latest report jobs do not match the current catalogue: "
+            f"report={sorted(report_names)} catalogue={sorted(configured_names)}"
+        )
+    if not selected_names:
+        raise RuntimeError("incremental inventory requires at least one --job")
+    generated_at = dt.datetime.fromisoformat(
+        report["generated_at"].replace("Z", "+00:00")
+    )
+    age_hours = (
+        dt.datetime.now(dt.timezone.utc) - generated_at
+    ).total_seconds() / 3600
+    maximum_age = float(config.get("incremental_base_max_age_hours", 4))
+    if age_hours > maximum_age:
+        raise RuntimeError(
+            f"latest report is too old for incremental reuse: {age_hours:.2f}h "
+            f"> {maximum_age:.2f}h"
+        )
+    depth = int(report.get("incremental_depth", 0))
+    maximum_depth = int(config.get("incremental_max_depth", 2))
+    if depth >= maximum_depth:
+        raise RuntimeError(
+            f"incremental evidence depth {depth} reached the configured "
+            f"limit {maximum_depth}; run a full inventory"
+        )
+    return report, hashlib.sha256(raw).hexdigest()
+
+
 def main() -> int:
+    args = parse_args()
     config = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
     generated_at = utc_now()
     root = Path(config["manifest_root"])
     root.mkdir(parents=True, exist_ok=True)
+    lock_handle = (root / ".inventory.lock").open("a+", encoding="utf-8")
+    try:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as error:
+        raise RuntimeError(
+            "another object-store inventory is already running"
+        ) from error
+    configured_jobs = {job["name"]: job for job in config["jobs"]}
+    selected_names = set(args.job or configured_jobs)
+    unknown = selected_names - set(configured_jobs)
+    if unknown:
+        raise SystemExit(
+            f"unknown catalogue jobs: {', '.join(sorted(unknown))}"
+        )
+    if args.reuse_latest and not args.job:
+        raise SystemExit("--reuse-latest requires at least one --job")
+    if (
+        args.job
+        and not args.reuse_latest
+        and selected_names != set(configured_jobs)
+    ):
+        raise SystemExit("partial inventory requires --reuse-latest")
+    selected_jobs = [
+        job for job in config["jobs"] if job["name"] in selected_names
+    ]
+    base_report: dict | None = None
+    base_report_sha256 = ""
+    if args.reuse_latest:
+        base_report, base_report_sha256 = load_incremental_base(
+            root,
+            config,
+            selected_names,
+        )
     lister = S3Lister(config)
     progress = {
         "schema_version": 2,
         "run_generated_at": generated_at,
         "updated_at": generated_at,
         "state": "running",
+        "verification_mode": (
+            "incremental" if base_report is not None else "full"
+        ),
+        "verified_jobs": sorted(selected_names),
         "current_job": None,
         "phase": "starting",
         "completed_jobs": [],
-        "total_jobs": len(config["jobs"]),
+        "total_jobs": len(selected_jobs),
         "jobs": {
             job["name"]: {
                 "state": "pending",
                 "phase": "pending",
                 "updated_at": generated_at,
             }
-            for job in config["jobs"]
+            for job in selected_jobs
         },
     }
     progress_lock = threading.Lock()
@@ -757,32 +860,59 @@ def main() -> int:
     try:
         with tempfile.TemporaryDirectory(prefix=".inventory-", dir=root) as temporary:
             stage = Path(temporary)
-            report = {
-                "schema_version": 3,
-                "generated_at": generated_at,
-                "layout_contract": {
-                    "s3": "preserves settled cloud-ingress relative paths",
-                    "gws_raw": (
-                        "uses canonical per-stream Y/M/D archive paths from "
-                        "independent source/GWS verification manifests"
-                    ),
-                    "gws_other": (
-                        "preserves cloud relative paths and is inventoried "
-                        "directly through a JASMIN transfer host"
-                    ),
-                    "equivalence": (
-                        "source_vs_s3 proves cloud-to-object parity; "
-                        "source_vs_gws proves edge-source-to-GWS parity"
-                    ),
-                },
-                "jobs": {},
-            }
+            if base_report is not None:
+                shutil.copytree(root / "latest", stage, dirs_exist_ok=True)
+                report = json.loads(json.dumps(base_report))
+                evidence_floor = report.get(
+                    "evidence_floor_generated_at",
+                    report["generated_at"],
+                )
+                report.update(
+                    {
+                        "schema_version": 4,
+                        "generated_at": generated_at,
+                        "verification_mode": "incremental",
+                        "verified_jobs": sorted(selected_names),
+                        "base_generated_at": base_report["generated_at"],
+                        "base_report_sha256": base_report_sha256,
+                        "evidence_floor_generated_at": evidence_floor,
+                        "incremental_depth": int(
+                            base_report.get("incremental_depth", 0)
+                        )
+                        + 1,
+                    }
+                )
+            else:
+                report = {
+                    "schema_version": 4,
+                    "generated_at": generated_at,
+                    "verification_mode": "full",
+                    "verified_jobs": [job["name"] for job in config["jobs"]],
+                    "evidence_floor_generated_at": generated_at,
+                    "incremental_depth": 0,
+                    "layout_contract": {
+                        "s3": "preserves settled cloud-ingress relative paths",
+                        "gws_raw": (
+                            "uses canonical per-stream Y/M/D archive paths from "
+                            "independent source/GWS verification manifests"
+                        ),
+                        "gws_other": (
+                            "preserves cloud relative paths and is inventoried "
+                            "directly through a JASMIN transfer host"
+                        ),
+                        "equivalence": (
+                            "source_vs_s3 proves cloud-to-object parity; "
+                            "source_vs_gws proves edge-source-to-GWS parity"
+                        ),
+                    },
+                    "jobs": {},
+                }
             failures: list[str] = []
             workers = max(
                 1,
                 min(
                     int(config.get("job_workers", 3)),
-                    len(config["jobs"]),
+                    len(selected_jobs),
                 ),
             )
             with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -795,7 +925,7 @@ def main() -> int:
                         stage,
                         update_job,
                     ): job
-                    for job in config["jobs"]
+                    for job in selected_jobs
                 }
                 for future in as_completed(futures):
                     job = futures[future]

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import datetime as dt
 import importlib.util
+import json
 from pathlib import Path
 import subprocess
 import tempfile
@@ -25,6 +27,38 @@ SPEC.loader.exec_module(inventory)
 
 
 class ObjectStoreInventoryTests(unittest.TestCase):
+    def test_incremental_base_is_recent_complete_and_depth_bounded(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            latest = root / "latest"
+            latest.mkdir()
+            report = {
+                "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                "jobs": {"raw": {}, "products": {}},
+                "incremental_depth": 0,
+            }
+            (latest / "comparison.json").write_text(
+                json.dumps(report), encoding="utf-8"
+            )
+            config = {
+                "jobs": [{"name": "raw"}, {"name": "products"}],
+                "incremental_base_max_age_hours": 4,
+                "incremental_max_depth": 2,
+            }
+
+            loaded, digest = inventory.load_incremental_base(
+                root, config, {"products"}
+            )
+            self.assertEqual(loaded, report)
+            self.assertEqual(len(digest), 64)
+
+            report["incremental_depth"] = 2
+            (latest / "comparison.json").write_text(
+                json.dumps(report), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(RuntimeError, "depth"):
+                inventory.load_incremental_base(root, config, {"products"})
+
     def test_non_raw_gws_inventory_is_listed_independently(self) -> None:
         completed = SimpleNamespace(
             stdout="stable/file.nc\t42\t100.5\nlogs/skip.log\t7\t100\n"

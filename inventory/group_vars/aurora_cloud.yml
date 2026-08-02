@@ -805,6 +805,8 @@ object_store_inventory_gws_runtime_dir: /run/aurora-object-store-inventory-ssh
 object_store_inventory_history_keep: 12
 object_store_inventory_schedule: "*-*-* 03,09,15,21:20:00"
 object_store_inventory_max_age_hours: 8
+object_store_inventory_incremental_base_max_age_hours: 4
+object_store_inventory_incremental_max_depth: 2
 object_store_jobs:
   - name: raw
     source: "{{ aurora_raw_root }}/"
