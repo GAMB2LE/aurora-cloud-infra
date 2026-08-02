@@ -400,8 +400,8 @@ class ObjectStoreInventoryTests(unittest.TestCase):
             if remote == "remote:bucket/raw":
                 return [{"Path": "cl61", "IsDir": True}]
             if remote.endswith("/cl61"):
-                self.assertFalse(recursive)
-                self.assertFalse(files_only)
+                self.assertTrue(recursive)
+                self.assertTrue(files_only)
                 return [
                     {
                         "Path": "ceilometer_20260725.nc",
