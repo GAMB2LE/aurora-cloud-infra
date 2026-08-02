@@ -14,6 +14,14 @@ It does not own dashboard behaviour or native iOS code. Those belong to
 and
 [`aurora-dashboard-ios`](https://github.com/GAMB2LE/aurora-dashboard-ios).
 
+It also does not run model-evaluation science from the dashboard role. The
+active Iceland IFS/GFS/ICON and GFS-forced CM1 workflow runs on data-ocean from
+the deployment units owned by
+[`aurora-model-evaluation`](https://github.com/GAMB2LE/aurora-model-evaluation).
+The dashboard role presents approved campaign artifacts and this repository
+configures their archive paths. The
+retired dashboard-hosted Leeds/ERA5 LES timer is removed during deployment.
+
 ## Operating Model
 
 | Site | URL | Role |

@@ -28,6 +28,9 @@ droplet.
 - Development experiment roots: `/project/aurora/dev-raw` and
   `/data/aurora/dev-products`
 - Dashboard app checkout: `/opt/aurora-cloud-dashboard`
+- Iceland model-evaluation science executes separately on data-ocean from the
+  units owned by `aurora-model-evaluation`; the dashboard role only reads the
+  approved campaign tree and never runs the retired Leeds/ERA5 workflow.
 - Public frontend: `nginx` on `80/443`
 - Private Panel backend: `127.0.0.1:5006`
 - Dashboard sessions use a `15 s` websocket keepalive and cleanup check.
