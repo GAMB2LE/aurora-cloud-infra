@@ -150,6 +150,17 @@ def operator_status(
     progress: dict,
 ) -> dict[str, object]:
     """Translate the fail-closed pruning gate into actionable operations state."""
+    def metric_count(key: str) -> int:
+        try:
+            return max(0, int(float(metrics.get(key, 0))))
+        except (TypeError, ValueError):
+            return 0
+
+    object_missing = metric_count("object_store_all_missing_count")
+    object_mismatch = metric_count("object_store_all_mismatch_count")
+    gws_missing = metric_count("gws_all_missing_count")
+    gws_mismatch = metric_count("gws_all_mismatch_count")
+    stream_gws_issues = metric_count("streams_gws_issue_count")
     measured_gap_free = all(
         float(metrics.get(key, -1)) == 0
         for key in (
@@ -163,6 +174,7 @@ def operator_status(
     last_complete_clean = bool(gate.get("clean")) and bool(
         gate.get("stable_parity")
     )
+    latest_complete_clean = bool(gate.get("clean"))
     verification_only = bool(failures) and all(
         item.startswith("object_store_evidence_stale_hours=")
         or item.startswith("object_store_inventory_progress_stale_minutes=")
@@ -188,6 +200,55 @@ def operator_status(
             "title": "Archive delivery and verification are healthy",
             "detail": "Newest files are being delivered to GWS and object storage; the latest strict audit is clean.",
             "pruning_paused": False,
+        }
+    if not measured_gap_free:
+        details: list[str] = []
+        if object_missing:
+            noun = "file" if object_missing == 1 else "files"
+            details.append(
+                f"The last complete strict audit found {object_missing:,} settled {noun} "
+                "missing from JASMIN object storage."
+            )
+        if object_mismatch:
+            noun = "file" if object_mismatch == 1 else "files"
+            details.append(
+                f"It also found {object_mismatch:,} object-store {noun} with a size mismatch."
+            )
+        if gws_missing or gws_mismatch or stream_gws_issues:
+            gws_parts = []
+            if gws_missing:
+                gws_parts.append(f"{gws_missing:,} missing")
+            if gws_mismatch:
+                gws_parts.append(f"{gws_mismatch:,} size mismatched")
+            if stream_gws_issues:
+                gws_parts.append(f"{stream_gws_issues:,} retention-stream issues")
+            details.append(f"GWS verification reports {', '.join(gws_parts)}.")
+        elif object_missing or object_mismatch:
+            details.append("The retention-age GWS copy is complete.")
+        if progress.get("state") in {"running", "publishing"}:
+            details.append("A strict recheck is running now.")
+        else:
+            details.append("Exact-path repair and a strict recheck are required.")
+        details.append("Edge pruning remains paused until both archives verify cleanly.")
+        return {
+            "level": "red",
+            "title": "Archive copies are incomplete",
+            "detail": " ".join(details),
+            "pruning_paused": True,
+        }
+    if latest_complete_clean and not gate.get("stable_parity", False):
+        if progress.get("state") in {"running", "publishing"}:
+            confirmation = "A second distinct strict audit is running now."
+        else:
+            confirmation = "One more distinct clean strict audit is required."
+        return {
+            "level": "amber",
+            "title": "Archive parity is being confirmed",
+            "detail": (
+                "The latest complete audit found no GWS or object-store gaps. "
+                f"{confirmation} New pruning remains paused until confirmation completes."
+            ),
+            "pruning_paused": True,
         }
     if measured_gap_free and last_complete_clean and verification_only:
         if progress.get("state") in {"running", "publishing"}:
@@ -226,8 +287,11 @@ def operator_status(
         }
     return {
         "level": "red",
-        "title": "Archive delivery or verification needs action",
-        "detail": "; ".join(failures) or "No failure detail was supplied.",
+        "title": "Archive service or verification needs attention",
+        "detail": (
+            "Archive verification is not currently sufficient to prove both copies are complete. "
+            "Delivery continues where possible, but edge pruning is paused. Review archive service health."
+        ),
         "pruning_paused": True,
     }
 
