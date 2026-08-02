@@ -266,6 +266,19 @@ The contract contains:
 - a human-readable `operator_status` with separate level, title, detail, and
   whether pruning is paused.
 
+The operator status deliberately separates transfer lag from archive loss:
+
+- **green** means the newest-first delivery lane is healthy and two distinct
+  strict audits have confirmed GWS and object-store parity;
+- **amber** means a clean audit is awaiting its independent confirmation, or a
+  fresh audit/listing is delayed while the last stable audit remains clean;
+- **red** means the last complete audit measured missing or mismatched files,
+  or the archive services cannot currently establish a trustworthy baseline.
+
+Dashboard text uses destination names, file counts, current verification
+activity, and the pruning consequence. Raw metric tokens remain available in
+the contract for diagnostics but are not used as the operator-facing message.
+
 The inventory itself atomically updates
 `/data/aurora/internal/object_store_manifests/progress.json` with its state,
 current job, current phase, completed jobs, and total job count. A heartbeat
