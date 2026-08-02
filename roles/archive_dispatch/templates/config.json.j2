@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "database": {{ (archive_dispatch_state_root ~ '/queue.sqlite') | to_json }},
+  "status_path": {{ (archive_dispatch_state_root ~ '/status.json') | to_json }},
+  "receipt_root": {{ (archive_dispatch_state_root ~ '/receipts') | to_json }},
+  "lock_path": {{ (archive_dispatch_state_root ~ '/worker.lock') | to_json }},
+  "rclone_config": {{ object_store_rclone_config | to_json }},
+  "object_remote": {{ object_store_remote | to_json }},
+  "object_bucket": {{ object_store_bucket | to_json }},
+  "gws_user": {{ gws_username | to_json }},
+  "gws_hosts": {{ gws_transfer_hosts | to_json }},
+  "gws_key": {{ (archive_dispatch_gws_runtime_dir ~ '/key') | to_json }},
+  "gws_known_hosts": {{ (archive_dispatch_gws_runtime_dir ~ '/known_hosts') | to_json }},
+  "limits": {
+    "max_files_per_run": {{ archive_dispatch_max_files_per_run | int }},
+    "max_bytes_per_run": {{ archive_dispatch_max_bytes_per_run | int }}
+  },
+  "receipt_history_keep": {{ archive_dispatch_receipt_history_keep | int }},
+  "completed_queue_retention_days": {{ archive_dispatch_completed_queue_retention_days | int }},
+  "jobs": {
+    "raw": {
+      "source": {{ aurora_raw_root | to_json }},
+      "gws_destination": {{ gws_raw_root | to_json }},
+      "object_destination": "data/incoming/aurora-cloud/raw",
+      "settle_age": {{ archive_dispatch_raw_settle_age | to_json }},
+      "transfers": {{ archive_dispatch_object_transfers | int }},
+      "exclude": [
+        "**/.git/**",
+        "**/.venv/**",
+        "**/__pycache__/**",
+        "**/.cache/**",
+        "**/*.lock",
+        "**/*.partial",
+        "**/*.part",
+        "**/*.tmp",
+        "**/*-wal",
+        "**/*-shm",
+        "**/logs/**",
+        "rpgfmcw94/.radar-partials/**"
+      ]
+    }
+  }
+}

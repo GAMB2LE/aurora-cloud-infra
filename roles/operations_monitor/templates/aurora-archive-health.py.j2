@@ -12,6 +12,7 @@ OUTPUT = Path({{ archive_monitor_latest_path | to_json }})
 GWS = Path({{ gws_manifest_root | to_json }}) / "latest/summary.json"
 OBJECT = Path({{ object_store_manifest_root | to_json }}) / "latest/comparison.json"
 INVENTORY_PROGRESS = Path({{ object_store_manifest_root | to_json }}) / "progress.json"
+DISPATCH = Path({{ archive_dispatch_state_root | to_json }}) / "status.json"
 GATE = Path({{ aurora_state_root | to_json }}) / "object-store-verification-gate/state.json"
 STREAMS = json.loads(r'''{{ aurora_archive_streams | to_json }}''')
 EVIDENCE_MAX_AGE_HOURS = {{ object_store_inventory_max_age_hours | int }}
@@ -40,6 +41,7 @@ ARCHIVE_SERVICES = [
     "aurora-mirror-verify.service",
     *GWS_WRITERS,
     "aurora-object-store-inventory.service",
+    "aurora-archive-dispatch.service",
     *OBJECT_WRITERS,
     "aurora-object-store-repair.service",
     "aurora-object-store-verification-gate.service",
@@ -48,6 +50,7 @@ ARCHIVE_TRIGGERS = [
     "aurora-mirror-verify.timer",
     *(name.replace(".service", ".timer") for name in GWS_WRITERS),
     "aurora-object-store-inventory.timer",
+    "aurora-archive-dispatch.timer",
     *(name.replace(".service", ".timer") for name in OBJECT_WRITERS),
     "aurora-object-store-repair.path",
     "aurora-object-store-verification-gate.path",
@@ -140,10 +143,100 @@ def evidence_age_hours(value: object) -> float | None:
     ).total_seconds() / 3600
 
 
+def operator_status(
+    failures: list[str],
+    metrics: dict[str, object],
+    gate: dict,
+    progress: dict,
+) -> dict[str, object]:
+    """Translate the fail-closed pruning gate into actionable operations state."""
+    measured_gap_free = all(
+        float(metrics.get(key, -1)) == 0
+        for key in (
+            "streams_gws_issue_count",
+            "object_store_all_missing_count",
+            "object_store_all_mismatch_count",
+            "gws_all_missing_count",
+            "gws_all_mismatch_count",
+        )
+    )
+    last_complete_clean = bool(gate.get("clean")) and bool(
+        gate.get("stable_parity")
+    )
+    verification_only = bool(failures) and all(
+        item.startswith("object_store_evidence_stale_hours=")
+        or item.startswith("object_store_inventory_progress_stale_minutes=")
+        or item
+        == "archive_service_unhealthy=aurora-object-store-inventory.service"
+        for item in failures
+    )
+    completed = progress.get("completed_jobs")
+    if not isinstance(completed, list):
+        completed = []
+    total = int(progress.get("total_jobs") or 0)
+    current_jobs = progress.get("current_jobs")
+    if not isinstance(current_jobs, list):
+        current_jobs = []
+    current = ", ".join(str(value).replace("-", " ") for value in current_jobs[:3])
+    if not current:
+        current = str(progress.get("current_job") or "archive families").replace("-", " ")
+    phase = str(progress.get("phase") or "verification").replace("_", " ")
+
+    if not failures:
+        return {
+            "level": "green",
+            "title": "Archive delivery and verification are healthy",
+            "detail": "Newest files are being delivered to GWS and object storage; the latest strict audit is clean.",
+            "pruning_paused": False,
+        }
+    if measured_gap_free and last_complete_clean and verification_only:
+        if progress.get("state") in {"running", "publishing"}:
+            count = f"{len(completed)} of {total}" if total else str(len(completed))
+            return {
+                "level": "amber",
+                "title": "Archive verification is running",
+                "detail": (
+                    f"Strict audit {count} families complete; checking {current} ({phase}). "
+                    "Last complete verification was clean. New pruning is paused until this audit finishes."
+                ),
+                "pruning_paused": True,
+            }
+        if progress.get("state") == "failed":
+            error = str(progress.get("error") or "object-store listing failed")
+            normalized_error = error.lower().replace("-", "_").replace(" ", "_")
+            target = (
+                "ASFS fast-gas products"
+                if "asfs_fast_gas" in normalized_error
+                else "archive products"
+            )
+            return {
+                "level": "amber",
+                "title": "Archive verification failed",
+                "detail": (
+                    f"JASMIN object-store listing timed out for {target}. "
+                    "Last complete verification was clean. New pruning is paused until verification succeeds."
+                ),
+                "pruning_paused": True,
+            }
+        return {
+            "level": "amber",
+            "title": "Archive verification is delayed",
+            "detail": "Last complete verification was clean, but fresh strict evidence is overdue. New pruning is paused.",
+            "pruning_paused": True,
+        }
+    return {
+        "level": "red",
+        "title": "Archive delivery or verification needs action",
+        "detail": "; ".join(failures) or "No failure detail was supplied.",
+        "pruning_paused": True,
+    }
+
+
 def main() -> int:
     gws = read(GWS)
     object_report = read(OBJECT)
     inventory_progress = read(INVENTORY_PROGRESS)
+    dispatch = read(DISPATCH)
     gate = read(GATE)
     metrics: dict[str, object] = {}
     failures: list[str] = []
@@ -286,6 +379,30 @@ def main() -> int:
     metrics["object_store_inventory_progress_recent_state"] = int(
         progress_recent
     )
+    dispatch_queue = dispatch.get("queue")
+    if not isinstance(dispatch_queue, dict):
+        dispatch_queue = {}
+    dispatch_run = dispatch.get("last_run")
+    if not isinstance(dispatch_run, dict):
+        dispatch_run = {}
+    dispatch_success_age = evidence_age_hours(dispatch.get("last_success_at"))
+    metrics.update(
+        {
+            "archive_delivery_pending_count": int(dispatch_queue.get("pending_files") or 0),
+            "archive_delivery_pending_bytes": int(dispatch_queue.get("pending_bytes") or 0),
+            "archive_delivery_gws_pending_count": int(dispatch_queue.get("gws_pending_files") or 0),
+            "archive_delivery_object_store_pending_count": int(dispatch_queue.get("object_store_pending_files") or 0),
+            "archive_delivery_oldest_pending_age_minutes": float(
+                dispatch_queue.get("oldest_pending_age_minutes") or 0
+            ),
+            "archive_delivery_last_success_age_minutes": (
+                dispatch_success_age * 60 if dispatch_success_age is not None else None
+            ),
+            "archive_delivery_last_run_success_state": int(
+                dispatch_run.get("state") in {"complete", "idle"}
+            ),
+        }
+    )
     if (
         metrics["object_store_inventory_running_state"]
         and not progress_recent
@@ -360,11 +477,16 @@ def main() -> int:
         failures.append(f"gws_all_mismatch={gws_job_mismatch}")
     if not gate.get("stable_parity", False):
         failures.append("object_store_stable_parity=false")
+    presentation = operator_status(failures, metrics, gate, inventory_progress)
+    metrics["archive_pruning_paused_state"] = int(
+        bool(presentation["pruning_paused"])
+    )
     payload = {
         "schema_version": "health-v1",
         "generated_at": now(),
-        "overall_level": "red" if failures else "green",
+        "overall_level": presentation["level"],
         "failures": failures,
+        "operator_status": presentation,
         "metrics": metrics,
         "services": services,
         "evidence": {
@@ -372,6 +494,7 @@ def main() -> int:
             "object_store_generated_at": object_report.get("generated_at"),
             "object_store_gate": gate,
             "object_store_inventory_progress": inventory_progress,
+            "archive_dispatch": dispatch,
         },
     }
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)

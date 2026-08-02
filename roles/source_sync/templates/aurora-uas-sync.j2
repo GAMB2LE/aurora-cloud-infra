@@ -12,3 +12,10 @@ mkdir -p "$(dirname "$destination")" "$(dirname "$known_hosts")"
 
 export RSYNC_RSH="ssh -p $source_port -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityFile=none -o PubkeyAuthentication=no -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$known_hosts"
 rsync -a --partial "${source_user}@${source_host}:${source_path}" "$destination"
+if [[ -x /usr/local/bin/aurora-archive-dispatch ]]; then
+  queue_file="$(mktemp)"
+  trap 'rm -f "$queue_file"' EXIT
+  printf '%s\0' "$(basename "$destination")" > "$queue_file"
+  /usr/local/bin/aurora-archive-dispatch enqueue --job raw \
+    --base "$(dirname "$destination")" --files-from "$queue_file" --null
+fi

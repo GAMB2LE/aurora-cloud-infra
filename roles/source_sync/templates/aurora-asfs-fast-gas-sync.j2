@@ -88,4 +88,7 @@ fi
 
 export RSYNC_RSH="$rsync_ssh"
 rsync -a --partial --from0 --files-from="$files_from" "${source_user}@${source_host}:${source_path%/}/" "${destination%/}/"
+if [[ -x /usr/local/bin/aurora-archive-dispatch ]]; then
+  /usr/local/bin/aurora-archive-dispatch enqueue --job raw --base "$destination" --files-from "$files_from" --null
+fi
 echo "$now_epoch" > "$state_file"

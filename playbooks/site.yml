@@ -9,6 +9,7 @@
     - storage
     - tailscale
     - edge_tunnel_server
+    - archive_dispatch
     - source_sync
     - dashboard_app
     - dashboard_services

@@ -39,10 +39,18 @@ if ! flock -n 9; then
   exit 0
 fi
 
+changes="$(mktemp)"
+trap 'rm -f "$changes"' EXIT
 rsync -a --partial --ignore-existing --timeout=120 --bwlimit="$rsync_bwlimit_kib" \
+  --itemize-changes --out-format='%i\t%n' \
   -e "ssh ${ssh_opts[*]}" \
   "${source_user}@${source_host}:${source_path%/}/" \
-  "${destination%/}/"
+  "${destination%/}/" | tee "$changes"
+
+if [[ -x /usr/local/bin/aurora-archive-dispatch ]] && [[ -s "$changes" ]]; then
+  /usr/local/bin/aurora-archive-dispatch enqueue --job raw --base "$destination" \
+    --files-from "$changes" --records-format rsync
+fi
 
 printf '%s\n' "$scope_version" > "$scope_file"
 echo "AURORACam archive backfill completed an idempotent full-tree catch-up."

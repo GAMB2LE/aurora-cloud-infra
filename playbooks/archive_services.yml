@@ -1,8 +1,10 @@
 ---
-- name: Configure Aurora GWS, object-store, verification, and retention services
+- name: Configure complete Aurora ingress, archive, verification, and retention stack
   hosts: aurora_cloud
   become: true
   roles:
+    - archive_dispatch
+    - source_sync
     - gws_sync
     - object_store_mirror
     - ass_retention

@@ -131,6 +131,11 @@ for pid in "${worker_pids[@]}"; do
   wait "$pid" || failed=1
 done
 (( failed == 0 )) || exit 1
+if [[ -x /usr/local/bin/aurora-archive-dispatch ]]; then
+  cat "$workdir"/files.* > "$workdir/all-selected"
+  /usr/local/bin/aurora-archive-dispatch enqueue --job raw --base "$destination" \
+    --files-from "$workdir/all-selected" --null --records-format radar
+fi
 finished="$(date -u +%FT%TZ)"
 printf '{"started_at":"%s","finished_at":"%s","selected_files":%d,"selected_bytes":%d,"workers":%d,"result":"success"}\n' \
   "$started" "$finished" "$selected" "$selected_bytes" "$workers" > "$status_file"

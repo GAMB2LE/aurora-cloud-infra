@@ -160,6 +160,9 @@ fi
   -e "ssh ${ssh_opts[*]}" \
   "${source_user}@${source_host}:${source_path%/}/" \
   "${destination%/}/"
+if [[ -x /usr/local/bin/aurora-archive-dispatch ]]; then
+  /usr/local/bin/aurora-archive-dispatch enqueue --job raw --base "$destination" --files-from "$files_from" --null
+fi
 echo "$now_epoch" > "$state_file"
 printf '%s\n' "$source_scope" > "$scope_file"
 echo "WXcam sync checkpoint advanced to $now_epoch."

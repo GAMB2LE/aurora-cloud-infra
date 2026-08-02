@@ -97,6 +97,19 @@ source retention cannot propagate into the archive.
 Verification observes writers; it does not enable or disable them. A failed or
 slow verifier therefore cannot stop uploads, although it blocks pruning.
 
+Fresh raw delivery has a dedicated exact-path lane. After a source-sync job
+successfully lands files on the cloud host, it records their path, size, and
+mtime in a durable SQLite queue. Every two minutes
+`aurora-archive-dispatch.service` selects a bounded newest-first batch and
+copies only those files to both GWS and object storage. Each destination is
+tracked independently, so a successful GWS copy is retained while a failed
+object-store copy retries, and vice versa. The full-tree writers remain enabled
+as an independent historical backstop.
+
+Dispatch receipts prove that a fast-lane command completed; they are delivery
+telemetry, not retention evidence. Only complete independent inventories and
+the signed retention gate can authorize edge deletion.
+
 ## What is copied and when it becomes evidence
 
 Copy age and verification age are intentionally separate. A writer may upload
@@ -144,6 +157,7 @@ continues on the next activation.
 | GWS model evaluation | Every 30 minutes |
 | GWS manifests | Every 10 minutes |
 | GWS source/cloud/archive verifier | Every 10 minutes |
+| Newest-first raw dispatch | Every 2 minutes after a 15-minute settle window |
 | Object-store raw and core products | Every 30 minutes |
 | Object-store WXcam products | Hourly |
 | Object-store model evaluation | Daily at 17:00 |
@@ -152,7 +166,13 @@ continues on the next activation.
 | Archive-health publication | Every 2 minutes |
 | ASS retention | Daily at 03:30, provided every gate passes |
 
-The object writers reserve a bounded newest-first slice and then a bounded
+The dispatch queue avoids a recursive discovery scan in the critical path:
+source-sync jobs provide the exact files that just arrived. It sends at most
+5,000 files or 20 GiB per run, ordered by newest mtime, and keeps independent
+GWS and object-store completion flags. A deployment bootstrap may seed a
+recent lookback, but normal operation is event-driven by successful ingress.
+
+The full object writers reserve a bounded newest-first slice and then a bounded
 full-history slice. A large backlog therefore converges over multiple cycles
 without preventing new observations from receiving priority.
 
@@ -168,6 +188,11 @@ parallel shards; they never depend on one unbounded recursive object-store
 root listing. “Incremental” here means that families are verified as bounded,
 independent shards within a run. The complete report is published only after
 all required shards finish, so a partial run can never replace good evidence.
+Independent top-level jobs also run concurrently within the global process
+limit. Local inventory walks prune excluded directories before descending, so
+the verifier no longer scans the excluded 635-GB WXcam pixel Zarr or its own
+history tree. The manifest job excludes immutable `history/` and operational
+`logs/`; those files are audit storage, not science parity evidence.
 Raw inventories use the same rule for every family, including the multi-terabyte
 radar archive. Families are scheduled independently, radar is listed as bounded
 year/month subtrees, and a global process semaphore limits nested listings to
@@ -184,7 +209,10 @@ WXCam's live `wxcam.zarr` is a mutable derived working store and is
 intentionally excluded from both product archives. Its immutable raw HDR
 imagery, catalog, daily videos, and hourly thumbnails remain covered.
 Because the Zarr is reproducible from archived imagery, it is never accepted
-as retention evidence.
+as retention evidence. Production no longer appends to this redundant pixel
+cache. Its guarded cleanup tool requires fresh green strict archive evidence,
+stable object-store parity, zero raw gaps, zero GWS stream issues, and a
+disabled appender before it can remove the directory.
 
 When an inventory publishes exact missing or mismatched paths,
 `aurora-object-store-repair.path` starts the catalog-driven repair service.
@@ -233,6 +261,10 @@ The contract contains:
 - every GWS/object-store writer and verifier service, timer, repair path, and
   verification-gate path state;
 - verification timestamps and the object-store clean streak.
+- newest-first delivery queue depth and bytes, per-destination pending counts,
+  oldest pending age, last result, and last successful delivery time;
+- a human-readable `operator_status` with separate level, title, detail, and
+  whether pruning is paused.
 
 The inventory itself atomically updates
 `/data/aurora/internal/object_store_manifests/progress.json` with its state,
@@ -251,16 +283,23 @@ Operational transfer logs are local diagnostics, not archive data. Both
 manifest writers explicitly exclude the root `logs/` tree; any legacy
 additive copies are ignored by parity checks and are never retention evidence.
 
-Missing or stale verification must be treated as unsafe. A red health result
-does not stop the additive writers; it only blocks pruning and alerts operators.
+Missing or stale verification must be treated as unsafe for pruning, but it is
+not automatically evidence of lost data. When the previous complete report is
+clean, measured gaps remain zero, and a healthy inventory is running (or a
+remote listing timed out), the operator status is amber and says that
+verification is running or delayed and pruning is paused. Confirmed missing or
+mismatched settled files, a failed writer, or an unsafe last complete report is
+red. Neither state stops additive writers.
 
 The status terms have precise meanings:
 
 | State | Meaning | Operator action |
 | --- | --- | --- |
 | `pending_upload` | File is newer than the job's verification horizon and is not yet required for parity | Observe only; this is not an archive failure |
+| dispatch queue pending | Exact recently landed raw files still need one or both archive copies | Observe progress; investigate if the oldest item keeps aging or the worker fails |
 | `missing` or `mismatch` | A settled file is absent or differs at a destination | Let exact repair run, then verify again |
 | inventory `running` with a recent heartbeat | A complete sharded scan is still progressing | Wait; do not infer a stall from report age alone |
+| previous report clean, verification delayed | Current proof is unavailable but there is no measured gap | Amber; pruning is paused until a complete audit succeeds |
 | inventory heartbeat older than five minutes while running | Verifier is stalled | Investigate the inventory service and its current shard |
 | `clean=true`, streak `1` | One complete clean report | Not yet stable parity |
 | `stable_parity=true` | Two distinct complete clean reports | Global object-store stability gate is satisfied |
@@ -282,10 +321,13 @@ Run these on the cloud host. None of them enables pruning:
 
 ```bash
 systemctl status aurora-mirror-verify.service
+systemctl status aurora-archive-dispatch.service
+systemctl status aurora-archive-dispatch.timer
 systemctl status aurora-object-store-inventory.service
 systemctl status aurora-object-store-repair.path
 systemctl status aurora-object-store-verification-gate.path
 systemctl is-enabled aurora-ass-retention.timer
+cat /data/aurora/internal/archive_dispatch/status.json
 ```
 
 1. Leave every additive writer timer running.
@@ -328,6 +370,25 @@ systemctl is-enabled aurora-ass-retention.timer
    report may establish stable parity.
 7. Confirm `health-v1.json` is green and review both cloud and edge audit logs
    before any dry-run retention canary.
+
+After deploying the fast lane, seed only recent arrivals and run one bounded
+batch; the historical writers continue to own older convergence:
+
+```bash
+sudo -u aurora /usr/local/bin/aurora-archive-dispatch scan --job raw --lookback-hours 48
+sudo systemctl start aurora-archive-dispatch.service
+sudo -u aurora /usr/local/bin/aurora-archive-dispatch status
+```
+
+The rebuildable WXcam pixel cache is a separate cloud-capacity operation. Run
+the command without `--apply` first. The tool refuses both modes unless the
+appender is disabled and strict archive evidence is green; apply mode writes an
+audit receipt before and after removal:
+
+```bash
+sudo /usr/local/sbin/aurora-cloud-cache-cleanup
+sudo /usr/local/sbin/aurora-cloud-cache-cleanup --apply
+```
 
 The role defaults keep `aurora-ass-retention.timer` disabled and dry-run on.
 The committed production host overrides enable the reviewed live policy; ASS

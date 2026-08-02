@@ -49,6 +49,9 @@ REMOTE_FIND
 if [[ -s "$files_from" ]]; then
   rsync -a --partial --timeout=120 --from0 --files-from="$files_from" \
     -e "ssh ${ssh_opts[*]}" "${source_user}@${source_host}:${source_path%/}/" "${destination%/}/"
+  if [[ -x /usr/local/bin/aurora-archive-dispatch ]]; then
+    /usr/local/bin/aurora-archive-dispatch enqueue --job raw --base "$destination" --files-from "$files_from" --null
+  fi
 fi
 echo "$now_epoch" > "$state_file"
 echo "Radar live checkpoint advanced to $now_epoch."

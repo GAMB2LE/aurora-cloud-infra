@@ -1,0 +1,26 @@
+[Unit]
+Description=Deliver newest Aurora raw files to both GWS and object storage
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists={{ object_store_rclone_config }}
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+Environment=XDG_CACHE_HOME={{ object_store_cache_root }}
+RuntimeDirectory={{ archive_dispatch_gws_runtime_dir | basename }}
+RuntimeDirectoryMode=0700
+BindReadOnlyPaths={{ gws_ssh_private_key }}:{{ archive_dispatch_gws_runtime_dir }}/key
+BindReadOnlyPaths=/home/{{ aurora_service_user }}/.ssh/known_hosts:{{ archive_dispatch_gws_runtime_dir }}/known_hosts
+ExecStart=/usr/local/bin/aurora-archive-dispatch run
+TimeoutStartSec={{ archive_dispatch_timeout_start_sec }}
+Nice=-2
+IOSchedulingClass=best-effort
+IOSchedulingPriority=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths={{ archive_dispatch_state_root }} {{ object_store_cache_root }}
+

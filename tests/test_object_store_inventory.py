@@ -54,6 +54,30 @@ class ObjectStoreInventoryTests(unittest.TestCase):
         self.assertIn("Compression=yes", command)
         self.assertIn("UserKnownHostsFile=/known_hosts", command)
 
+    def test_gws_inventory_prunes_fully_excluded_history_on_remote(self) -> None:
+        completed = SimpleNamespace(stdout="latest/summary.json\t42\t100.5\n")
+        config = {
+            "gws_key": "/key",
+            "gws_user": "user",
+            "gws_hosts": ["xfer.example"],
+        }
+        job = {
+            "name": "manifests",
+            "gws_destination": "/gws/manifests",
+            "exclude": ["history/**", "logs/**"],
+        }
+        with mock.patch.object(
+            inventory.subprocess,
+            "run",
+            return_value=completed,
+        ) as run:
+            inventory.gws_inventory(config, job)
+
+        remote_command = run.call_args.args[0][-1]
+        self.assertIn('"./history"', remote_command)
+        self.assertIn('"./logs"', remote_command)
+        self.assertIn('"-prune"', remote_command)
+
     def test_gws_inventory_retries_the_host_pool(self) -> None:
         completed = SimpleNamespace(stdout="stable/file.nc\t42\t100.5\n")
         config = {
@@ -144,6 +168,30 @@ class ObjectStoreInventoryTests(unittest.TestCase):
             )
 
         self.assertEqual(result["linked.dat"]["size"], len(b"archive me"))
+
+    def test_local_inventory_prunes_fully_excluded_directories(self) -> None:
+        entered: list[str] = []
+
+        def fake_walk(root: Path):
+            dirnames = ["wxcam.zarr", "daily_videos"]
+            yield str(root), dirnames, []
+            if "wxcam.zarr" in dirnames:
+                entered.append("wxcam.zarr")
+                yield str(Path(root) / "wxcam.zarr"), [], ["chunk"]
+            if "daily_videos" in dirnames:
+                entered.append("daily_videos")
+                yield str(Path(root) / "daily_videos"), [], []
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            inventory.os, "walk", side_effect=fake_walk
+        ):
+            inventory.local_inventory(
+                tmp,
+                ["wxcam.zarr/**"],
+                "0s",
+            )
+
+        self.assertEqual(entered, ["daily_videos"])
 
     def test_remote_window_recheck_excludes_mutated_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

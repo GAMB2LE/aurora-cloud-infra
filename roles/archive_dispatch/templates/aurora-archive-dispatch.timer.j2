@@ -1,0 +1,11 @@
+[Unit]
+Description=Schedule newest-first Aurora dual-archive delivery
+
+[Timer]
+OnCalendar={{ archive_dispatch_schedule }}
+RandomizedDelaySec={{ archive_dispatch_randomized_delay_sec }}
+Persistent=true
+Unit=aurora-archive-dispatch.service
+
+[Install]
+WantedBy=timers.target

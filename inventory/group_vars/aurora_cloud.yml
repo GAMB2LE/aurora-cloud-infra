@@ -300,7 +300,11 @@ aurora_processing_timers:
   ops_monitor_quicklooks: "{{ aurora_writer_timers_enabled }}"
   les_operational_run: "{{ aurora_writer_timers_enabled }}"
   wxcam_catalog: "{{ aurora_writer_timers_enabled }}"
-  wxcam_append: "{{ aurora_writer_timers_enabled }}"
+  # The pixel Zarr duplicates full RGB camera frames, is not used by either
+  # dashboard, and grew to 635 GB. Canonical HDR JPG/MP4 files remain in the
+  # raw mirror plus both independent archives; catalog, thumbnail, and video
+  # products continue normally.
+  wxcam_append: false
   wxcam_daily_videos: "{{ aurora_writer_timers_enabled }}"
   auroracam_index: "{{ aurora_writer_timers_enabled }}"
 
@@ -791,6 +795,7 @@ object_store_manifest_root: "{{ aurora_data_root }}/internal/object_store_manife
 object_store_log_root: /var/log/aurora-cloud/object-store
 object_store_cache_root: "{{ aurora_state_root }}/object-store-rclone-cache"
 object_store_inventory_workers: 8
+object_store_inventory_job_workers: 3
 object_store_inventory_shard_workers: 16
 object_store_inventory_process_limit: 16
 object_store_inventory_list_timeout_seconds: 3600
@@ -875,6 +880,28 @@ object_store_jobs:
     backfill_max_duration: 8m
     exclude:
       - logs/**
+      # Immutable verifier history already lives on GWS. Re-listing every
+      # historical TSV from object storage made a five-job audit wait hours
+      # on non-science evidence and provided no additional retention proof.
+      - history/**
+
+# Fast delivery lane. Source-sync services enqueue the exact files they just
+# landed; this worker sends the newest settled paths to both independent
+# archives every two minutes. Full GWS/object inventories remain the strict
+# independent audit and the only source of pruning evidence.
+archive_dispatch_enabled: "{{ aurora_is_production }}"
+archive_dispatch_timer_enabled: "{{ aurora_writer_timers_enabled }}"
+archive_dispatch_state_root: "{{ aurora_data_root }}/internal/archive_dispatch"
+archive_dispatch_gws_runtime_dir: /run/aurora-archive-dispatch-ssh
+archive_dispatch_schedule: "*:00/2"
+archive_dispatch_randomized_delay_sec: 15
+archive_dispatch_timeout_start_sec: 1h
+archive_dispatch_raw_settle_age: 15m
+archive_dispatch_max_files_per_run: 5000
+archive_dispatch_max_bytes_per_run: 21474836480
+archive_dispatch_object_transfers: 8
+archive_dispatch_receipt_history_keep: 336
+archive_dispatch_completed_queue_retention_days: 14
 
 ass_retention_enabled: "{{ aurora_is_production }}"
 # Held closed until the restricted edge helper is explicitly approved,

@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import csv
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import as_completed, ThreadPoolExecutor
 import datetime as dt
 import fnmatch
 import json
@@ -77,11 +77,32 @@ def local_inventory(
         return result
     settled_before = time.time() - duration_seconds(settle_age)
     for directory, dirnames, filenames in os.walk(base):
+        directory_path = Path(directory)
+        try:
+            directory_relative = directory_path.relative_to(base).as_posix()
+        except ValueError:
+            directory_relative = ""
+
+        def child_excluded(name: str) -> bool:
+            relative = (
+                f"{directory_relative}/{name}"
+                if directory_relative not in {"", "."}
+                else name
+            )
+            # A pattern such as ``wxcam.zarr/**`` describes the descendants,
+            # not the directory token itself. Probe one synthetic child so
+            # os.walk never enters a tree whose every file is excluded.
+            return excluded(relative, patterns) or excluded(
+                f"{relative.rstrip('/')}/__inventory_probe__",
+                patterns,
+            )
+
         dirnames[:] = [
             name
             for name in dirnames
             if name not in {".git", ".venv", "__pycache__", ".cache"}
             and not name.endswith((".partial", ".tmp"))
+            and not child_excluded(name)
         ]
         for name in filenames:
             path = Path(directory, name)
@@ -374,14 +395,29 @@ def gws_inventory(config: dict, job: dict) -> dict[str, dict]:
     if not destination:
         return {}
     patterns = COMMON_EXCLUDES + job.get("exclude", [])
-    find_bits = [
-        "find",
-        ".",
-        "-type",
-        "f",
-        "-printf",
-        r"%P\t%s\t%Ts\n",
-    ]
+    prune_roots = []
+    for pattern in patterns:
+        normalized = str(pattern).lstrip("/")
+        if normalized.endswith("/**"):
+            root = normalized[:-3].rstrip("/")
+            if root and not any(token in root for token in "*?["):
+                prune_roots.append(root)
+    find_bits = ["find", "."]
+    if prune_roots:
+        find_bits.extend(["("])
+        for index, root in enumerate(sorted(set(prune_roots))):
+            if index:
+                find_bits.append("-o")
+            find_bits.extend(["-path", f"./{root}"])
+        find_bits.extend([")", "-prune", "-o"])
+    find_bits.extend(
+        [
+            "-type",
+            "f",
+            "-printf",
+            r"%P\t%s\t%Ts\n",
+        ]
+    )
     remote_command = (
         f"cd {json.dumps(destination)} && "
         + " ".join(json.dumps(bit) for bit in find_bits)
@@ -548,6 +584,87 @@ def publish(
         shutil.rmtree(obsolete)
 
 
+def inventory_job(
+    config: dict,
+    lister: S3Lister,
+    job: dict,
+    stage: Path,
+    update_phase,
+) -> dict:
+    """Inventory one independent archive family.
+
+    Each family owns distinct output files, so multiple jobs can run in
+    parallel while the shared S3 lister enforces the configured process cap.
+    """
+    name = job["name"]
+    update_phase(name, "local_inventory")
+    patterns = COMMON_EXCLUDES + job.get("exclude", [])
+    # Settled products are archive evidence. Recent outputs stay observable as
+    # pending uploads without resetting the stable-parity gate.
+    local_live = local_inventory(
+        job["source"],
+        patterns,
+        "0s",
+        bool(job.get("copy_links")),
+    )
+    local = local_inventory(
+        job["source"],
+        patterns,
+        verification_settle_age(job),
+        bool(job.get("copy_links")),
+    )
+    pending_upload = {
+        path: entry for path, entry in local_live.items() if path not in local
+    }
+    update_phase(name, "gws_inventory")
+    gws = gws_inventory(config, job)
+    # Prove the usually-cheaper GWS path before starting a large object-store
+    # listing. A transient JASMIN outage must not waste that listing.
+    update_phase(name, "object_store_inventory")
+    s3 = lister.inventory(job, local)
+    update_phase(name, "stability_check")
+    local = retain_unchanged_local_snapshot(
+        job["source"],
+        local,
+        bool(job.get("copy_links")),
+    )
+    gws_source = (
+        mirror_manifest_inventory(config, job, "source")
+        if name == "raw"
+        else local
+    )
+    update_phase(name, "comparison")
+    write_tsv(stage / f"{name}-local.tsv", local)
+    write_tsv(stage / f"{name}-s3.tsv", s3)
+    if gws:
+        write_tsv(stage / f"{name}-gws.tsv", gws)
+    if gws_source:
+        write_tsv(stage / f"{name}-gws-source.tsv", gws_source)
+    return {
+        "source": job["source"],
+        "gws": job.get("gws_destination", ""),
+        "s3": f"s3://{config['bucket']}/{job['destination'].strip('/')}",
+        "source_vs_s3": compare(local, s3),
+        "pending_upload": compare(pending_upload, s3),
+        "verification_settle_age": verification_settle_age(job),
+        "source_vs_gws": (
+            compare(gws_source, gws) if gws_source or gws else None
+        ),
+        # Raw data is intentionally reorganised on GWS, so a byte-path GWS/S3
+        # comparison would manufacture gaps.
+        "gws_vs_s3": None,
+        "gws_evidence": (
+            (
+                "independent canonical stream manifests"
+                if name == "raw"
+                else "direct remote GWS inventory"
+            )
+            if gws_source or gws
+            else None
+        ),
+    }
+
+
 def main() -> int:
     config = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
     generated_at = utc_now()
@@ -555,7 +672,7 @@ def main() -> int:
     root.mkdir(parents=True, exist_ok=True)
     lister = S3Lister(config)
     progress = {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_generated_at": generated_at,
         "updated_at": generated_at,
         "state": "running",
@@ -563,6 +680,14 @@ def main() -> int:
         "phase": "starting",
         "completed_jobs": [],
         "total_jobs": len(config["jobs"]),
+        "jobs": {
+            job["name"]: {
+                "state": "pending",
+                "phase": "pending",
+                "updated_at": generated_at,
+            }
+            for job in config["jobs"]
+        },
     }
     progress_lock = threading.Lock()
     heartbeat_stop = threading.Event()
@@ -570,6 +695,36 @@ def main() -> int:
     def update_progress(**values: object) -> None:
         with progress_lock:
             progress.update(values)
+            progress["updated_at"] = utc_now()
+            write_progress(root, progress)
+
+    def update_job(name: str, phase: str, *, state: str = "running", error: str = "") -> None:
+        with progress_lock:
+            job_progress = progress["jobs"][name]
+            job_progress.update(
+                {
+                    "state": state,
+                    "phase": phase,
+                    "updated_at": utc_now(),
+                }
+            )
+            if error:
+                job_progress["error"] = error[:1000]
+            running = sorted(
+                job_name
+                for job_name, value in progress["jobs"].items()
+                if value["state"] == "running"
+            )
+            progress["current_jobs"] = running
+            progress["current_job"] = running[0] if running else None
+            progress["phase"] = (
+                progress["jobs"][running[0]]["phase"] if running else phase
+            )
+            progress["completed_jobs"] = sorted(
+                job_name
+                for job_name, value in progress["jobs"].items()
+                if value["state"] == "complete"
+            )
             progress["updated_at"] = utc_now()
             write_progress(root, progress)
 
@@ -607,91 +762,43 @@ def main() -> int:
                 },
                 "jobs": {},
             }
-            for job in config["jobs"]:
-                update_progress(
-                    state="running",
-                    current_job=job["name"],
-                    phase="local_inventory",
-                )
-                patterns = COMMON_EXCLUDES + job.get("exclude", [])
-                # Settled products are archive evidence.  Recent derived
-                # outputs remain observable as pending uploads, but cannot
-                # reset the archive-parity gate before their configured
-                # delivery window has elapsed.
-                local_live = local_inventory(
-                    job["source"],
-                    patterns,
-                    "0s",
-                    bool(job.get("copy_links")),
-                )
-                local = local_inventory(
-                    job["source"],
-                    patterns,
-                    verification_settle_age(job),
-                    bool(job.get("copy_links")),
-                )
-                pending_upload = {
-                    path: entry
-                    for path, entry in local_live.items()
-                    if path not in local
+            failures: list[str] = []
+            workers = max(
+                1,
+                min(
+                    int(config.get("job_workers", 3)),
+                    len(config["jobs"]),
+                ),
+            )
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = {
+                    pool.submit(
+                        inventory_job,
+                        config,
+                        lister,
+                        job,
+                        stage,
+                        update_job,
+                    ): job
+                    for job in config["jobs"]
                 }
-                update_progress(phase="gws_inventory")
-                gws = gws_inventory(config, job)
-                # Prove the usually-cheaper GWS path before starting a large
-                # object-store listing. A transient JASMIN outage must not
-                # waste an otherwise valid high-cardinality S3 inventory.
-                update_progress(phase="object_store_inventory")
-                s3 = lister.inventory(job, local)
-                # The source is live while a full remote listing is built.
-                # Exclude anything that changed during either remote listing
-                # so a newer object cannot be misreported as a mismatch.
-                update_progress(phase="stability_check")
-                local = retain_unchanged_local_snapshot(
-                    job["source"],
-                    local,
-                    bool(job.get("copy_links")),
-                )
-                gws_source = (
-                    mirror_manifest_inventory(config, job, "source")
-                    if job["name"] == "raw"
-                    else local
-                )
-                update_progress(phase="comparison")
-                write_tsv(stage / f"{job['name']}-local.tsv", local)
-                write_tsv(stage / f"{job['name']}-s3.tsv", s3)
-                if gws:
-                    write_tsv(stage / f"{job['name']}-gws.tsv", gws)
-                if gws_source:
-                    write_tsv(
-                        stage / f"{job['name']}-gws-source.tsv", gws_source
-                    )
-                report["jobs"][job["name"]] = {
-                    "source": job["source"],
-                    "gws": job.get("gws_destination", ""),
-                    "s3": f"s3://{config['bucket']}/{job['destination'].strip('/')}",
-                    "source_vs_s3": compare(local, s3),
-                    "pending_upload": compare(pending_upload, s3),
-                    "verification_settle_age": verification_settle_age(job),
-                    "source_vs_gws": (
-                        compare(gws_source, gws)
-                        if gws_source or gws
-                        else None
-                    ),
-                    # Raw data is intentionally reorganised on GWS, so a
-                    # byte-path GWS/S3 comparison would manufacture gaps.
-                    "gws_vs_s3": None,
-                    "gws_evidence": (
-                        (
-                            "independent canonical stream manifests"
-                            if job["name"] == "raw"
-                            else "direct remote GWS inventory"
-                        )
-                        if gws_source or gws
-                        else None
-                    ),
-                }
-                with progress_lock:
-                    progress["completed_jobs"].append(job["name"])
+                for future in as_completed(futures):
+                    job = futures[future]
+                    name = job["name"]
+                    try:
+                        report["jobs"][name] = future.result()
+                    except Exception as error:
+                        detail = f"{type(error).__name__}: {error}"
+                        failures.append(f"{name}: {detail}")
+                        update_job(name, "failed", state="failed", error=detail)
+                    else:
+                        update_job(name, "complete", state="complete")
+            if failures:
+                raise RuntimeError("; ".join(failures))
+            report["jobs"] = {
+                job["name"]: report["jobs"][job["name"]]
+                for job in config["jobs"]
+            }
             (stage / "comparison.json").write_text(
                 json.dumps(report, indent=2) + "\n", encoding="utf-8"
             )

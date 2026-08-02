@@ -36,7 +36,9 @@ backups are useful recovery layers, but neither counts as raw-data retention
 evidence. ASS deletes only exact files older than seven days after cloud, GWS,
 and object-store verification; APS Power is not pruned. Fresh derived products
 not yet archived remain visible as pending uploads until their 30-hour
-verification window expires. See
+verification window expires. A durable two-minute newest-first queue delivers
+new raw arrivals to both archives without rescanning the full tree; independent
+complete inventories remain the only pruning proof. See
 [Backups and Archive Services](docs/ARCHIVE_SERVICES.md) for the
 complete status model and [ASS Backup and Retention](docs/ASS_BACKUP_AND_RETENTION.md)
 for deletion safeguards.
