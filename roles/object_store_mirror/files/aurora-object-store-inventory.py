@@ -253,6 +253,21 @@ class S3Lister:
             if prefix not in sharded and not shard_all_prefixes:
                 return prefix, self.list_json(prefix_remote)
 
+            # Flat instrument families (notably CL61) can contain tens of
+            # thousands of files directly beneath one prefix.  A delimiter-
+            # based shallow S3 listing is pathologically slow on the JASMIN
+            # gateway for this shape.  The settled local inventory already
+            # proves that this family is flat, so use the ordinary recursive
+            # files-only ListObjects path.  It covers the same source paths
+            # without the expensive directory emulation.
+            local_relatives = [
+                path[len(prefix) + 1 :]
+                for path in local
+                if path.startswith(f"{prefix}/")
+            ]
+            if local_relatives and all("/" not in path for path in local_relatives):
+                return prefix, self.list_json(prefix_remote)
+
             first_level = self.list_json(
                 prefix_remote, recursive=False, files_only=False
             )
