@@ -23,8 +23,8 @@ jobs:
         run: uv sync --locked
       - name: Install Ansible collections
         run: uv run ansible-galaxy collection install -r requirements.yml
-      - name: Check recent commits for whitespace errors
-        run: git log --check --oneline -n 40
+      - name: Check changed files for whitespace errors
+        run: git diff --check HEAD^1...HEAD
       - name: Validate inventory
         run: uv run ansible-inventory --list >/dev/null
       - name: Validate playbooks
