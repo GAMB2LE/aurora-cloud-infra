@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import random
 import shutil
 import subprocess
 import tempfile
@@ -208,6 +209,10 @@ class S3Lister:
         retry_delay = max(
             0, int(self.config.get("s3_list_retry_delay_seconds", 30))
         )
+        retry_max_delay = max(
+            retry_delay,
+            int(self.config.get("s3_list_retry_max_delay_seconds", 300)),
+        )
         for attempt in range(1, attempts + 1):
             try:
                 with self.list_slots:
@@ -224,7 +229,14 @@ class S3Lister:
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
                 if attempt == attempts:
                     raise
-                time.sleep(retry_delay)
+                # A gateway timeout is usually shared service pressure, not a
+                # bad path.  Back off exponentially and add jitter so all
+                # concurrent shard scans do not retry as one thundering herd.
+                delay = min(
+                    retry_max_delay,
+                    retry_delay * (2 ** (attempt - 1)),
+                )
+                time.sleep(delay + random.uniform(0, min(15, delay / 4)))
         return json.loads(completed.stdout or "[]")
 
     def inventory(self, job: dict, local: dict[str, dict]) -> dict[str, dict]:

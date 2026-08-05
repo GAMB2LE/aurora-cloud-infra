@@ -196,10 +196,13 @@ history tree. The manifest job excludes immutable `history/` and operational
 Raw inventories use the same rule for every family, including the multi-terabyte
 radar archive. Families are scheduled independently, radar is listed as bounded
 year/month subtrees, and a global process semaphore limits nested listings to
-the configured `object_store_inventory_process_limit` (16 in production,
-matching the cloud host's CPU count). Each listing also has a 60-minute outer
-process guard; rclone's shorter inactivity timeout and bounded retries still
-detect dead connections without rejecting valid high-cardinality listings.
+the configured `object_store_inventory_process_limit` (8 in production). This
+is deliberately below the cloud host's CPU count: JASMIN object-store listings
+are network-bound and excessive parallel scans can trigger gateway timeouts.
+Each listing has a 60-minute outer process guard, up to five retries, and an
+exponential, jittered backoff. The staggered retry prevents a group of failed
+shards from immediately overloading the gateway again while still detecting
+dead connections promptly.
 Source-proven flat families such as CL61 use a recursive files-only object
 listing instead of S3's slow delimiter-based directory emulation; this keeps
 the comparison exact while avoiding a pathological prefix scan.
