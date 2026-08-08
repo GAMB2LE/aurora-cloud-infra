@@ -1,0 +1,9 @@
+[Unit]
+Description=Reconcile missing HATPRO source files into the cloud raw archive
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+ExecStart=/usr/local/bin/aurora-hatpro-backfill

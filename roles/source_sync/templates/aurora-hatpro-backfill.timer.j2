@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodically reconcile the HATPRO edge source with cloud raw storage
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec={{ hatpro_backfill_interval }}
+Persistent=true
+RandomizedDelaySec={{ hatpro_backfill_randomized_delay }}
+Unit=aurora-hatpro-backfill.service
+
+[Install]
+WantedBy=timers.target

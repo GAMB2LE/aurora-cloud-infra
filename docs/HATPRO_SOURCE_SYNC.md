@@ -48,6 +48,22 @@ sudo -u aurora date +%s | sudo tee /var/lib/aurora-cloud/hatpro-sync.last
 sudo systemctl start aurora-hatpro-source-sync.timer
 ```
 
+## Gap reconciliation
+
+`aurora-hatpro-backfill.timer` runs an independent idempotent tree
+reconciliation every six hours. It copies only source paths absent from the
+cloud raw archive and queues only the files actually copied for GWS and object
+storage delivery. This is deliberately separate from the live timestamp cursor:
+files recovered on ASS with an older mtime must still reach both archives.
+
+For an incident repair, run one bounded manual reconciliation and observe it
+before relying on the timer:
+
+```bash
+sudo systemctl start aurora-hatpro-backfill.service
+sudo journalctl -u aurora-hatpro-backfill.service -n 100 --no-pager
+```
+
 ## Processing
 
 The deployed HATPRO processing timer is:
