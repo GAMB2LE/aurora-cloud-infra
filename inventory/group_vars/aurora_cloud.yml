@@ -381,6 +381,13 @@ hatpro_source_sync_interval: 2min
 hatpro_source_sync_randomized_delay: 30
 # False means the first timer run pulls all existing matching HATPRO files.
 hatpro_source_start_fresh: false
+# The live cursor is intentionally newest-first. This independent, idempotent
+# reconciliation pass closes gaps when files arrive late or are recovered on
+# the edge with an older mtime than the live cursor.
+hatpro_backfill_enabled: true
+hatpro_backfill_timer_enabled: "{{ aurora_writer_timers_enabled }}"
+hatpro_backfill_interval: 6h
+hatpro_backfill_randomized_delay: 5min
 
 vaisalamet_source_sync_enabled: true
 vaisalamet_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"

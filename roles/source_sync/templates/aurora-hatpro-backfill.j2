@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Reconcile immutable HATPRO source files without trusting their mtime. The
+# priority sync remains responsible for prompt delivery of new files; this lane
+# transfers only paths absent from the cloud raw archive. It prevents a late
+# recovered edge file from being hidden behind the monotonic live cursor.
+source_user={{ hatpro_source_user | quote }}
+source_host={{ hatpro_source_host | quote }}
+source_port={{ hatpro_source_port | int }}
+source_path={{ hatpro_source_path | quote }}
+source_pattern={{ hatpro_source_pattern | quote }}
+destination={{ hatpro_source_destination | quote }}
+source_auth={{ hatpro_source_auth | default('tailscale') | quote }}
+ssh_key={{ hatpro_source_ssh_key_path | quote }}
+known_hosts=/home/{{ aurora_service_user }}/.ssh/known_hosts
+lock_file={{ aurora_state_root | quote }}/hatpro-backfill.lock
+
+mkdir -p "$destination" "$(dirname "$known_hosts")" "$(dirname "$lock_file")"
+exec 9>"$lock_file"
+if ! flock -n 9; then
+  echo "HATPRO archive reconciliation already running; exiting."
+  exit 0
+fi
+
+if [[ "$source_auth" == "ssh_key" ]]; then
+  if [[ ! -f "$ssh_key" ]]; then
+    echo "Missing HATPRO source SSH key: $ssh_key" >&2
+    exit 1
+  fi
+  rsync_ssh="ssh -p $source_port -i $ssh_key -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$known_hosts"
+else
+  rsync_ssh="ssh -p $source_port -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityFile=none -o PubkeyAuthentication=no -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$known_hosts"
+fi
+
+changes="$(mktemp)"
+trap 'rm -f "$changes"' EXIT
+rsync -a --partial --ignore-existing --timeout=120 --itemize-changes \
+  --out-format=$'%i\t%n' \
+  --include='*/' --include="$source_pattern" --exclude='*' \
+  -e "$rsync_ssh" \
+  "${source_user}@${source_host}:${source_path%/}/" \
+  "${destination%/}/" | tee "$changes"
+
+if [[ -s "$changes" ]] && [[ -x /usr/local/bin/aurora-archive-dispatch ]]; then
+  /usr/local/bin/aurora-archive-dispatch enqueue --job raw --base "$destination" \
+    --files-from "$changes" --records-format rsync
+fi
+echo "HATPRO archive reconciliation completed an idempotent full-tree catch-up."
