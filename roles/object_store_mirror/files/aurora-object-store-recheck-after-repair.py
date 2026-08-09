@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+"""Refresh only object-store catalogue families repaired successfully.
+
+The latest full report remains the evidence base. A successful exact repair
+publishes a small result document; this worker selects only jobs that copied at
+least one settled path and runs the existing bounded incremental inventory.
+Transient inventory failures receive one delayed retry. The inventory's global
+lock and base-age/depth checks remain authoritative.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+import subprocess
+import time
+from typing import Callable
+
+
+DEFAULT_REPAIR_RESULT = Path(
+    "/var/lib/aurora-cloud/object-store-repair/result.json"
+)
+DEFAULT_REPORT = Path(
+    "/data/aurora/internal/object_store_manifests/latest/comparison.json"
+)
+DEFAULT_INVENTORY = Path("/usr/local/bin/aurora-object-store-inventory")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--repair-result", type=Path, default=DEFAULT_REPAIR_RESULT)
+    parser.add_argument("--report", type=Path, default=DEFAULT_REPORT)
+    parser.add_argument("--inventory", type=Path, default=DEFAULT_INVENTORY)
+    parser.add_argument("--attempts", type=int, default=2)
+    parser.add_argument("--retry-delay-seconds", type=int, default=600)
+    return parser.parse_args()
+
+
+def repaired_jobs(result: dict, report: dict) -> list[str]:
+    if result.get("report") != report.get("generated_at"):
+        return []
+    configured = set(report.get("jobs", {}))
+    return sorted(
+        str(item["job"])
+        for item in result.get("jobs", [])
+        if item.get("job") in configured
+        and int(item.get("ready", 0)) > 0
+        and int(item.get("returncode", 1)) == 0
+    )
+
+
+def recheck(
+    *,
+    result_path: Path,
+    report_path: Path,
+    inventory: Path,
+    attempts: int,
+    retry_delay_seconds: int,
+    run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+    sleep: Callable[[float], None] = time.sleep,
+) -> int:
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    jobs = repaired_jobs(result, report)
+    if not jobs:
+        print("No successfully repaired catalogue families require rechecking.")
+        return 0
+
+    command = [str(inventory), "--reuse-latest"]
+    for name in jobs:
+        command.extend(("--job", name))
+
+    maximum_attempts = max(1, attempts)
+    for attempt in range(1, maximum_attempts + 1):
+        completed = run(command, check=False)
+        if completed.returncode == 0:
+            print(
+                "Incremental post-repair verification completed for: "
+                + ", ".join(jobs)
+            )
+            return 0
+        if attempt < maximum_attempts:
+            print(
+                f"Post-repair verification attempt {attempt} failed; "
+                f"retrying in {retry_delay_seconds} seconds."
+            )
+            sleep(max(0, retry_delay_seconds))
+    return int(completed.returncode or 1)
+
+
+def main() -> int:
+    args = parse_args()
+    return recheck(
+        result_path=args.repair_result,
+        report_path=args.report,
+        inventory=args.inventory,
+        attempts=args.attempts,
+        retry_delay_seconds=args.retry_delay_seconds,
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

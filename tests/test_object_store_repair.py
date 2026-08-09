@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest import mock
+import json
 
 
 SCRIPT = (
@@ -22,6 +23,16 @@ SPEC.loader.exec_module(repair)
 
 
 class ObjectStoreRepairTests(unittest.TestCase):
+    def test_publish_result_is_atomic_and_readable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state" / "result.json"
+            payload = {"report": "now", "jobs": [{"job": "products"}]}
+
+            repair.publish_result(path, payload)
+
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8")), payload)
+            self.assertFalse(path.with_suffix(".tmp").exists())
+
     def test_repair_uses_verification_horizon_not_writer_latency(self) -> None:
         self.assertEqual(
             repair.verification_settle_age(

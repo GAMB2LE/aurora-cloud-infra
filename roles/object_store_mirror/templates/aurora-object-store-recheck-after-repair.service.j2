@@ -1,8 +1,9 @@
 [Unit]
-Description=Build Aurora GWS/object-store comparison inventory
-After=network-online.target
+Description=Incrementally verify object-store families repaired from the latest audit
+After=network-online.target aurora-object-store-repair.service
 Wants=network-online.target
-ConditionPathExists={{ object_store_rclone_config }}
+ConditionPathExists={{ object_store_repair_state_root }}/result.json
+ConditionPathExists={{ object_store_manifest_root }}/latest/comparison.json
 
 [Service]
 Type=oneshot
@@ -13,10 +14,10 @@ RuntimeDirectory={{ object_store_inventory_gws_runtime_dir | basename }}
 RuntimeDirectoryMode=0700
 BindReadOnlyPaths={{ gws_ssh_private_key }}:{{ object_store_inventory_gws_runtime_dir }}/key
 BindReadOnlyPaths=/home/{{ aurora_service_user }}/.ssh/known_hosts:{{ object_store_inventory_gws_runtime_dir }}/known_hosts
-ExecStart=/usr/local/bin/aurora-object-store-inventory
+ExecStart=/usr/local/bin/aurora-object-store-recheck-after-repair --repair-result {{ object_store_repair_state_root }}/result.json --report {{ object_store_manifest_root }}/latest/comparison.json --attempts {{ object_store_post_repair_recheck_attempts }} --retry-delay-seconds {{ object_store_post_repair_recheck_retry_delay_seconds }}
 ExecStartPost=+/usr/local/sbin/aurora-object-store-verification-gate
 ExecStartPost=+/usr/local/sbin/aurora-object-store-trigger-retention
-TimeoutStartSec=12h
+TimeoutStartSec=4h
 Nice=10
 NoNewPrivileges=true
 PrivateTmp=true

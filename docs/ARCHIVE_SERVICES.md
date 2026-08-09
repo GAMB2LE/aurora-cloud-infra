@@ -227,6 +227,16 @@ source root, follows symlinks only for jobs explicitly marked `copy_links`,
 orders candidates newest first, and performs only
 exact `rclone copy --files-from-raw` operations. It never deletes or broadly
 rewalks the archive to repair a known finite gap.
+After a successful repair, the repair service records exactly which catalogue
+families copied settled paths and starts one bounded incremental inventory for
+those families. A transient inventory failure is retried once after ten
+minutes. A clean incremental report can clear the measured-gap alert promptly,
+while the existing six-hour full audit remains the independent confirmation
+required for stable parity.
+Every successful full or incremental inventory reevaluates the verification
+gate. Retention is started immediately only when that gate reports both
+`clean=true` and `stable_parity=true`; otherwise the trigger exits successfully
+and pruning remains paused.
 An outer graceful GNU `timeout` enforces each wall-clock budget because the
 deployed legacy rclone can stop transfers yet continue scanning after its own
 `--max-duration` deadline.
@@ -381,9 +391,9 @@ cat /data/aurora/internal/archive_dispatch/status.json
    evaluation, and five minutes for manifests; verification must never slow
    delivery of fresh data.
 4. The repair path unit copies only the exact reported missing or mismatched
-   paths. It must finish successfully before another inventory is started.
-   When a recent full report has a gap in one family, refresh only that family
-   with the bounded incremental unit, for example:
+   paths. It must finish successfully before another inventory is started. It
+   now refreshes every successfully repaired family automatically with the
+   bounded incremental verifier. The manual equivalent is:
 
    ```bash
    sudo systemctl start aurora-object-store-inventory-incremental@model-evaluation.service
