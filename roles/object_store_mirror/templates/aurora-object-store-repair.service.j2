@@ -9,7 +9,8 @@ Type=oneshot
 User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
 Environment=XDG_CACHE_HOME={{ object_store_cache_root }}
-ExecStart=/usr/local/bin/aurora-object-store-repair-from-report
+ExecStart=/usr/local/bin/aurora-object-store-repair-from-report --result {{ object_store_repair_state_root }}/result.json
+ExecStartPost=+/bin/systemctl --no-block start aurora-object-store-recheck-after-repair.service
 TimeoutStartSec=12h
 Nice=10
 NoNewPrivileges=true
@@ -17,4 +18,4 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadOnlyPaths={{ aurora_raw_root }} {{ aurora_data_root }}
-ReadWritePaths={{ object_store_cache_root }}
+ReadWritePaths={{ object_store_cache_root }} {{ object_store_repair_state_root }}
