@@ -400,6 +400,9 @@ vaisalamet_source_destination: "{{ aurora_paths.raw_vaisalamet }}"
 vaisalamet_source_state_file: "{{ aurora_state_root }}/vaisalamet-sync.last"
 vaisalamet_source_sync_interval: 2min
 vaisalamet_source_sync_randomized_delay: 30
+# The daily file is continuously appended. Revisit a short window so a write
+# concurrent with rsync is corrected on the next cycle.
+vaisalamet_source_overlap_seconds: 300
 # False means the first timer run pulls all existing data files.
 vaisalamet_source_start_fresh: false
 
