@@ -28,6 +28,13 @@ No private key is installed for this source.
 `/usr/local/bin/aurora-vaisalamet-sync`. The first run pulls all existing
 matching `.dat` files because `vaisalamet_source_start_fresh` is false.
 
+The current daily file is appended continuously. Selection therefore has no
+fixed upper-mtime boundary: a file that advances while the cloud is building
+its request must still be copied. Each run also revisits the preceding five
+minutes, so a write concurrent with rsync is reconciled on the next cycle.
+The copy remains additive and the exact landed path is queued for both GWS and
+object storage delivery.
+
 Processing timers:
 
 - `aurora-vaisalamet-append.timer`
