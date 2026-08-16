@@ -1,3 +1,4 @@
+import datetime as dt
 from pathlib import Path
 import unittest
 
@@ -48,20 +49,26 @@ class ArchiveHealthPresentationTests(unittest.TestCase):
         self.assertIn("strict recheck is running", result["detail"])
         self.assertNotIn("object_store_", result["detail"])
 
-    def test_first_clean_audit_is_amber_while_confirmation_is_pending(self):
+    def test_first_clean_audit_stays_green_while_confirmation_is_pending(self):
+        generated_at = dt.datetime.now(dt.timezone.utc).isoformat()
         result = operator_status(
             ["object_store_stable_parity=false"],
             self.base_metrics(),
-            {"clean": True, "stable_parity": False},
+            {
+                "clean": True,
+                "stable_parity": False,
+                "last_generated_at": generated_at,
+            },
             {"state": "complete"},
         )
 
-        self.assertEqual(result["level"], "amber")
-        self.assertEqual(result["title"], "Archive parity is being confirmed")
-        self.assertIn("One complete clean strict audit", result["detail"])
+        self.assertEqual(result["level"], "green")
+        self.assertEqual(result["title"], "Archive copies are healthy")
+        self.assertIn("second retention confirmation", result["detail"])
         self.assertTrue(result["pruning_paused"])
 
-    def test_incremental_repair_recheck_is_explained(self):
+    def test_incremental_repair_recheck_is_not_an_alert(self):
+        generated_at = dt.datetime.now(dt.timezone.utc).isoformat()
         result = operator_status(
             ["object_store_stable_parity=false"],
             self.base_metrics(),
@@ -69,13 +76,14 @@ class ArchiveHealthPresentationTests(unittest.TestCase):
                 "clean": True,
                 "stable_parity": False,
                 "verification_mode": "incremental",
+                "last_generated_at": generated_at,
             },
             {"state": "complete"},
         )
 
-        self.assertEqual(result["level"], "amber")
-        self.assertIn("exact-path repair recheck", result["detail"])
-        self.assertIn("complete clean strict audit", result["detail"])
+        self.assertEqual(result["level"], "green")
+        self.assertIn("last certified raw parity check is clean", result["detail"])
+        self.assertTrue(result["pruning_paused"])
 
 
 if __name__ == "__main__":

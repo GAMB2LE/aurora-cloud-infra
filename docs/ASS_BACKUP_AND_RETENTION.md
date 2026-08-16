@@ -45,11 +45,10 @@ GWS raw archive     object-store raw archive
 - The object-store inventory must be fresh and report no settled raw missing
   paths, size mismatches, or checksum mismatches. Raw verification stays
   strict at a six-hour horizon.
-- The object-store stability gate must describe that exact inventory, record
-  the independently additive writer policy, and have passed the configured
-  number of consecutive clean inventories (two by default). Fresh derived
-  products inside their 30-hour settle window are `pending_upload` and do not
-  reset this streak; an older product gap still does.
+- The raw-retention object-store gate must describe that exact inventory,
+  record the independently additive writer policy, and have passed two clean
+  confirmations including a full baseline. Derived products have a separate
+  durability gate and cannot reset clean raw-retention evidence.
 - The source path must be present in the GWS verifier's exact
   `prune_candidates.tsv` and have an mtime older than seven days.
 - The cloud coordinator creates a short-lived, site-specific permit containing
@@ -98,8 +97,8 @@ The manual canary requires one fresh globally clean inventory. Only after its
 cloud and edge receipts, exact deletions, continued ingest, archive health, and
 disk recovery are checked should the daily timer be enabled.
 
-Normal scheduled retention is stricter: it requires stable parity from two
-distinct clean inventories. The production coordinator considers no more than
+Normal scheduled retention requires stable raw parity from two distinct clean
+confirmations. The production coordinator considers no more than
 50,000 candidates per daily run, round-robins the oldest eligible files across
 streams, and sends permits in batches of at most 500 paths. The edge helper
 also caps each permit at 500 candidates. These are workload bounds, not weaker
@@ -110,8 +109,8 @@ eligible only when its source-to-cloud, source-to-GWS, and cloud-to-object raw
 checks pass, it is older than the stream's retention window, and the ASS helper
 accepts its short-lived signed permit. A new Zarr chunk or quicklook inside the
 30-hour product settle window therefore cannot block retention. A settled
-product gap older than that window remains a global archive-health failure and
-must be repaired.
+product gap older than that window remains a product-archive failure and must
+be repaired, but it does not revoke clean raw-retention evidence.
 
 Files outside the managed archive scope remain on ASS until an explicit source,
 GWS, and object-store mapping is added; the retention service must not guess.

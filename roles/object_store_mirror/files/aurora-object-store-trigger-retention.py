@@ -28,8 +28,11 @@ def trigger(
     run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
 ) -> int:
     state = json.loads(state_path.read_text(encoding="utf-8"))
-    if not state.get("clean") or not state.get("stable_parity"):
-        print("Retention remains paused: verification is not stably clean.")
+    raw_ready = state.get("raw_retention_ready")
+    if raw_ready is None:
+        raw_ready = state.get("clean") and state.get("stable_parity")
+    if not raw_ready:
+        print("Retention remains paused: raw archive verification is not stably clean.")
         return 0
     completed = run(
         ["/bin/systemctl", "--no-block", "start", unit],

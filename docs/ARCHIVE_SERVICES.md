@@ -46,7 +46,9 @@ object-store writers use `rclone copy`, not `sync`.
 | Read-only presentation of archive health | `aurora_cloud_dashboard` |
 
 The dashboard must not install transfer, verification, or pruning services.
-It consumes `/data/aurora/internal/archive_status/health-v1.json`.
+It consumes the backward-compatible `health-v2` payload at
+`/data/aurora/internal/archive_status/health-v1.json`. The filename remains
+stable for older clients; the schema fields identify the payload contract.
 Its generic operations collector may copy contract metrics into presentation
 snapshots for compatibility, but it must not SSH-probe the GWS, parse archive
 manifests, inspect archive writer units, or infer prune readiness.
@@ -84,7 +86,7 @@ production cloud raw mirror ----> derived products
         |
         +---- independent verification evidence ----+
                                                      v
-                                        health-v1.json
+                                        health-v2 contract
                                                      |
                                     raw-only exact signed permit
                                                      v
@@ -162,7 +164,8 @@ continues on the next activation.
 | Object-store WXcam products | Hourly |
 | Object-store model evaluation | Daily at 17:00 |
 | Object-store manifests | Hourly |
-| Complete object/GWS inventory | 03:20, 09:20, 15:20, and 21:20 |
+| Complete object/GWS inventory | Daily at 03:20 |
+| Raw retention evidence refresh | 07:20, 11:20, 15:20, 19:20, and 23:20 |
 | Archive-health publication | Every 2 minutes |
 | ASS retention | Daily at 03:30, provided every gate passes |
 
@@ -196,7 +199,7 @@ history tree. The manifest job excludes immutable `history/` and operational
 Raw inventories use the same rule for every family, including the multi-terabyte
 radar archive. Families are scheduled independently, radar is listed as bounded
 year/month subtrees, and a global process semaphore limits nested listings to
-the configured `object_store_inventory_process_limit` (8 in production). This
+the configured `object_store_inventory_process_limit` (4 in production). This
 is deliberately below the cloud host's CPU count: JASMIN object-store listings
 are network-bound and excessive parallel scans can trigger gateway timeouts.
 Each listing has a 60-minute outer process guard, up to five retries, and an
@@ -228,11 +231,10 @@ orders candidates newest first, and performs only
 exact `rclone copy --files-from-raw` operations. It never deletes or broadly
 rewalks the archive to repair a known finite gap.
 After a successful repair, the repair service records exactly which catalogue
-families copied settled paths and starts one bounded incremental inventory for
-those families. A transient inventory failure is retried once after ten
-minutes. A clean incremental report can clear the measured-gap alert promptly,
-while the existing six-hour full audit remains the independent confirmation
-required for stable parity.
+families copied settled paths and starts a bounded incremental inventory for
+those families. It requires two clean confirmations ten minutes apart and
+records the consumed repair report, so a path trigger cannot repeat completed
+work. A transient inventory failure is retried once.
 Every successful full or incremental inventory reevaluates the verification
 gate. Retention is started immediately only when that gate reports both
 `clean=true` and `stable_parity=true`; otherwise the trigger exits successfully
@@ -261,7 +263,9 @@ Always run `--check --diff` before applying a playbook.
 
 ## Monitoring contract
 
-`aurora-archive-health.timer` publishes schema `health-v1` every two minutes.
+`aurora-archive-health.timer` publishes schema `health-v2` every two minutes at
+the stable compatibility path. Alongside the legacy metrics it publishes
+explicit `delivery`, `durability`, `verification`, and `retention` objects.
 The contract contains:
 
 - per-stream GWS missing and mismatch counts;
@@ -282,15 +286,20 @@ The contract contains:
 - a human-readable `operator_status` with separate level, title, detail, and
   whether pruning is paused.
 
-The operator status deliberately separates transfer lag from archive loss:
+The operator status separates transfer lag, archive loss, background
+verification, and permission to prune:
 
-- **green** means the newest-first delivery lane is healthy and two distinct
-  clean reports, including at least one complete full audit in the current
-  streak, have confirmed GWS and object-store parity;
-- **amber** means a clean audit is awaiting its independent confirmation, or a
-  fresh audit/listing is delayed while the last stable audit remains clean;
-- **red** means the last complete audit measured missing or mismatched files,
-  or the archive services cannot currently establish a trustworthy baseline.
+- **green** means no settled gap is proven, delivery is under 30 minutes old,
+  and certified raw evidence is current. A routine audit or second retention
+  confirmation is visible status, not an alert;
+- **amber** means delivery is 30--120 minutes behind or certified evidence is
+  overdue while no settled gap is proven;
+- **red** means a settled file is missing or mismatched, delivery is stalled
+  for two hours, or certified evidence has been unavailable for 24 hours.
+
+Raw retention and derived-product durability have independent gate state. A
+settled product gap remains a red product-archive problem, but cannot reset a
+clean raw-retention gate.
 
 Dashboard text uses destination names, file counts, current verification
 activity, and the pruning consequence. Raw metric tokens remain available in
