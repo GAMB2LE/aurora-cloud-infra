@@ -96,6 +96,67 @@ class ObjectStoreRecheckAfterRepairTests(unittest.TestCase):
             ["/inventory", "--reuse-latest", "--job", "products"],
         )
 
+    def test_two_clean_confirmations_are_recorded_and_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result_path = root / "result.json"
+            report_path = root / "comparison.json"
+            state_path = root / "state.json"
+            result_path.write_text(
+                json.dumps(
+                    {
+                        "report": "report-1",
+                        "jobs": [
+                            {"job": "products", "ready": 1, "returncode": 0}
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            report_path.write_text(
+                json.dumps(
+                    {"generated_at": "report-1", "jobs": {"products": {}}}
+                ),
+                encoding="utf-8",
+            )
+            run = mock.Mock(return_value=subprocess.CompletedProcess([], 0))
+            sleep = mock.Mock()
+
+            self.assertEqual(
+                recheck.recheck(
+                    result_path=result_path,
+                    report_path=report_path,
+                    inventory=Path("/inventory"),
+                    attempts=2,
+                    retry_delay_seconds=30,
+                    confirmations=2,
+                    confirmation_delay_seconds=600,
+                    state_path=state_path,
+                    run=run,
+                    sleep=sleep,
+                ),
+                0,
+            )
+            self.assertEqual(run.call_count, 2)
+            sleep.assert_called_once_with(600)
+
+            self.assertEqual(
+                recheck.recheck(
+                    result_path=result_path,
+                    report_path=report_path,
+                    inventory=Path("/inventory"),
+                    attempts=2,
+                    retry_delay_seconds=30,
+                    confirmations=2,
+                    confirmation_delay_seconds=600,
+                    state_path=state_path,
+                    run=run,
+                    sleep=sleep,
+                ),
+                0,
+            )
+            self.assertEqual(run.call_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

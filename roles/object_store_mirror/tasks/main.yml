@@ -69,6 +69,7 @@
   loop:
     - aurora-object-store-inventory.service
     - aurora-object-store-inventory-incremental@.service
+    - aurora-object-store-inventory-incremental@.timer
     - aurora-object-store-inventory.timer
     - aurora-object-store-verification-gate.service
     - aurora-object-store-verification-gate.path
@@ -141,6 +142,7 @@
     daemon_reload: true
   loop:
     - aurora-object-store-inventory.timer
+    - aurora-object-store-inventory-incremental@raw.timer
     - aurora-object-store-verification-gate.path
     - aurora-object-store-repair.path
   when:

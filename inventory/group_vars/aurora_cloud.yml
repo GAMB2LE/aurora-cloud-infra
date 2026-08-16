@@ -796,22 +796,23 @@ object_store_rclone_config: /etc/aurora-object-store/rclone.conf
 object_store_manifest_root: "{{ aurora_data_root }}/internal/object_store_manifests"
 object_store_log_root: /var/log/aurora-cloud/object-store
 object_store_cache_root: "{{ aurora_state_root }}/object-store-rclone-cache"
-object_store_inventory_workers: 4
-object_store_inventory_job_workers: 2
-object_store_inventory_shard_workers: 8
-object_store_inventory_process_limit: 8
+object_store_inventory_workers: 2
+object_store_inventory_job_workers: 1
+object_store_inventory_shard_workers: 4
+object_store_inventory_process_limit: 4
 object_store_inventory_list_timeout_seconds: 3600
 object_store_inventory_s3_list_attempts: 5
 object_store_inventory_s3_list_retry_delay_seconds: 45
-object_store_inventory_s3_list_retry_max_delay_seconds: 300
+object_store_inventory_s3_list_retry_max_delay_seconds: 1800
 object_store_inventory_gws_attempts: 3
 object_store_inventory_gws_retry_delay_seconds: 15
 object_store_inventory_gws_runtime_dir: /run/aurora-object-store-inventory-ssh
 object_store_inventory_history_keep: 12
-object_store_inventory_schedule: "*-*-* 03,09,15,21:20:00"
+object_store_inventory_schedule: "*-*-* 03:20:00"
 object_store_inventory_max_age_hours: 8
-object_store_inventory_incremental_base_max_age_hours: 4
-object_store_inventory_incremental_max_depth: 2
+object_store_inventory_incremental_base_max_age_hours: 26
+object_store_inventory_incremental_max_depth: 8
+object_store_inventory_raw_refresh_schedule: "*-*-* 07,11,15,19,23:20:00"
 object_store_repair_state_root: "{{ aurora_state_root }}/object-store-repair"
 object_store_post_repair_recheck_attempts: 2
 object_store_post_repair_recheck_retry_delay_seconds: 600

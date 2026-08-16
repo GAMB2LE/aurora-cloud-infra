@@ -41,6 +41,23 @@ def report(generated_at: str, *, missing: bool = False) -> dict:
     }
 
 
+def report_with_products(generated_at: str, *, product_missing: bool) -> dict:
+    value = report(generated_at)
+    value["jobs"]["products"] = {
+        "source_vs_s3": {
+            "missing_from_right": ["quicklook.png"] if product_missing else [],
+            "size_mismatch": [],
+            "checksum_mismatch": [],
+        },
+        "source_vs_gws": {
+            "missing_from_right": [],
+            "size_mismatch": [],
+            "checksum_mismatch": [],
+        },
+    }
+    return value
+
+
 def write_gws_summary(root: Path) -> None:
     latest = root / "gws" / "latest"
     latest.mkdir(parents=True, exist_ok=True)
@@ -50,6 +67,53 @@ def write_gws_summary(root: Path) -> None:
 
 
 class ObjectStoreVerificationGateTests(unittest.TestCase):
+    def test_product_gap_does_not_reset_raw_retention_domain(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            latest = root / "manifests" / "latest"
+            latest.mkdir(parents=True)
+            catalog = root / "catalog.json"
+            state = root / "state.json"
+            catalog.write_text(
+                json.dumps(
+                    {
+                        "manifest_root": str(root / "manifests"),
+                        "gws_manifest_root": str(root / "gws"),
+                        "report_max_age_hours": 8,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            write_gws_summary(root)
+            gate.CATALOG = catalog
+            gate.STATE = state
+            gate.REQUIRED = 2
+
+            first = dt.datetime.now(dt.timezone.utc)
+            for offset in (0, 1):
+                payload = report_with_products(
+                    (first + dt.timedelta(seconds=offset)).isoformat(),
+                    product_missing=True,
+                )
+                payload.update(
+                    {
+                        "verification_mode": "full",
+                        "verified_jobs": ["raw", "products"],
+                        "evidence_floor_generated_at": payload["generated_at"],
+                    }
+                )
+                (latest / "comparison.json").write_text(
+                    json.dumps(payload), encoding="utf-8"
+                )
+                self.assertEqual(gate.main(), 0)
+
+            result = json.loads(state.read_text(encoding="utf-8"))
+
+        self.assertTrue(result["raw_retention_ready"])
+        self.assertTrue(result["domains"]["raw_retention"]["stable_parity"])
+        self.assertFalse(result["domains"]["products"]["stable_parity"])
+        self.assertFalse(result["stable_parity"])
+
     def test_two_distinct_clean_reports_are_required(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
