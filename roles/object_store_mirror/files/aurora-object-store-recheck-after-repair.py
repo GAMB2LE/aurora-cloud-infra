@@ -5,7 +5,7 @@ The latest full report remains the evidence base. A successful exact repair
 publishes a small result document; this worker selects only jobs that copied at
 least one settled path and runs the existing bounded incremental inventory.
 Transient inventory failures receive one delayed retry. The inventory's global
-lock and base-age/depth checks remain authoritative.
+lock and per-family evidence timestamps remain authoritative.
 """
 
 from __future__ import annotations

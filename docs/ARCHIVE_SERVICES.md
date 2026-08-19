@@ -188,11 +188,15 @@ Thus every timer cycle reconsiders newly published chunks while historical
 gaps continue to converge instead of falling permanently outside a lookback.
 Full product inventories list each source-present product family in smaller
 parallel shards; they never depend on one unbounded recursive object-store
-root listing. “Incremental” here means that families are verified as bounded,
-independent shards within a run. The complete report is published only after
-all required shards finish, so a partial run can never replace good evidence.
-Independent top-level jobs also run concurrently within the global process
-limit. Local inventory walks prune excluded directories before descending, so
+root listing. Each completed family is atomically checkpointed as an explicitly
+incremental report while the remaining families continue. Reused families keep
+their own original proof timestamps, so a checkpoint can refresh raw-retention
+evidence without pretending that unfinished products were checked. A report is
+labelled `full` only after every required family succeeds. If a later family
+fails, the completed checkpoints remain valid instead of losing hours of work.
+Production runs up to two independent top-level jobs concurrently while all
+shard listings share the global four-process limit. Local inventory walks prune
+excluded directories before descending, so
 the verifier no longer scans the excluded 635-GB WXcam pixel Zarr or its own
 history tree. The manifest job excludes immutable `history/` and operational
 `logs/`; those files are audit storage, not science parity evidence.
@@ -235,10 +239,13 @@ families copied settled paths and starts a bounded incremental inventory for
 those families. It requires two clean confirmations ten minutes apart and
 records the consumed repair report, so a path trigger cannot repeat completed
 work. A transient inventory failure is retried once.
-Every successful full or incremental inventory reevaluates the verification
-gate. Retention is started immediately only when that gate reports both
-`clean=true` and `stable_parity=true`; otherwise the trigger exits successfully
-and pruning remains paused.
+Every successful full, incremental, or resumable-family checkpoint reevaluates
+the verification gate, including checkpoints retained when a later family
+fails. Scheduled retention is started immediately only when the independent
+raw-retention domain reports `raw_retention_ready=true`; a derived-product
+delay cannot block an otherwise current, strict dual-archive raw proof. The
+trigger exits successfully and pruning remains paused for any raw-domain gap,
+stale proof, or incomplete confirmation.
 An outer graceful GNU `timeout` enforces each wall-clock budget because the
 deployed legacy rclone can stop transfers yet continue scanning after its own
 `--max-duration` deadline.
@@ -292,10 +299,12 @@ verification, and permission to prune:
 - **green** means no settled gap is proven, delivery is under 30 minutes old,
   and certified raw evidence is current. A routine audit or second retention
   confirmation is visible status, not an alert;
-- **amber** means delivery is 30--120 minutes behind or certified evidence is
-  overdue while no settled gap is proven;
+- **amber** means delivery is 30--120 minutes behind, a verifier login or
+  listing failed, or certified evidence is overdue while no settled gap is
+  proven; pruning remains paused when raw evidence is not current;
 - **red** means a settled file is missing or mismatched, delivery is stalled
-  for two hours, or certified evidence has been unavailable for 24 hours.
+  for two hours, or there is no previously clean certified baseline. Evidence
+  age alone is not evidence of archive loss.
 
 Raw retention and derived-product durability have independent gate state. A
 settled product gap remains a red product-archive problem, but cannot reset a
@@ -341,7 +350,7 @@ The status terms have precise meanings:
 | previous report clean, verification delayed | Current proof is unavailable but there is no measured gap | Amber; pruning is paused until a complete audit succeeds |
 | inventory heartbeat older than five minutes while running | Verifier is stalled | Investigate the inventory service and its current shard |
 | `clean=true`, streak `1` | One clean report; this may be a bounded exact-repair recheck | Not yet stable parity |
-| `stable_parity=true` | Two distinct clean reports, with at least one complete full audit in the streak | Global object-store stability gate is satisfied |
+| `stable_parity=true` | Two distinct clean observations, with at least one complete audit of every family in that gate domain | That object-store gate domain is satisfied |
 | stream `prune_ready=true` | That raw stream has exact age-bounded GWS/cloud candidates | Necessary but not sufficient for deletion |
 
 The `health-v1` producer is the only code allowed to turn archive evidence into
@@ -408,24 +417,25 @@ cat /data/aurora/internal/archive_dispatch/status.json
    sudo systemctl start aurora-object-store-inventory-incremental@model-evaluation.service
    ```
 
-   The resulting report is still complete: it freshly inventories the named
-   family and inherits the just-published evidence for unaffected families.
-   It records the base report timestamp and SHA-256, is limited to a
-   four-hour-old base and two incremental generations, and uses the same
-   atomic publication and GWS/object comparisons as a full run. The global
+   The resulting report is complete for the named family and inherits the
+   just-published evidence and original proof timestamps for unaffected
+   families. It records the base report timestamp and SHA-256 and uses the same
+   atomic publication and GWS/object comparisons as a full run. An old or deep
+   merge chain cannot promote stale evidence: the gate evaluates each family's
+   own `verified_at` timestamp. This lets a strict raw audit recover after an
+   unrelated product failure without weakening the product gate. The global
    inventory lock prevents a full and incremental run from publishing at the
-   same time. The verification gate accepts it only when every family that
-   failed in the base report was refreshed. An incremental clean report can
-   establish the first clean result after repair, but it cannot establish
-   stable parity without a subsequent clean full audit.
+   same time.
 5. Run a fresh full inventory. A report is clean only when every settled job has
    zero gaps and mismatches against both GWS and object storage and all
    retention-age raw GWS counters are zero. Pending product uploads do not
    count as gaps. If step 4 produced a clean incremental report, this full
-   report is the independent confirmation; otherwise it establishes clean
-   streak one and another full run is required. Stable parity always requires
-   two distinct clean reports and at least one full clean audit in the current
-   streak.
+   report is an independent confirmation. Stable parity always requires two
+   distinct clean observations and at least one complete audit of every family
+   in the relevant domain. The raw-retention domain additionally requires a
+   current canonical GWS verifier summary with zero retention-age gaps or
+   mismatches; derived-product staleness cannot satisfy or invalidate that raw
+   proof.
 7. Confirm `health-v1.json` is green and review both cloud and edge audit logs
    before any dry-run retention canary.
 

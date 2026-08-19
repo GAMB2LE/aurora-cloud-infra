@@ -76,6 +76,16 @@ def verification_settle_age(job: dict) -> str:
     )
 
 
+def credential_path(config: dict, key: str, credential_name: str) -> str:
+    """Prefer a systemd credential over a path inside a private runtime dir."""
+    credential_directory = os.environ.get("CREDENTIALS_DIRECTORY")
+    if credential_directory:
+        credential = Path(credential_directory, credential_name)
+        if credential.is_file():
+            return str(credential)
+    return str(config.get(key, ""))
+
+
 def excluded(path: str, patterns: list[str]) -> bool:
     value = path.lstrip("/")
     for pattern in patterns:
@@ -477,7 +487,7 @@ def gws_inventory(config: dict, job: dict) -> dict[str, dict]:
     ssh_base = [
         "ssh",
         "-i",
-        config["gws_key"],
+        credential_path(config, "gws_key", "gws-key"),
         "-o",
         "BatchMode=yes",
         "-o",
@@ -493,7 +503,11 @@ def gws_inventory(config: dict, job: dict) -> dict[str, dict]:
         "-o",
         "StrictHostKeyChecking=accept-new",
     ]
-    known_hosts = config.get("gws_known_hosts")
+    known_hosts = credential_path(
+        config,
+        "gws_known_hosts",
+        "gws-known-hosts",
+    )
     if known_hosts:
         ssh_base.extend(["-o", f"UserKnownHostsFile={known_hosts}"])
     failures: list[str] = []
@@ -714,6 +728,12 @@ def inventory_job(
             if gws_source or gws
             else None
         ),
+        # A partial report may reuse other families, so every family carries
+        # its own proof timestamp.  This is the completion time of a complete
+        # source/GWS/object-store inventory for this family, not the age of the
+        # report used as a merge base.
+        "verified_at": utc_now(),
+        "verification_scope": "full_family",
     }
 
 
@@ -722,7 +742,14 @@ def load_incremental_base(
     config: dict,
     selected_names: set[str],
 ) -> tuple[dict, str]:
-    """Load a recent complete report that can safely back an incremental run."""
+    """Load a structurally complete report as a merge base.
+
+    Age and chain depth do not make a merge unsafe: reused families retain
+    their own old ``verified_at`` timestamps and the verification gate keeps
+    those domains stale.  Rejecting an old base here previously prevented a
+    complete raw-family recheck from refreshing strict retention evidence
+    after an unrelated product audit failed.
+    """
     report_path = root / "latest" / "comparison.json"
     raw = report_path.read_bytes()
     report = json.loads(raw)
@@ -735,25 +762,94 @@ def load_incremental_base(
         )
     if not selected_names:
         raise RuntimeError("incremental inventory requires at least one --job")
-    generated_at = dt.datetime.fromisoformat(
-        report["generated_at"].replace("Z", "+00:00")
+    legacy_verified_at = report.get(
+        "evidence_floor_generated_at",
+        report["generated_at"],
     )
-    age_hours = (
-        dt.datetime.now(dt.timezone.utc) - generated_at
-    ).total_seconds() / 3600
-    maximum_age = float(config.get("incremental_base_max_age_hours", 4))
-    if age_hours > maximum_age:
-        raise RuntimeError(
-            f"latest report is too old for incremental reuse: {age_hours:.2f}h "
-            f"> {maximum_age:.2f}h"
+    for values in report["jobs"].values():
+        values.setdefault("verified_at", legacy_verified_at)
+        values.setdefault("verification_scope", "full_family")
+    return report, hashlib.sha256(raw).hexdigest()
+
+
+def write_report_files(stage: Path, report: dict, config: dict) -> None:
+    (stage / "comparison.json").write_text(
+        json.dumps(report, indent=2) + "\n", encoding="utf-8"
+    )
+    (stage / "comparison.md").write_text(
+        render_markdown(report), encoding="utf-8"
+    )
+    (stage / "catalog.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "generated_at": report["generated_at"],
+                "streams": config["streams"],
+            },
+            indent=2,
         )
-    depth = int(report.get("incremental_depth", 0))
-    maximum_depth = int(config.get("incremental_max_depth", 2))
-    if depth >= maximum_depth:
-        raise RuntimeError(
-            f"incremental evidence depth {depth} reached the configured "
-            f"limit {maximum_depth}; run a full inventory"
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def publish_job_checkpoint(
+    *,
+    root: Path,
+    stage: Path,
+    config: dict,
+    base_report: dict,
+    base_report_sha256: str,
+    name: str,
+    values: dict,
+    verified_jobs: set[str] | None = None,
+) -> tuple[dict, str]:
+    """Publish one successful family without certifying unfinished families."""
+    generated_at = utc_now()
+    report = json.loads(json.dumps(base_report))
+    report["jobs"][name] = values
+    evidence_times = [
+        item.get(
+            "verified_at",
+            report.get("evidence_floor_generated_at", report["generated_at"]),
         )
+        for item in report["jobs"].values()
+    ]
+    report.update(
+        {
+            "schema_version": 5,
+            "generated_at": generated_at,
+            "verification_mode": "incremental",
+            "verified_jobs": sorted(verified_jobs or {name}),
+            "base_generated_at": base_report["generated_at"],
+            "base_report_sha256": base_report_sha256,
+            # Retained for older readers.  Policy v5 evaluates the per-family
+            # timestamps instead of applying this oldest timestamp globally.
+            "evidence_floor_generated_at": min(
+                evidence_times,
+                key=lambda value: dt.datetime.fromisoformat(
+                    value.replace("Z", "+00:00")
+                ),
+            ),
+            "incremental_depth": int(base_report.get("incremental_depth", 0))
+            + 1,
+        }
+    )
+    with tempfile.TemporaryDirectory(
+        prefix=".inventory-checkpoint-", dir=root
+    ) as temporary:
+        checkpoint = Path(temporary)
+        shutil.copytree(root / "latest", checkpoint, dirs_exist_ok=True)
+        for source in stage.glob(f"{name}-*.tsv"):
+            shutil.copy2(source, checkpoint / source.name)
+        write_report_files(checkpoint, report, config)
+        publish(
+            root,
+            checkpoint,
+            generated_at,
+            int(config.get("history_keep", 12)),
+        )
+    raw = (root / "latest" / "comparison.json").read_bytes()
     return report, hashlib.sha256(raw).hexdigest()
 
 
@@ -796,6 +892,38 @@ def main() -> int:
             config,
             selected_names,
         )
+    checkpoint_report: dict | None = None
+    checkpoint_report_sha256 = ""
+    checkpoint_verified_jobs: set[str] = set()
+    if base_report is not None and len(selected_jobs) > 1:
+        # Multi-family incremental rechecks are resumable too.  A failed later
+        # family must not discard an earlier complete family verification.
+        checkpoint_report = json.loads(json.dumps(base_report))
+        checkpoint_report_sha256 = base_report_sha256
+    elif base_report is None and (root / "latest" / "comparison.json").exists():
+        # A full audit still produces a genuinely full report only after every
+        # family succeeds.  This merge base is used solely to checkpoint each
+        # successful family as an explicitly incremental report while the
+        # remaining families continue.
+        try:
+            checkpoint_report, checkpoint_report_sha256 = load_incremental_base(
+                root,
+                config,
+                selected_names,
+            )
+        except (
+            OSError,
+            KeyError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ):
+            # Checkpointing is an optimisation.  A missing or legacy-incomplete
+            # latest report must not prevent a full audit from rebuilding the
+            # canonical report from scratch.
+            checkpoint_report = None
+            checkpoint_report_sha256 = ""
     lister = S3Lister(config)
     progress = {
         "schema_version": 2,
@@ -881,7 +1009,7 @@ def main() -> int:
                 )
                 report.update(
                     {
-                        "schema_version": 4,
+                        "schema_version": 5,
                         "generated_at": generated_at,
                         "verification_mode": "incremental",
                         "verified_jobs": sorted(selected_names),
@@ -896,7 +1024,7 @@ def main() -> int:
                 )
             else:
                 report = {
-                    "schema_version": 4,
+                    "schema_version": 5,
                     "generated_at": generated_at,
                     "verification_mode": "full",
                     "verified_jobs": [job["name"] for job in config["jobs"]],
@@ -943,12 +1071,28 @@ def main() -> int:
                     job = futures[future]
                     name = job["name"]
                     try:
-                        report["jobs"][name] = future.result()
+                        values = future.result()
+                        report["jobs"][name] = values
                     except Exception as error:
                         detail = f"{type(error).__name__}: {error}"
                         failures.append(f"{name}: {detail}")
                         update_job(name, "failed", state="failed", error=detail)
                     else:
+                        if checkpoint_report is not None:
+                            checkpoint_verified_jobs.add(name)
+                            (
+                                checkpoint_report,
+                                checkpoint_report_sha256,
+                            ) = publish_job_checkpoint(
+                                root=root,
+                                stage=stage,
+                                config=config,
+                                base_report=checkpoint_report,
+                                base_report_sha256=checkpoint_report_sha256,
+                                name=name,
+                                values=values,
+                                verified_jobs=checkpoint_verified_jobs,
+                            )
                         update_job(name, "complete", state="complete")
             if failures:
                 raise RuntimeError("; ".join(failures))
@@ -956,24 +1100,17 @@ def main() -> int:
                 job["name"]: report["jobs"][job["name"]]
                 for job in config["jobs"]
             }
-            (stage / "comparison.json").write_text(
-                json.dumps(report, indent=2) + "\n", encoding="utf-8"
+            report["generated_at"] = utc_now()
+            report["evidence_floor_generated_at"] = min(
+                (
+                    values.get("verified_at", report["generated_at"])
+                    for values in report["jobs"].values()
+                ),
+                key=lambda value: dt.datetime.fromisoformat(
+                    value.replace("Z", "+00:00")
+                ),
             )
-            (stage / "comparison.md").write_text(
-                render_markdown(report), encoding="utf-8"
-            )
-            (stage / "catalog.json").write_text(
-                json.dumps(
-                    {
-                        "schema_version": 2,
-                        "generated_at": generated_at,
-                        "streams": config["streams"],
-                    },
-                    indent=2,
-                )
-                + "\n",
-                encoding="utf-8",
-            )
+            write_report_files(stage, report, config)
             update_progress(
                 state="publishing",
                 current_job=None,
@@ -982,7 +1119,7 @@ def main() -> int:
             publish(
                 root,
                 stage,
-                generated_at,
+                report["generated_at"],
                 int(config.get("history_keep", 12)),
             )
 
