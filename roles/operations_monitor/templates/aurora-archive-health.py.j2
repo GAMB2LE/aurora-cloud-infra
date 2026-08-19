@@ -306,12 +306,39 @@ def operator_status(
             "pruning_paused": pruning_paused,
         }
     if raw_evidence_age is not None and raw_evidence_age > 24:
+        completed_count = len(completed)
+        completion = (
+            f" after {completed_count} of {total} archive families completed"
+            if completed_count and total
+            else ""
+        )
+        if progress.get("state") == "failed":
+            error = str(progress.get("error") or "").lower()
+            if "permission denied" in error and "xfer-vm" in error:
+                reason = (
+                    "The latest strict audit could not finish because JASMIN "
+                    f"rejected the verifier login{completion}."
+                )
+            elif "504" in error or "timed out" in error or "timeout" in error:
+                reason = (
+                    "The latest strict audit could not finish because a JASMIN "
+                    f"archive listing timed out{completion}."
+                )
+            else:
+                reason = f"The latest strict audit did not finish{completion}."
+            title = "Archive verification is delayed"
+        else:
+            reason = (
+                f"The last certified raw parity evidence is {raw_evidence_age:.1f} hours old."
+            )
+            title = "Archive verification is overdue"
         return {
-            "level": "red",
-            "title": "Archive safety evidence is unavailable",
+            "level": "amber",
+            "title": title,
             "detail": (
-                f"The last certified raw parity evidence is {raw_evidence_age:.1f} hours old. "
-                "Delivery can continue, but pruning stays paused until verification succeeds."
+                f"{reason} Live delivery is continuing and no settled archive gap is "
+                "currently measured. Pruning stays paused until a fresh raw "
+                "verification succeeds."
             ),
             "pruning_paused": True,
         }

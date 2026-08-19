@@ -85,6 +85,43 @@ class ArchiveHealthPresentationTests(unittest.TestCase):
         self.assertIn("last certified raw parity check is clean", result["detail"])
         self.assertTrue(result["pruning_paused"])
 
+    def test_stale_clean_evidence_with_healthy_delivery_is_amber(self):
+        last_clean_at = (
+            dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=49)
+        ).isoformat()
+        result = operator_status(
+            ["archive_service_unhealthy=aurora-object-store-inventory.service"],
+            self.base_metrics(),
+            {
+                "clean": False,
+                "stable_parity": False,
+                "raw_retention_ready": False,
+                "domains": {
+                    "raw_retention": {
+                        "clean": False,
+                        "stable_parity": False,
+                        "last_clean_at": last_clean_at,
+                    }
+                },
+            },
+            {
+                "state": "failed",
+                "completed_jobs": ["raw", "products"],
+                "total_jobs": 5,
+                "error": (
+                    "all GWS inventory hosts failed: rrniii@"
+                    "xfer-vm-03.jasmin.ac.uk: Permission denied (publickey)"
+                ),
+            },
+        )
+
+        self.assertEqual(result["level"], "amber")
+        self.assertEqual(result["title"], "Archive verification is delayed")
+        self.assertIn("rejected the verifier login", result["detail"])
+        self.assertIn("2 of 5 archive families", result["detail"])
+        self.assertIn("no settled archive gap", result["detail"])
+        self.assertTrue(result["pruning_paused"])
+
 
 if __name__ == "__main__":
     unittest.main()

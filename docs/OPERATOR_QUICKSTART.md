@@ -80,7 +80,7 @@ Interpret the result before escalating:
 | inventory running with heartbeat under five minutes old | Slow but progressing verification. |
 | running with heartbeat over five minutes old | Stalled verifier. |
 | clean streak `1` | First clean report; stable parity still needs a second distinct report. An exact-repair incremental recheck may supply this first result. |
-| `stable_parity=true` | Two distinct clean reports are present and at least one is a complete full audit; the global archive stability gate is satisfied. |
+| `stable_parity=true` | Two distinct clean observations are present and at least one completely verifies every family in that gate domain. |
 | `prune_ready=true` | One raw stream has exact age-bounded candidates; this alone is not deletion permission. |
 
 Do not start pruning, edit manifests, or clear an alert manually. Writers and

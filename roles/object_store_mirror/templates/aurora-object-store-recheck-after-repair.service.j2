@@ -10,13 +10,11 @@ Type=oneshot
 User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
 Environment=XDG_CACHE_HOME={{ object_store_cache_root }}
-RuntimeDirectory={{ object_store_inventory_gws_runtime_dir | basename }}
-RuntimeDirectoryMode=0700
-BindReadOnlyPaths={{ gws_ssh_private_key }}:{{ object_store_inventory_gws_runtime_dir }}/key
-BindReadOnlyPaths=/home/{{ aurora_service_user }}/.ssh/known_hosts:{{ object_store_inventory_gws_runtime_dir }}/known_hosts
+LoadCredential=gws-key:{{ gws_ssh_private_key }}
+LoadCredential=gws-known-hosts:/home/{{ aurora_service_user }}/.ssh/known_hosts
 ExecStart=/usr/local/bin/aurora-object-store-recheck-after-repair --repair-result {{ object_store_repair_state_root }}/result.json --report {{ object_store_manifest_root }}/latest/comparison.json --attempts {{ object_store_post_repair_recheck_attempts }} --retry-delay-seconds {{ object_store_post_repair_recheck_retry_delay_seconds }} --confirmations 2 --confirmation-delay-seconds 600 --state {{ object_store_repair_state_root }}/recheck-state.json
-ExecStartPost=+/usr/local/sbin/aurora-object-store-verification-gate
-ExecStartPost=+/usr/local/sbin/aurora-object-store-trigger-retention
+ExecStopPost=+/usr/local/sbin/aurora-object-store-verification-gate
+ExecStopPost=+/usr/local/sbin/aurora-object-store-trigger-retention
 TimeoutStartSec=4h
 Nice=10
 NoNewPrivileges=true

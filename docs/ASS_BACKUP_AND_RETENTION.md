@@ -60,9 +60,10 @@ GWS raw archive     object-store raw archive
   the whole run without deleting a file.
 
 `prune_ready=true` on one stream is not permission by itself. It means the GWS
-verifier has exact candidates for that stream. The global object-store gate,
-fresh immutable report identities, signed permit, and edge rechecks must still
-pass in the same run.
+verifier has exact candidates for that stream. The independent raw-retention
+object-store gate, fresh immutable report identities, signed permit, and edge
+rechecks must still pass in the same run. A derived-product warning remains
+visible but does not block deletion of exactly dual-verified raw files.
 
 ## Services
 
