@@ -1,0 +1,6 @@
+---
+- name: Deploy Aurora public proxy configuration
+  hosts: aurora_cloud
+  become: true
+  roles:
+    - nginx

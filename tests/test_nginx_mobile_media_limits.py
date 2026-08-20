@@ -18,7 +18,7 @@ class NginxMobileMediaLimitTests(unittest.TestCase):
         media_block = site[media_location:api_location]
 
         self.assertIn("limit_req zone=aurora_mobile_thumbnails burst=60 nodelay;", media_block)
-        self.assertIn("limit_conn aurora_per_ip 8;", media_block)
+        self.assertIn("limit_conn aurora_per_ip 32;", media_block)
         self.assertIn(
             "proxy_pass http://{{ aurora_mobile_api_host }}:{{ aurora_mobile_api_port }}/media/wxcam/thumb/;",
             media_block,
