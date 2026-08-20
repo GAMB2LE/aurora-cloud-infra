@@ -42,7 +42,10 @@ server {
     location ^~ /mobile/v1/media/wxcam/thumb/ {
 {% if aurora_nginx_rate_limits | default(false) | bool %}
         limit_req zone=aurora_mobile_thumbnails burst=60 nodelay;
-        limit_conn aurora_per_ip 8;
+        # The iOS grid may schedule all 24 tiles together over HTTP/2, where
+        # nginx counts concurrent streams individually. Keep this above one
+        # complete grid while the request-rate budget remains the outer bound.
+        limit_conn aurora_per_ip 32;
 {% endif %}
         proxy_pass http://{{ aurora_mobile_api_host }}:{{ aurora_mobile_api_port }}/media/wxcam/thumb/;
         proxy_http_version 1.1;
