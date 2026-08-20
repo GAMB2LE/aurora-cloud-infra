@@ -542,6 +542,8 @@
     group: root
     mode: "0755"
   when: power_source_sync_enabled | bool
+  tags:
+    - power_source_sync
 
 - name: Install power source sync systemd units
   ansible.builtin.template:
@@ -554,6 +556,8 @@
     - aurora-power-source-sync.service
     - aurora-power-source-sync.timer
   when: power_source_sync_enabled | bool
+  tags:
+    - power_source_sync
 
 - name: Enable power source sync timer
   ansible.builtin.systemd:
@@ -565,6 +569,8 @@
     - power_source_sync_enabled | bool
     - power_source_sync_timer_enabled | bool
     - not ansible_check_mode
+  tags:
+    - power_source_sync
 
 - name: Disable power source sync timer when requested
   ansible.builtin.systemd:
@@ -575,6 +581,8 @@
   when:
     - not power_source_sync_enabled | bool or not power_source_sync_timer_enabled | bool
     - not ansible_check_mode
+  tags:
+    - power_source_sync
 
 - name: Install PDU source sync script
   ansible.builtin.template:
