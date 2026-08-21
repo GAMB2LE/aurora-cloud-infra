@@ -12,6 +12,9 @@ ssh_key={{ power_source_ssh_key_path | quote }}
 start_fresh={{ '1' if power_source_start_fresh | bool else '0' }}
 lookback_days={{ power_source_lookback_days | int }}
 mtime_grace_seconds={{ power_source_mtime_grace_seconds | int }}
+connect_timeout_seconds={{ power_source_connect_timeout_seconds | int }}
+server_alive_interval_seconds={{ power_source_server_alive_interval_seconds | int }}
+server_alive_count_max={{ power_source_server_alive_count_max | int }}
 known_hosts=/home/{{ aurora_service_user }}/.ssh/known_hosts
 
 mkdir -p "$destination" "$(dirname "$state_file")" "$(dirname "$known_hosts")"
@@ -45,10 +48,14 @@ if [[ "$source_auth" == "ssh_key" ]]; then
     -i "$ssh_key"
     -o BatchMode=yes
     -o IdentitiesOnly=yes
+    -o ConnectionAttempts=1
+    -o ConnectTimeout="$connect_timeout_seconds"
+    -o ServerAliveInterval="$server_alive_interval_seconds"
+    -o ServerAliveCountMax="$server_alive_count_max"
     -o StrictHostKeyChecking=accept-new
     -o UserKnownHostsFile="$known_hosts"
   )
-  rsync_ssh="ssh -p $source_port -i $ssh_key -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$known_hosts"
+  rsync_ssh="ssh -p $source_port -i $ssh_key -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectionAttempts=1 -o ConnectTimeout=$connect_timeout_seconds -o ServerAliveInterval=$server_alive_interval_seconds -o ServerAliveCountMax=$server_alive_count_max -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$known_hosts"
 else
   ssh_opts=(
     -p "$source_port"
@@ -56,10 +63,14 @@ else
     -o IdentitiesOnly=yes
     -o IdentityFile=none
     -o PubkeyAuthentication=no
+    -o ConnectionAttempts=1
+    -o ConnectTimeout="$connect_timeout_seconds"
+    -o ServerAliveInterval="$server_alive_interval_seconds"
+    -o ServerAliveCountMax="$server_alive_count_max"
     -o StrictHostKeyChecking=accept-new
     -o UserKnownHostsFile="$known_hosts"
   )
-  rsync_ssh="ssh -p $source_port -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityFile=none -o PubkeyAuthentication=no -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$known_hosts"
+  rsync_ssh="ssh -p $source_port -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityFile=none -o PubkeyAuthentication=no -o ConnectionAttempts=1 -o ConnectTimeout=$connect_timeout_seconds -o ServerAliveInterval=$server_alive_interval_seconds -o ServerAliveCountMax=$server_alive_count_max -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$known_hosts"
 fi
 
 ssh "${ssh_opts[@]}" "${source_user}@${source_host}" bash -s -- "$source_path" "$scan_epoch" "$mtime_grace_seconds" > "$files_from" <<'REMOTE_FIND'

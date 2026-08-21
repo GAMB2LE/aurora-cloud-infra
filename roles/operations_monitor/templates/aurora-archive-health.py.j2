@@ -150,6 +150,30 @@ def operator_status(
     progress: dict,
 ) -> dict[str, object]:
     """Translate the fail-closed pruning gate into actionable operations state."""
+    def metric_count(key: str) -> int:
+        try:
+            return max(0, int(float(metrics.get(key, 0))))
+        except (TypeError, ValueError):
+            return 0
+
+    def age_hours(value: object) -> float | None:
+        import datetime as _dt
+
+        if not isinstance(value, str) or not value:
+            return None
+        try:
+            stamp = _dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return (
+            _dt.datetime.now(_dt.timezone.utc) - stamp
+        ).total_seconds() / 3600
+
+    object_missing = metric_count("object_store_all_missing_count")
+    object_mismatch = metric_count("object_store_all_mismatch_count")
+    gws_missing = metric_count("gws_all_missing_count")
+    gws_mismatch = metric_count("gws_all_mismatch_count")
+    stream_gws_issues = metric_count("streams_gws_issue_count")
     measured_gap_free = all(
         float(metrics.get(key, -1)) == 0
         for key in (
@@ -162,6 +186,37 @@ def operator_status(
     )
     last_complete_clean = bool(gate.get("clean")) and bool(
         gate.get("stable_parity")
+    )
+    latest_complete_clean = bool(gate.get("clean"))
+    domains = gate.get("domains")
+    if not isinstance(domains, dict):
+        domains = {}
+    raw_gate = domains.get("raw_retention")
+    if not isinstance(raw_gate, dict):
+        raw_gate = gate
+    raw_ready = bool(
+        gate.get("raw_retention_ready", raw_gate.get("stable_parity", False))
+    )
+    raw_clean = bool(raw_gate.get("clean"))
+    raw_evidence_at = raw_gate.get("last_clean_at") or (
+        gate.get("last_generated_at") if raw_clean else None
+    )
+    raw_evidence_age = age_hours(raw_evidence_at)
+    delivery_oldest = float(
+        metrics.get("archive_delivery_oldest_pending_age_minutes", 0) or 0
+    )
+    delivery_success_age = metrics.get(
+        "archive_delivery_last_success_age_minutes"
+    )
+    try:
+        delivery_success_age = float(delivery_success_age)
+    except (TypeError, ValueError):
+        delivery_success_age = None
+    delivery_red = delivery_oldest >= 120 or (
+        delivery_success_age is not None and delivery_success_age >= 120
+    )
+    delivery_amber = delivery_oldest >= 30 or (
+        delivery_success_age is not None and delivery_success_age >= 30
     )
     verification_only = bool(failures) and all(
         item.startswith("object_store_evidence_stale_hours=")
@@ -182,12 +237,122 @@ def operator_status(
         current = str(progress.get("current_job") or "archive families").replace("-", " ")
     phase = str(progress.get("phase") or "verification").replace("_", " ")
 
-    if not failures:
+    pruning_paused = not raw_ready
+    if not measured_gap_free:
+        details: list[str] = []
+        if object_missing:
+            noun = "file" if object_missing == 1 else "files"
+            details.append(
+                f"The last complete strict audit found {object_missing:,} settled {noun} "
+                "missing from JASMIN object storage."
+            )
+        if object_mismatch:
+            noun = "file" if object_mismatch == 1 else "files"
+            details.append(
+                f"It also found {object_mismatch:,} object-store {noun} with a size mismatch."
+            )
+        if gws_missing or gws_mismatch or stream_gws_issues:
+            gws_parts = []
+            if gws_missing:
+                gws_parts.append(f"{gws_missing:,} missing")
+            if gws_mismatch:
+                gws_parts.append(f"{gws_mismatch:,} size mismatched")
+            if stream_gws_issues:
+                gws_parts.append(f"{stream_gws_issues:,} retention-stream issues")
+            details.append(f"GWS verification reports {', '.join(gws_parts)}.")
+        elif object_missing or object_mismatch:
+            details.append("The retention-age GWS copy is complete.")
+        if progress.get("state") in {"running", "publishing"}:
+            details.append("A strict recheck is running now.")
+        else:
+            details.append("Exact-path repair and a strict recheck are required.")
+        if pruning_paused:
+            details.append("Affected edge pruning remains paused until raw archives verify cleanly.")
+        else:
+            details.append("Raw retention evidence remains independently clean.")
+        return {
+            "level": "red",
+            "title": "Archive copies are incomplete",
+            "detail": " ".join(details),
+            "pruning_paused": pruning_paused,
+        }
+    if delivery_red:
+        return {
+            "level": "red",
+            "title": "Archive delivery is stalled",
+            "detail": (
+                f"The oldest dual-destination delivery has waited {delivery_oldest:.0f} minutes. "
+                "Copy writers need attention; pruning is paused for uncertified files."
+            ),
+            "pruning_paused": True,
+        }
+    if raw_clean and raw_evidence_age is not None and raw_evidence_age <= 8 and not delivery_amber:
+        if progress.get("state") in {"running", "publishing"}:
+            verification_detail = " A routine strict audit is running in the background."
+        elif progress.get("state") == "failed":
+            verification_detail = " The latest listing attempt failed, but certified evidence remains current."
+        elif not raw_ready:
+            verification_detail = " A second retention confirmation is pending."
+        else:
+            verification_detail = ""
         return {
             "level": "green",
-            "title": "Archive delivery and verification are healthy",
-            "detail": "Newest files are being delivered to GWS and object storage; the latest strict audit is clean.",
-            "pruning_paused": False,
+            "title": "Archive copies are healthy",
+            "detail": (
+                "Newest files are being delivered to GWS and object storage; "
+                "the last certified raw parity check is clean."
+                + verification_detail
+            ),
+            "pruning_paused": pruning_paused,
+        }
+    if raw_evidence_age is not None and raw_evidence_age > 24:
+        completed_count = len(completed)
+        completion = (
+            f" after {completed_count} of {total} archive families completed"
+            if completed_count and total
+            else ""
+        )
+        if progress.get("state") == "failed":
+            error = str(progress.get("error") or "").lower()
+            if "permission denied" in error and "xfer-vm" in error:
+                reason = (
+                    "The latest strict audit could not finish because JASMIN "
+                    f"rejected the verifier login{completion}."
+                )
+            elif "504" in error or "timed out" in error or "timeout" in error:
+                reason = (
+                    "The latest strict audit could not finish because a JASMIN "
+                    f"archive listing timed out{completion}."
+                )
+            else:
+                reason = f"The latest strict audit did not finish{completion}."
+            title = "Archive verification is delayed"
+        else:
+            reason = (
+                f"The last certified raw parity evidence is {raw_evidence_age:.1f} hours old."
+            )
+            title = "Archive verification is overdue"
+        return {
+            "level": "amber",
+            "title": title,
+            "detail": (
+                f"{reason} Live delivery is continuing and no settled archive gap is "
+                "currently measured. Pruning stays paused until a fresh raw "
+                "verification succeeds."
+            ),
+            "pruning_paused": True,
+        }
+    if delivery_amber or (raw_evidence_age is not None and raw_evidence_age > 8):
+        reasons = []
+        if delivery_amber:
+            reasons.append(f"oldest pending delivery is {delivery_oldest:.0f} minutes")
+        if raw_evidence_age is not None and raw_evidence_age > 8:
+            reasons.append(f"certified raw evidence is {raw_evidence_age:.1f} hours old")
+        return {
+            "level": "amber",
+            "title": "Archive verification needs attention",
+            "detail": "; ".join(reasons).capitalize() + ". No settled copy gap is currently proven.",
+            "pruning_paused": pruning_paused,
         }
     if measured_gap_free and last_complete_clean and verification_only:
         if progress.get("state") in {"running", "publishing"}:
@@ -226,8 +391,11 @@ def operator_status(
         }
     return {
         "level": "red",
-        "title": "Archive delivery or verification needs action",
-        "detail": "; ".join(failures) or "No failure detail was supplied.",
+        "title": "Archive service or verification needs attention",
+        "detail": (
+            "Archive verification is not currently sufficient to prove both copies are complete. "
+            "Delivery continues where possible, but edge pruning is paused. Review archive service health."
+        ),
         "pruning_paused": True,
     }
 
@@ -252,6 +420,7 @@ def main() -> int:
         failures.append(f"object_store_evidence_stale_hours={object_age:.2f}")
     issues = 0
     prune_ready = 0
+    retention_streams = []
     for stream in STREAMS:
         name = stream["name"]
         state = gws.get("streams", {}).get(name, {})
@@ -270,6 +439,15 @@ def main() -> int:
         metrics[f"{prefix}_gws_coverage_pct"] = coverage
         metrics[f"{prefix}_prune_ready_state"] = int(
             bool(state.get("prune_ready")) and bool(stream.get("prune_enabled"))
+        )
+        retention_streams.append(
+            {
+                "id": name,
+                "enabled": bool(stream.get("prune_enabled")),
+                "ready": bool(metrics[f"{prefix}_prune_ready_state"]),
+                "gws_missing": retention_missing,
+                "gws_mismatch": retention_mismatch,
+            }
         )
         # Fresh in-flight gaps remain observable above but do not make
         # seven-day retention unsafe.  The retention verifier supplies the
@@ -339,13 +517,21 @@ def main() -> int:
         *ARCHIVE_TRIGGERS,
         "aurora-ass-retention.timer",
     ]
+    incremental_units = []
+    if inventory_progress.get("verification_mode") == "incremental":
+        verified_jobs = inventory_progress.get("verified_jobs")
+        if isinstance(verified_jobs, list):
+            incremental_units = [
+                f"aurora-object-store-inventory-incremental@{job}.service"
+                for job in verified_jobs
+            ]
     source_sync_units = []
     for stream in STREAMS:
         for _stem, unit_stem, _primary in source_sync_pairs(stream):
             source_sync_units.extend(
                 [f"{unit_stem}.timer", f"{unit_stem}.service"]
             )
-    for name in [*archive_units, *source_sync_units]:
+    for name in [*archive_units, *incremental_units, *source_sync_units]:
         services[name] = unit(name)
     metrics["mirror_verify_service_healthy_state"] = int(
         services["aurora-mirror-verify.service"].get("Result") == "success"
@@ -364,9 +550,15 @@ def main() -> int:
     metrics["ass_retention_enabled_state"] = int(
         services["aurora-ass-retention.timer"].get("UnitFileState") == "enabled"
     )
+    inventory_units = [
+        "aurora-object-store-inventory.service",
+        *incremental_units,
+    ]
     metrics["object_store_inventory_running_state"] = int(
-        services["aurora-object-store-inventory.service"].get("ActiveState")
-        == "activating"
+        any(
+            services[name].get("ActiveState") == "activating"
+            for name in inventory_units
+        )
     )
     progress_age_hours = evidence_age_hours(inventory_progress.get("updated_at"))
     progress_age_minutes = (
@@ -481,14 +673,96 @@ def main() -> int:
     metrics["archive_pruning_paused_state"] = int(
         bool(presentation["pruning_paused"])
     )
+    domains = gate.get("domains")
+    if not isinstance(domains, dict):
+        domains = {}
+    raw_domain = domains.get("raw_retention")
+    if not isinstance(raw_domain, dict):
+        raw_domain = gate
+    product_domain = domains.get("products")
+    if not isinstance(product_domain, dict):
+        product_domain = gate
+    oldest_pending = float(
+        metrics.get("archive_delivery_oldest_pending_age_minutes", 0) or 0
+    )
+    last_delivery_success = metrics.get(
+        "archive_delivery_last_success_age_minutes"
+    )
+    delivery_level = (
+        "red"
+        if oldest_pending >= 120
+        or (
+            isinstance(last_delivery_success, (int, float))
+            and last_delivery_success >= 120
+        )
+        else "amber"
+        if oldest_pending >= 30
+        or (
+            isinstance(last_delivery_success, (int, float))
+            and last_delivery_success >= 30
+        )
+        else "green"
+    )
+    verification_state = str(inventory_progress.get("state") or "unknown")
     payload = {
-        "schema_version": "health-v1",
+        "schema_version": "health-v2",
+        "contract_version": 2,
         "generated_at": now(),
         "overall_level": presentation["level"],
         "failures": failures,
         "operator_status": presentation,
         "metrics": metrics,
         "services": services,
+        "delivery": {
+            "level": delivery_level,
+            "mode": "newest-first",
+            "pending_files": metrics.get("archive_delivery_pending_count", 0),
+            "pending_bytes": metrics.get("archive_delivery_pending_bytes", 0),
+            "gws_pending_files": metrics.get(
+                "archive_delivery_gws_pending_count", 0
+            ),
+            "object_store_pending_files": metrics.get(
+                "archive_delivery_object_store_pending_count", 0
+            ),
+            "oldest_pending_age_minutes": oldest_pending,
+            "last_success_age_minutes": last_delivery_success,
+        },
+        "durability": {
+            "raw_retention": raw_domain,
+            "products": product_domain,
+            "gws_missing": metrics.get("gws_all_missing_count", 0),
+            "gws_mismatch": metrics.get("gws_all_mismatch_count", 0),
+            "object_store_missing": metrics.get(
+                "object_store_all_missing_count", 0
+            ),
+            "object_store_mismatch": metrics.get(
+                "object_store_all_mismatch_count", 0
+            ),
+        },
+        "verification": {
+            "state": verification_state,
+            "mode": inventory_progress.get("verification_mode"),
+            "completed_jobs": inventory_progress.get("completed_jobs", []),
+            "total_jobs": int(inventory_progress.get("total_jobs") or 0),
+            "current_jobs": inventory_progress.get("current_jobs") or [],
+            "phase": inventory_progress.get("phase"),
+            "updated_at": inventory_progress.get("updated_at"),
+            "last_complete_at": gate.get("last_generated_at"),
+            "last_certified_raw_at": raw_domain.get("last_clean_at"),
+            "error": inventory_progress.get("error"),
+        },
+        "retention": {
+            "ready": bool(gate.get("raw_retention_ready", False))
+            and not bool(presentation["pruning_paused"]),
+            "paused": bool(presentation["pruning_paused"]),
+            "reason": (
+                "raw archive evidence is not yet stably clean"
+                if presentation["pruning_paused"]
+                else ""
+            ),
+            "retention_days": 7,
+            "streams": retention_streams,
+        },
         "evidence": {
             "gws_generated_at": gws.get("generated_at"),
             "object_store_generated_at": object_report.get("generated_at"),

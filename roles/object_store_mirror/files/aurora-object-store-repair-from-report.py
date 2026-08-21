@@ -22,6 +22,9 @@ DEFAULT_REPORT = Path(
     "/data/aurora/internal/object_store_manifests/latest/comparison.json"
 )
 DEFAULT_CATALOG = Path("/etc/aurora-object-store/catalog.json")
+DEFAULT_RESULT = Path(
+    "/var/lib/aurora-cloud/object-store-repair/result.json"
+)
 RCLONE = "/usr/bin/rclone"
 
 
@@ -29,6 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--report", type=Path, default=DEFAULT_REPORT)
     parser.add_argument("--catalog", type=Path, default=DEFAULT_CATALOG)
+    parser.add_argument("--result", type=Path, default=DEFAULT_RESULT)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
         "--job",
@@ -36,6 +40,13 @@ def parse_args() -> argparse.Namespace:
         help="Repair only this catalogue job; may be repeated.",
     )
     return parser.parse_args()
+
+
+def publish_result(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(path)
 
 
 def duration_seconds(value: str) -> int:
@@ -204,7 +215,10 @@ def main() -> int:
                 read_local_evidence(args.report, name),
             )
         )
-    print(json.dumps({"report": report["generated_at"], "jobs": results}, indent=2))
+    payload = {"report": report["generated_at"], "jobs": results}
+    if not args.dry_run:
+        publish_result(args.result, payload)
+    print(json.dumps(payload, indent=2))
     return 1 if any(item["returncode"] for item in results) else 0
 
 

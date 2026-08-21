@@ -46,7 +46,9 @@ object-store writers use `rclone copy`, not `sync`.
 | Read-only presentation of archive health | `aurora_cloud_dashboard` |
 
 The dashboard must not install transfer, verification, or pruning services.
-It consumes `/data/aurora/internal/archive_status/health-v1.json`.
+It consumes the backward-compatible `health-v2` payload at
+`/data/aurora/internal/archive_status/health-v1.json`. The filename remains
+stable for older clients; the schema fields identify the payload contract.
 Its generic operations collector may copy contract metrics into presentation
 snapshots for compatibility, but it must not SSH-probe the GWS, parse archive
 manifests, inspect archive writer units, or infer prune readiness.
@@ -84,7 +86,7 @@ production cloud raw mirror ----> derived products
         |
         +---- independent verification evidence ----+
                                                      v
-                                        health-v1.json
+                                        health-v2 contract
                                                      |
                                     raw-only exact signed permit
                                                      v
@@ -162,7 +164,8 @@ continues on the next activation.
 | Object-store WXcam products | Hourly |
 | Object-store model evaluation | Daily at 17:00 |
 | Object-store manifests | Hourly |
-| Complete object/GWS inventory | 03:20, 09:20, 15:20, and 21:20 |
+| Complete object/GWS inventory | Daily at 03:20 |
+| Raw retention evidence refresh | 07:20, 11:20, 15:20, 19:20, and 23:20 |
 | Archive-health publication | Every 2 minutes |
 | ASS retention | Daily at 03:30, provided every gate passes |
 
@@ -185,21 +188,31 @@ Thus every timer cycle reconsiders newly published chunks while historical
 gaps continue to converge instead of falling permanently outside a lookback.
 Full product inventories list each source-present product family in smaller
 parallel shards; they never depend on one unbounded recursive object-store
-root listing. “Incremental” here means that families are verified as bounded,
-independent shards within a run. The complete report is published only after
-all required shards finish, so a partial run can never replace good evidence.
-Independent top-level jobs also run concurrently within the global process
-limit. Local inventory walks prune excluded directories before descending, so
+root listing. Each completed family is atomically checkpointed as an explicitly
+incremental report while the remaining families continue. Reused families keep
+their own original proof timestamps, so a checkpoint can refresh raw-retention
+evidence without pretending that unfinished products were checked. A report is
+labelled `full` only after every required family succeeds. If a later family
+fails, the completed checkpoints remain valid instead of losing hours of work.
+Production runs up to two independent top-level jobs concurrently while all
+shard listings share the global four-process limit. Local inventory walks prune
+excluded directories before descending, so
 the verifier no longer scans the excluded 635-GB WXcam pixel Zarr or its own
 history tree. The manifest job excludes immutable `history/` and operational
 `logs/`; those files are audit storage, not science parity evidence.
 Raw inventories use the same rule for every family, including the multi-terabyte
 radar archive. Families are scheduled independently, radar is listed as bounded
 year/month subtrees, and a global process semaphore limits nested listings to
-the configured `object_store_inventory_process_limit` (16 in production,
-matching the cloud host's CPU count). Each listing also has a 60-minute outer
-process guard; rclone's shorter inactivity timeout and bounded retries still
-detect dead connections without rejecting valid high-cardinality listings.
+the configured `object_store_inventory_process_limit` (4 in production). This
+is deliberately below the cloud host's CPU count: JASMIN object-store listings
+are network-bound and excessive parallel scans can trigger gateway timeouts.
+Each listing has a 60-minute outer process guard, up to five retries, and an
+exponential, jittered backoff. The staggered retry prevents a group of failed
+shards from immediately overloading the gateway again while still detecting
+dead connections promptly.
+Source-proven flat families such as CL61 use a recursive files-only object
+listing instead of S3's slow delimiter-based directory emulation; this keeps
+the comparison exact while avoiding a pathological prefix scan.
 Model-evaluation campaign data has independent additive writers to both GWS
 and object storage; it is not implicitly covered by the products job.
 Symlinked runtime inputs are dereferenced by both writers and verified as
@@ -221,6 +234,18 @@ source root, follows symlinks only for jobs explicitly marked `copy_links`,
 orders candidates newest first, and performs only
 exact `rclone copy --files-from-raw` operations. It never deletes or broadly
 rewalks the archive to repair a known finite gap.
+After a successful repair, the repair service records exactly which catalogue
+families copied settled paths and starts a bounded incremental inventory for
+those families. It requires two clean confirmations ten minutes apart and
+records the consumed repair report, so a path trigger cannot repeat completed
+work. A transient inventory failure is retried once.
+Every successful full, incremental, or resumable-family checkpoint reevaluates
+the verification gate, including checkpoints retained when a later family
+fails. Scheduled retention is started immediately only when the independent
+raw-retention domain reports `raw_retention_ready=true`; a derived-product
+delay cannot block an otherwise current, strict dual-archive raw proof. The
+trigger exits successfully and pruning remains paused for any raw-domain gap,
+stale proof, or incomplete confirmation.
 An outer graceful GNU `timeout` enforces each wall-clock budget because the
 deployed legacy rclone can stop transfers yet continue scanning after its own
 `--max-duration` deadline.
@@ -245,7 +270,9 @@ Always run `--check --diff` before applying a playbook.
 
 ## Monitoring contract
 
-`aurora-archive-health.timer` publishes schema `health-v1` every two minutes.
+`aurora-archive-health.timer` publishes schema `health-v2` every two minutes at
+the stable compatibility path. Alongside the legacy metrics it publishes
+explicit `delivery`, `durability`, `verification`, and `retention` objects.
 The contract contains:
 
 - per-stream GWS missing and mismatch counts;
@@ -265,6 +292,27 @@ The contract contains:
   oldest pending age, last result, and last successful delivery time;
 - a human-readable `operator_status` with separate level, title, detail, and
   whether pruning is paused.
+
+The operator status separates transfer lag, archive loss, background
+verification, and permission to prune:
+
+- **green** means no settled gap is proven, delivery is under 30 minutes old,
+  and certified raw evidence is current. A routine audit or second retention
+  confirmation is visible status, not an alert;
+- **amber** means delivery is 30--120 minutes behind, a verifier login or
+  listing failed, or certified evidence is overdue while no settled gap is
+  proven; pruning remains paused when raw evidence is not current;
+- **red** means a settled file is missing or mismatched, delivery is stalled
+  for two hours, or there is no previously clean certified baseline. Evidence
+  age alone is not evidence of archive loss.
+
+Raw retention and derived-product durability have independent gate state. A
+settled product gap remains a red product-archive problem, but cannot reset a
+clean raw-retention gate.
+
+Dashboard text uses destination names, file counts, current verification
+activity, and the pruning consequence. Raw metric tokens remain available in
+the contract for diagnostics but are not used as the operator-facing message.
 
 The inventory itself atomically updates
 `/data/aurora/internal/object_store_manifests/progress.json` with its state,
@@ -301,8 +349,8 @@ The status terms have precise meanings:
 | inventory `running` with a recent heartbeat | A complete sharded scan is still progressing | Wait; do not infer a stall from report age alone |
 | previous report clean, verification delayed | Current proof is unavailable but there is no measured gap | Amber; pruning is paused until a complete audit succeeds |
 | inventory heartbeat older than five minutes while running | Verifier is stalled | Investigate the inventory service and its current shard |
-| `clean=true`, streak `1` | One complete clean report | Not yet stable parity |
-| `stable_parity=true` | Two distinct complete clean reports | Global object-store stability gate is satisfied |
+| `clean=true`, streak `1` | One clean report; this may be a bounded exact-repair recheck | Not yet stable parity |
+| `stable_parity=true` | Two distinct clean observations, with at least one complete audit of every family in that gate domain | That object-store gate domain is satisfied |
 | stream `prune_ready=true` | That raw stream has exact age-bounded GWS/cloud candidates | Necessary but not sufficient for deletion |
 
 The `health-v1` producer is the only code allowed to turn archive evidence into
@@ -361,13 +409,33 @@ cat /data/aurora/internal/archive_dispatch/status.json
    evaluation, and five minutes for manifests; verification must never slow
    delivery of fresh data.
 4. The repair path unit copies only the exact reported missing or mismatched
-   paths. It must finish successfully before another inventory is started.
-5. Run a fresh inventory. A report is clean only when every settled job has
+   paths. It must finish successfully before another inventory is started. It
+   now refreshes every successfully repaired family automatically with the
+   bounded incremental verifier. The manual equivalent is:
+
+   ```bash
+   sudo systemctl start aurora-object-store-inventory-incremental@model-evaluation.service
+   ```
+
+   The resulting report is complete for the named family and inherits the
+   just-published evidence and original proof timestamps for unaffected
+   families. It records the base report timestamp and SHA-256 and uses the same
+   atomic publication and GWS/object comparisons as a full run. An old or deep
+   merge chain cannot promote stale evidence: the gate evaluates each family's
+   own `verified_at` timestamp. This lets a strict raw audit recover after an
+   unrelated product failure without weakening the product gate. The global
+   inventory lock prevents a full and incremental run from publishing at the
+   same time.
+5. Run a fresh full inventory. A report is clean only when every settled job has
    zero gaps and mismatches against both GWS and object storage and all
    retention-age raw GWS counters are zero. Pending product uploads do not
-   count as gaps. The clean report establishes clean streak one.
-6. Run another independent full inventory. Only that distinct second clean
-   report may establish stable parity.
+   count as gaps. If step 4 produced a clean incremental report, this full
+   report is an independent confirmation. Stable parity always requires two
+   distinct clean observations and at least one complete audit of every family
+   in the relevant domain. The raw-retention domain additionally requires a
+   current canonical GWS verifier summary with zero retention-age gaps or
+   mismatches; derived-product staleness cannot satisfy or invalidate that raw
+   proof.
 7. Confirm `health-v1.json` is green and review both cloud and edge audit logs
    before any dry-run retention canary.
 

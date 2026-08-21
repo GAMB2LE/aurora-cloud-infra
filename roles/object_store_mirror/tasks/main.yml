@@ -10,6 +10,7 @@
     - { path: "{{ object_store_manifest_root }}", owner: "{{ aurora_service_user }}", group: "{{ aurora_service_group }}", mode: "0755" }
     - { path: "{{ object_store_log_root }}", owner: "{{ aurora_service_user }}", group: "{{ aurora_service_group }}", mode: "0755" }
     - { path: "{{ object_store_cache_root }}", owner: "{{ aurora_service_user }}", group: "{{ aurora_service_group }}", mode: "0755" }
+    - { path: "{{ object_store_repair_state_root }}", owner: "{{ aurora_service_user }}", group: "{{ aurora_service_group }}", mode: "0755" }
     - { path: /etc/aurora-object-store, owner: root, group: "{{ aurora_service_group }}", mode: "0750" }
     - { path: "{{ aurora_state_root }}/object-store-verification-gate", owner: root, group: root, mode: "0755" }
   when: object_store_mirror_enabled | bool
@@ -54,6 +55,8 @@
     - { src: aurora-object-store-inventory.py, dest: /usr/local/bin/aurora-object-store-inventory }
     - { src: aurora-object-store-verification-gate.py, dest: /usr/local/sbin/aurora-object-store-verification-gate }
     - { src: aurora-object-store-repair-from-report.py, dest: /usr/local/bin/aurora-object-store-repair-from-report }
+    - { src: aurora-object-store-recheck-after-repair.py, dest: /usr/local/bin/aurora-object-store-recheck-after-repair }
+    - { src: aurora-object-store-trigger-retention.py, dest: /usr/local/sbin/aurora-object-store-trigger-retention }
   when: object_store_mirror_enabled | bool
 
 - name: Install object-store inventory and verification units
@@ -65,11 +68,14 @@
     mode: "0644"
   loop:
     - aurora-object-store-inventory.service
+    - aurora-object-store-inventory-incremental@.service
+    - aurora-object-store-inventory-incremental@.timer
     - aurora-object-store-inventory.timer
     - aurora-object-store-verification-gate.service
     - aurora-object-store-verification-gate.path
     - aurora-object-store-repair.service
     - aurora-object-store-repair.path
+    - aurora-object-store-recheck-after-repair.service
   when: object_store_mirror_enabled | bool
 
 - name: Find obsolete object-store unit backup files
@@ -136,6 +142,7 @@
     daemon_reload: true
   loop:
     - aurora-object-store-inventory.timer
+    - aurora-object-store-inventory-incremental@raw.timer
     - aurora-object-store-verification-gate.path
     - aurora-object-store-repair.path
   when:

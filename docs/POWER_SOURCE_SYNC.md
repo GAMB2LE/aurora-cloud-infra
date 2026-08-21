@@ -36,6 +36,12 @@ The sync uses Tailscale SSH over the tailnet. The rsync remote shell is regular
 
 No private key is installed for this source.
 
+Connection establishment is bounded to one 15-second attempt. Established SSH
+and rsync sessions use 15-second keepalives and fail after two unanswered
+keepalives; systemd caps the entire one-shot sync at 90 seconds. A broken APS
+overlay path therefore records a failed attempt and yields to the next
+two-minute timer run instead of occupying the service indefinitely.
+
 ## Timers
 
 `aurora-power-source-sync.timer` runs `/usr/local/bin/aurora-power-sync`. The

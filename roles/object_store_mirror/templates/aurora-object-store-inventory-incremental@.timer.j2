@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh Aurora raw retention evidence between full audits (%i)
+
+[Timer]
+OnCalendar={{ object_store_inventory_raw_refresh_schedule }}
+RandomizedDelaySec=3min
+Persistent=true
+Unit=aurora-object-store-inventory-incremental@%i.service
+
+[Install]
+WantedBy=timers.target

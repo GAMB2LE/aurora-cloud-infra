@@ -319,6 +319,53 @@
     - not hatpro_source_sync_enabled | bool or not hatpro_source_sync_timer_enabled | bool
     - not ansible_check_mode
 
+- name: Install HATPRO archive reconciliation script
+  ansible.builtin.template:
+    src: aurora-hatpro-backfill.j2
+    dest: /usr/local/bin/aurora-hatpro-backfill
+    owner: root
+    group: root
+    mode: "0755"
+  when:
+    - hatpro_source_sync_enabled | bool
+    - hatpro_backfill_enabled | bool
+
+- name: Install HATPRO archive reconciliation units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - aurora-hatpro-backfill.service
+    - aurora-hatpro-backfill.timer
+  when:
+    - hatpro_source_sync_enabled | bool
+    - hatpro_backfill_enabled | bool
+
+- name: Enable HATPRO archive reconciliation timer
+  ansible.builtin.systemd:
+    name: aurora-hatpro-backfill.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - hatpro_source_sync_enabled | bool
+    - hatpro_backfill_enabled | bool
+    - hatpro_backfill_timer_enabled | bool
+    - not ansible_check_mode
+
+- name: Disable HATPRO archive reconciliation timer when requested
+  ansible.builtin.systemd:
+    name: aurora-hatpro-backfill.timer
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  when:
+    - not hatpro_source_sync_enabled | bool or not hatpro_backfill_enabled | bool or not hatpro_backfill_timer_enabled | bool
+    - not ansible_check_mode
+
 - name: Install Vaisala met source sync script
   ansible.builtin.template:
     src: aurora-vaisalamet-sync.j2
@@ -495,6 +542,8 @@
     group: root
     mode: "0755"
   when: power_source_sync_enabled | bool
+  tags:
+    - power_source_sync
 
 - name: Install power source sync systemd units
   ansible.builtin.template:
@@ -507,6 +556,8 @@
     - aurora-power-source-sync.service
     - aurora-power-source-sync.timer
   when: power_source_sync_enabled | bool
+  tags:
+    - power_source_sync
 
 - name: Enable power source sync timer
   ansible.builtin.systemd:
@@ -518,6 +569,8 @@
     - power_source_sync_enabled | bool
     - power_source_sync_timer_enabled | bool
     - not ansible_check_mode
+  tags:
+    - power_source_sync
 
 - name: Disable power source sync timer when requested
   ansible.builtin.systemd:
@@ -528,6 +581,8 @@
   when:
     - not power_source_sync_enabled | bool or not power_source_sync_timer_enabled | bool
     - not ansible_check_mode
+  tags:
+    - power_source_sync
 
 - name: Install PDU source sync script
   ansible.builtin.template:

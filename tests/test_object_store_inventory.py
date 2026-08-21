@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import datetime as dt
 import importlib.util
+import json
 from pathlib import Path
 import subprocess
 import tempfile
@@ -25,6 +27,62 @@ SPEC.loader.exec_module(inventory)
 
 
 class ObjectStoreInventoryTests(unittest.TestCase):
+    def test_incremental_base_can_refresh_one_family_from_old_deep_base(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            latest = root / "latest"
+            latest.mkdir()
+            report = {
+                "generated_at": (
+                    dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=3)
+                ).isoformat(),
+                "jobs": {"raw": {}, "products": {}},
+                "incremental_depth": 99,
+            }
+            (latest / "comparison.json").write_text(
+                json.dumps(report), encoding="utf-8"
+            )
+            config = {
+                "jobs": [{"name": "raw"}, {"name": "products"}],
+            }
+
+            loaded, digest = inventory.load_incremental_base(
+                root, config, {"products"}
+            )
+            self.assertEqual(loaded["incremental_depth"], 99)
+            self.assertEqual(set(loaded["jobs"]), {"raw", "products"})
+            self.assertEqual(len(digest), 64)
+            self.assertEqual(
+                loaded["jobs"]["raw"]["verified_at"],
+                report["generated_at"],
+            )
+
+    def test_systemd_credentials_override_catalog_key_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            credentials = Path(tmp)
+            key = credentials / "gws-key"
+            known_hosts = credentials / "gws-known-hosts"
+            key.write_text("key", encoding="utf-8")
+            known_hosts.write_text("known", encoding="utf-8")
+            config = {
+                "gws_key": "/missing/key",
+                "gws_known_hosts": "/missing/known-hosts",
+            }
+            with mock.patch.dict(
+                inventory.os.environ,
+                {"CREDENTIALS_DIRECTORY": str(credentials)},
+            ):
+                self.assertEqual(
+                    inventory.credential_path(config, "gws_key", "gws-key"),
+                    str(key),
+                )
+                self.assertEqual(
+                    inventory.credential_path(
+                        config, "gws_known_hosts", "gws-known-hosts"
+                    ),
+                    str(known_hosts),
+                )
+
     def test_non_raw_gws_inventory_is_listed_independently(self) -> None:
         completed = SimpleNamespace(
             stdout="stable/file.nc\t42\t100.5\nlogs/skip.log\t7\t100\n"
@@ -130,6 +188,75 @@ class ObjectStoreInventoryTests(unittest.TestCase):
         self.assertEqual(
             snapshots,
             ["20260726T000100Z", "20260726T000200Z"],
+        )
+
+    def test_job_checkpoint_refreshes_only_successful_family(self) -> None:
+        def job(verified_at: str, count: int) -> dict:
+            comparison = {
+                "left_count": count,
+                "right_count": count,
+                "missing_from_right": [],
+                "extra_in_right": [],
+                "size_mismatch": [],
+                "checksum_mismatch": [],
+                "matches": count,
+            }
+            return {
+                "source_vs_s3": comparison,
+                "source_vs_gws": comparison,
+                "verified_at": verified_at,
+                "verification_scope": "full_family",
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            latest = root / "latest"
+            latest.mkdir()
+            old = "2026-08-16T00:00:00Z"
+            base = {
+                "schema_version": 5,
+                "generated_at": old,
+                "verification_mode": "full",
+                "verified_jobs": ["raw", "products"],
+                "evidence_floor_generated_at": old,
+                "incremental_depth": 0,
+                "jobs": {
+                    "raw": job(old, 1),
+                    "products": job(old, 2),
+                },
+            }
+            (latest / "comparison.json").write_text(
+                json.dumps(base, indent=2) + "\n", encoding="utf-8"
+            )
+            (latest / "comparison.md").write_text("old\n", encoding="utf-8")
+            (latest / "catalog.json").write_text("{}\n", encoding="utf-8")
+            stage = root / "stage"
+            stage.mkdir()
+            (stage / "raw-local.tsv").write_text("new\n", encoding="utf-8")
+            fresh = job("2026-08-19T12:00:00Z", 3)
+            digest = inventory.hashlib.sha256(
+                (latest / "comparison.json").read_bytes()
+            ).hexdigest()
+
+            checkpoint, _digest = inventory.publish_job_checkpoint(
+                root=root,
+                stage=stage,
+                config={"streams": [], "history_keep": 12},
+                base_report=base,
+                base_report_sha256=digest,
+                name="raw",
+                values=fresh,
+                verified_jobs={"raw"},
+            )
+            published = json.loads(
+                (latest / "comparison.json").read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(checkpoint["verification_mode"], "incremental")
+        self.assertEqual(published["verified_jobs"], ["raw"])
+        self.assertEqual(published["jobs"]["raw"]["source_vs_s3"]["matches"], 3)
+        self.assertEqual(
+            published["jobs"]["products"]["verified_at"], old
         )
 
     def test_verification_horizon_is_independent_of_writer_settle_age(self) -> None:
@@ -400,8 +527,8 @@ class ObjectStoreInventoryTests(unittest.TestCase):
             if remote == "remote:bucket/raw":
                 return [{"Path": "cl61", "IsDir": True}]
             if remote.endswith("/cl61"):
-                self.assertFalse(recursive)
-                self.assertFalse(files_only)
+                self.assertTrue(recursive)
+                self.assertTrue(files_only)
                 return [
                     {
                         "Path": "ceilometer_20260725.nc",

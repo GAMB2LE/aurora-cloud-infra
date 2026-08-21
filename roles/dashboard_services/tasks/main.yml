@@ -112,6 +112,36 @@
     mode: "0750"
   when: not ansible_check_mode
 
+- name: Stop and disable the retired Leeds ERA5 science units
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop:
+    - aurora-les-operational-run.timer
+    - aurora-les-operational-run.service
+  failed_when: false
+  when: not ansible_check_mode
+
+- name: Remove the retired Leeds ERA5 science unit files
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ item }}"
+    state: absent
+  loop:
+    - aurora-les-operational-run.timer
+    - aurora-les-operational-run.service
+  notify:
+    - Reload systemd
+
+- name: Clear failed state for the retired Leeds ERA5 science units
+  ansible.builtin.command: systemctl reset-failed {{ item }}
+  changed_when: false
+  failed_when: false
+  loop:
+    - aurora-les-operational-run.timer
+    - aurora-les-operational-run.service
+  when: not ansible_check_mode
+
 - name: Install systemd service and timer units
   ansible.builtin.template:
     src: "{{ item }}.j2"
@@ -180,8 +210,6 @@
     - aurora-ops-monitor-alerts.timer
     - aurora-ops-monitor-quicklooks.service
     - aurora-ops-monitor-quicklooks.timer
-    - aurora-les-operational-run.service
-    - aurora-les-operational-run.timer
     - aurora-wxcam-catalog.service
     - aurora-wxcam-catalog.timer
     - aurora-wxcam-daily-videos.service
@@ -330,7 +358,6 @@
     - { unit: aurora-ops-monitor-append.timer, key: ops_monitor_append }
     - { unit: aurora-ops-monitor-alerts.timer, key: ops_monitor_alerts }
     - { unit: aurora-ops-monitor-quicklooks.timer, key: ops_monitor_quicklooks }
-    - { unit: aurora-les-operational-run.timer, key: les_operational_run }
     - { unit: aurora-wxcam-catalog.timer, key: wxcam_catalog }
     - { unit: aurora-wxcam-daily-videos.timer, key: wxcam_daily_videos }
     - { unit: aurora-wxcam-append.timer, key: wxcam_append }
@@ -366,7 +393,6 @@
     - aurora-ops-monitor-append.service
     - aurora-ops-monitor-alerts.service
     - aurora-ops-monitor-quicklooks.service
-    - aurora-les-operational-run.service
     - aurora-wxcam-catalog.service
     - aurora-wxcam-daily-videos.service
     - aurora-wxcam-append.service
@@ -404,7 +430,6 @@
     - { service: aurora-ops-monitor-append.service, key: ops_monitor_append }
     - { service: aurora-ops-monitor-alerts.service, key: ops_monitor_alerts }
     - { service: aurora-ops-monitor-quicklooks.service, key: ops_monitor_quicklooks }
-    - { service: aurora-les-operational-run.service, key: les_operational_run }
     - { service: aurora-wxcam-catalog.service, key: wxcam_catalog }
     - { service: aurora-wxcam-daily-videos.service, key: wxcam_daily_videos }
     - { service: aurora-wxcam-append.service, key: wxcam_append }

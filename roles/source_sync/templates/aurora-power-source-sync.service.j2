@@ -8,6 +8,7 @@ Type=oneshot
 User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
 ExecStart=/usr/local/bin/aurora-power-sync
+TimeoutStartSec={{ power_source_service_timeout_seconds | int }}
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=6

@@ -1,8 +1,9 @@
 [Unit]
-Description=Build Aurora GWS/object-store comparison inventory
-After=network-online.target
+Description=Refresh one Aurora GWS/object-store inventory family (%i)
+After=network-online.target aurora-object-store-repair.service
 Wants=network-online.target
 ConditionPathExists={{ object_store_rclone_config }}
+ConditionPathExists={{ object_store_manifest_root }}/latest/comparison.json
 
 [Service]
 Type=oneshot
@@ -11,12 +12,10 @@ Group={{ aurora_service_group }}
 Environment=XDG_CACHE_HOME={{ object_store_cache_root }}
 LoadCredential=gws-key:{{ gws_ssh_private_key }}
 LoadCredential=gws-known-hosts:/home/{{ aurora_service_user }}/.ssh/known_hosts
-ExecStart=/usr/local/bin/aurora-object-store-inventory
-# A full audit publishes successful families as incremental checkpoints, so
-# always evaluate the last atomic checkpoint even when a later family fails.
-ExecStopPost=+/usr/local/sbin/aurora-object-store-verification-gate
-ExecStopPost=+/usr/local/sbin/aurora-object-store-trigger-retention
-TimeoutStartSec=12h
+ExecStart=/usr/local/bin/aurora-object-store-inventory --reuse-latest --job %i
+ExecStartPost=+/usr/local/sbin/aurora-object-store-verification-gate
+ExecStartPost=+/usr/local/sbin/aurora-object-store-trigger-retention
+TimeoutStartSec=4h
 Nice=10
 NoNewPrivileges=true
 PrivateTmp=true

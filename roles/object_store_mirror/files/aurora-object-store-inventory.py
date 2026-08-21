@@ -3,13 +3,17 @@
 
 from __future__ import annotations
 
+import argparse
 import csv
 from concurrent.futures import as_completed, ThreadPoolExecutor
 import datetime as dt
+import fcntl
 import fnmatch
+import hashlib
 import json
 import os
 from pathlib import Path
+import random
 import shutil
 import subprocess
 import tempfile
@@ -34,6 +38,28 @@ COMMON_EXCLUDES = [
 ]
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--job",
+        action="append",
+        help=(
+            "Refresh only this catalogue job; may be repeated. Requires "
+            "--reuse-latest so unaffected jobs retain their last full "
+            "evidence."
+        ),
+    )
+    parser.add_argument(
+        "--reuse-latest",
+        action="store_true",
+        help=(
+            "Publish a complete incremental report using the latest report "
+            "as its base."
+        ),
+    )
+    return parser.parse_args()
+
+
 def utc_now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -48,6 +74,16 @@ def verification_settle_age(job: dict) -> str:
         "verification_settle_age",
         job.get("settle_age", "15m"),
     )
+
+
+def credential_path(config: dict, key: str, credential_name: str) -> str:
+    """Prefer a systemd credential over a path inside a private runtime dir."""
+    credential_directory = os.environ.get("CREDENTIALS_DIRECTORY")
+    if credential_directory:
+        credential = Path(credential_directory, credential_name)
+        if credential.is_file():
+            return str(credential)
+    return str(config.get(key, ""))
 
 
 def excluded(path: str, patterns: list[str]) -> bool:
@@ -183,6 +219,10 @@ class S3Lister:
         retry_delay = max(
             0, int(self.config.get("s3_list_retry_delay_seconds", 30))
         )
+        retry_max_delay = max(
+            retry_delay,
+            int(self.config.get("s3_list_retry_max_delay_seconds", 300)),
+        )
         for attempt in range(1, attempts + 1):
             try:
                 with self.list_slots:
@@ -199,7 +239,14 @@ class S3Lister:
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
                 if attempt == attempts:
                     raise
-                time.sleep(retry_delay)
+                # A gateway timeout is usually shared service pressure, not a
+                # bad path.  Back off exponentially and add jitter so all
+                # concurrent shard scans do not retry as one thundering herd.
+                delay = min(
+                    retry_max_delay,
+                    retry_delay * (2 ** (attempt - 1)),
+                )
+                time.sleep(delay + random.uniform(0, min(15, delay / 4)))
         return json.loads(completed.stdout or "[]")
 
     def inventory(self, job: dict, local: dict[str, dict]) -> dict[str, dict]:
@@ -251,6 +298,21 @@ class S3Lister:
         def list_shallow_shards(prefix: str) -> tuple[str, list[dict]]:
             prefix_remote = f"{remote}/{prefix}"
             if prefix not in sharded and not shard_all_prefixes:
+                return prefix, self.list_json(prefix_remote)
+
+            # Flat instrument families (notably CL61) can contain tens of
+            # thousands of files directly beneath one prefix.  A delimiter-
+            # based shallow S3 listing is pathologically slow on the JASMIN
+            # gateway for this shape.  The settled local inventory already
+            # proves that this family is flat, so use the ordinary recursive
+            # files-only ListObjects path.  It covers the same source paths
+            # without the expensive directory emulation.
+            local_relatives = [
+                path[len(prefix) + 1 :]
+                for path in local
+                if path.startswith(f"{prefix}/")
+            ]
+            if local_relatives and all("/" not in path for path in local_relatives):
                 return prefix, self.list_json(prefix_remote)
 
             first_level = self.list_json(
@@ -425,7 +487,7 @@ def gws_inventory(config: dict, job: dict) -> dict[str, dict]:
     ssh_base = [
         "ssh",
         "-i",
-        config["gws_key"],
+        credential_path(config, "gws_key", "gws-key"),
         "-o",
         "BatchMode=yes",
         "-o",
@@ -441,7 +503,11 @@ def gws_inventory(config: dict, job: dict) -> dict[str, dict]:
         "-o",
         "StrictHostKeyChecking=accept-new",
     ]
-    known_hosts = config.get("gws_known_hosts")
+    known_hosts = credential_path(
+        config,
+        "gws_known_hosts",
+        "gws-known-hosts",
+    )
     if known_hosts:
         ssh_base.extend(["-o", f"UserKnownHostsFile={known_hosts}"])
     failures: list[str] = []
@@ -662,31 +728,223 @@ def inventory_job(
             if gws_source or gws
             else None
         ),
+        # A partial report may reuse other families, so every family carries
+        # its own proof timestamp.  This is the completion time of a complete
+        # source/GWS/object-store inventory for this family, not the age of the
+        # report used as a merge base.
+        "verified_at": utc_now(),
+        "verification_scope": "full_family",
     }
 
 
+def load_incremental_base(
+    root: Path,
+    config: dict,
+    selected_names: set[str],
+) -> tuple[dict, str]:
+    """Load a structurally complete report as a merge base.
+
+    Age and chain depth do not make a merge unsafe: reused families retain
+    their own old ``verified_at`` timestamps and the verification gate keeps
+    those domains stale.  Rejecting an old base here previously prevented a
+    complete raw-family recheck from refreshing strict retention evidence
+    after an unrelated product audit failed.
+    """
+    report_path = root / "latest" / "comparison.json"
+    raw = report_path.read_bytes()
+    report = json.loads(raw)
+    configured_names = {job["name"] for job in config["jobs"]}
+    report_names = set(report.get("jobs", {}))
+    if report_names != configured_names:
+        raise RuntimeError(
+            "latest report jobs do not match the current catalogue: "
+            f"report={sorted(report_names)} catalogue={sorted(configured_names)}"
+        )
+    if not selected_names:
+        raise RuntimeError("incremental inventory requires at least one --job")
+    legacy_verified_at = report.get(
+        "evidence_floor_generated_at",
+        report["generated_at"],
+    )
+    for values in report["jobs"].values():
+        values.setdefault("verified_at", legacy_verified_at)
+        values.setdefault("verification_scope", "full_family")
+    return report, hashlib.sha256(raw).hexdigest()
+
+
+def write_report_files(stage: Path, report: dict, config: dict) -> None:
+    (stage / "comparison.json").write_text(
+        json.dumps(report, indent=2) + "\n", encoding="utf-8"
+    )
+    (stage / "comparison.md").write_text(
+        render_markdown(report), encoding="utf-8"
+    )
+    (stage / "catalog.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "generated_at": report["generated_at"],
+                "streams": config["streams"],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def publish_job_checkpoint(
+    *,
+    root: Path,
+    stage: Path,
+    config: dict,
+    base_report: dict,
+    base_report_sha256: str,
+    name: str,
+    values: dict,
+    verified_jobs: set[str] | None = None,
+) -> tuple[dict, str]:
+    """Publish one successful family without certifying unfinished families."""
+    generated_at = utc_now()
+    report = json.loads(json.dumps(base_report))
+    report["jobs"][name] = values
+    evidence_times = [
+        item.get(
+            "verified_at",
+            report.get("evidence_floor_generated_at", report["generated_at"]),
+        )
+        for item in report["jobs"].values()
+    ]
+    report.update(
+        {
+            "schema_version": 5,
+            "generated_at": generated_at,
+            "verification_mode": "incremental",
+            "verified_jobs": sorted(verified_jobs or {name}),
+            "base_generated_at": base_report["generated_at"],
+            "base_report_sha256": base_report_sha256,
+            # Retained for older readers.  Policy v5 evaluates the per-family
+            # timestamps instead of applying this oldest timestamp globally.
+            "evidence_floor_generated_at": min(
+                evidence_times,
+                key=lambda value: dt.datetime.fromisoformat(
+                    value.replace("Z", "+00:00")
+                ),
+            ),
+            "incremental_depth": int(base_report.get("incremental_depth", 0))
+            + 1,
+        }
+    )
+    with tempfile.TemporaryDirectory(
+        prefix=".inventory-checkpoint-", dir=root
+    ) as temporary:
+        checkpoint = Path(temporary)
+        shutil.copytree(root / "latest", checkpoint, dirs_exist_ok=True)
+        for source in stage.glob(f"{name}-*.tsv"):
+            shutil.copy2(source, checkpoint / source.name)
+        write_report_files(checkpoint, report, config)
+        publish(
+            root,
+            checkpoint,
+            generated_at,
+            int(config.get("history_keep", 12)),
+        )
+    raw = (root / "latest" / "comparison.json").read_bytes()
+    return report, hashlib.sha256(raw).hexdigest()
+
+
 def main() -> int:
+    args = parse_args()
     config = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
     generated_at = utc_now()
     root = Path(config["manifest_root"])
     root.mkdir(parents=True, exist_ok=True)
+    lock_handle = (root / ".inventory.lock").open("a+", encoding="utf-8")
+    try:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as error:
+        raise RuntimeError(
+            "another object-store inventory is already running"
+        ) from error
+    configured_jobs = {job["name"]: job for job in config["jobs"]}
+    selected_names = set(args.job or configured_jobs)
+    unknown = selected_names - set(configured_jobs)
+    if unknown:
+        raise SystemExit(
+            f"unknown catalogue jobs: {', '.join(sorted(unknown))}"
+        )
+    if args.reuse_latest and not args.job:
+        raise SystemExit("--reuse-latest requires at least one --job")
+    if (
+        args.job
+        and not args.reuse_latest
+        and selected_names != set(configured_jobs)
+    ):
+        raise SystemExit("partial inventory requires --reuse-latest")
+    selected_jobs = [
+        job for job in config["jobs"] if job["name"] in selected_names
+    ]
+    base_report: dict | None = None
+    base_report_sha256 = ""
+    if args.reuse_latest:
+        base_report, base_report_sha256 = load_incremental_base(
+            root,
+            config,
+            selected_names,
+        )
+    checkpoint_report: dict | None = None
+    checkpoint_report_sha256 = ""
+    checkpoint_verified_jobs: set[str] = set()
+    if base_report is not None and len(selected_jobs) > 1:
+        # Multi-family incremental rechecks are resumable too.  A failed later
+        # family must not discard an earlier complete family verification.
+        checkpoint_report = json.loads(json.dumps(base_report))
+        checkpoint_report_sha256 = base_report_sha256
+    elif base_report is None and (root / "latest" / "comparison.json").exists():
+        # A full audit still produces a genuinely full report only after every
+        # family succeeds.  This merge base is used solely to checkpoint each
+        # successful family as an explicitly incremental report while the
+        # remaining families continue.
+        try:
+            checkpoint_report, checkpoint_report_sha256 = load_incremental_base(
+                root,
+                config,
+                selected_names,
+            )
+        except (
+            OSError,
+            KeyError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ):
+            # Checkpointing is an optimisation.  A missing or legacy-incomplete
+            # latest report must not prevent a full audit from rebuilding the
+            # canonical report from scratch.
+            checkpoint_report = None
+            checkpoint_report_sha256 = ""
     lister = S3Lister(config)
     progress = {
         "schema_version": 2,
         "run_generated_at": generated_at,
         "updated_at": generated_at,
         "state": "running",
+        "verification_mode": (
+            "incremental" if base_report is not None else "full"
+        ),
+        "verified_jobs": sorted(selected_names),
         "current_job": None,
         "phase": "starting",
         "completed_jobs": [],
-        "total_jobs": len(config["jobs"]),
+        "total_jobs": len(selected_jobs),
         "jobs": {
             job["name"]: {
                 "state": "pending",
                 "phase": "pending",
                 "updated_at": generated_at,
             }
-            for job in config["jobs"]
+            for job in selected_jobs
         },
     }
     progress_lock = threading.Lock()
@@ -742,32 +1000,59 @@ def main() -> int:
     try:
         with tempfile.TemporaryDirectory(prefix=".inventory-", dir=root) as temporary:
             stage = Path(temporary)
-            report = {
-                "schema_version": 3,
-                "generated_at": generated_at,
-                "layout_contract": {
-                    "s3": "preserves settled cloud-ingress relative paths",
-                    "gws_raw": (
-                        "uses canonical per-stream Y/M/D archive paths from "
-                        "independent source/GWS verification manifests"
-                    ),
-                    "gws_other": (
-                        "preserves cloud relative paths and is inventoried "
-                        "directly through a JASMIN transfer host"
-                    ),
-                    "equivalence": (
-                        "source_vs_s3 proves cloud-to-object parity; "
-                        "source_vs_gws proves edge-source-to-GWS parity"
-                    ),
-                },
-                "jobs": {},
-            }
+            if base_report is not None:
+                shutil.copytree(root / "latest", stage, dirs_exist_ok=True)
+                report = json.loads(json.dumps(base_report))
+                evidence_floor = report.get(
+                    "evidence_floor_generated_at",
+                    report["generated_at"],
+                )
+                report.update(
+                    {
+                        "schema_version": 5,
+                        "generated_at": generated_at,
+                        "verification_mode": "incremental",
+                        "verified_jobs": sorted(selected_names),
+                        "base_generated_at": base_report["generated_at"],
+                        "base_report_sha256": base_report_sha256,
+                        "evidence_floor_generated_at": evidence_floor,
+                        "incremental_depth": int(
+                            base_report.get("incremental_depth", 0)
+                        )
+                        + 1,
+                    }
+                )
+            else:
+                report = {
+                    "schema_version": 5,
+                    "generated_at": generated_at,
+                    "verification_mode": "full",
+                    "verified_jobs": [job["name"] for job in config["jobs"]],
+                    "evidence_floor_generated_at": generated_at,
+                    "incremental_depth": 0,
+                    "layout_contract": {
+                        "s3": "preserves settled cloud-ingress relative paths",
+                        "gws_raw": (
+                            "uses canonical per-stream Y/M/D archive paths from "
+                            "independent source/GWS verification manifests"
+                        ),
+                        "gws_other": (
+                            "preserves cloud relative paths and is inventoried "
+                            "directly through a JASMIN transfer host"
+                        ),
+                        "equivalence": (
+                            "source_vs_s3 proves cloud-to-object parity; "
+                            "source_vs_gws proves edge-source-to-GWS parity"
+                        ),
+                    },
+                    "jobs": {},
+                }
             failures: list[str] = []
             workers = max(
                 1,
                 min(
                     int(config.get("job_workers", 3)),
-                    len(config["jobs"]),
+                    len(selected_jobs),
                 ),
             )
             with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -780,18 +1065,34 @@ def main() -> int:
                         stage,
                         update_job,
                     ): job
-                    for job in config["jobs"]
+                    for job in selected_jobs
                 }
                 for future in as_completed(futures):
                     job = futures[future]
                     name = job["name"]
                     try:
-                        report["jobs"][name] = future.result()
+                        values = future.result()
+                        report["jobs"][name] = values
                     except Exception as error:
                         detail = f"{type(error).__name__}: {error}"
                         failures.append(f"{name}: {detail}")
                         update_job(name, "failed", state="failed", error=detail)
                     else:
+                        if checkpoint_report is not None:
+                            checkpoint_verified_jobs.add(name)
+                            (
+                                checkpoint_report,
+                                checkpoint_report_sha256,
+                            ) = publish_job_checkpoint(
+                                root=root,
+                                stage=stage,
+                                config=config,
+                                base_report=checkpoint_report,
+                                base_report_sha256=checkpoint_report_sha256,
+                                name=name,
+                                values=values,
+                                verified_jobs=checkpoint_verified_jobs,
+                            )
                         update_job(name, "complete", state="complete")
             if failures:
                 raise RuntimeError("; ".join(failures))
@@ -799,24 +1100,17 @@ def main() -> int:
                 job["name"]: report["jobs"][job["name"]]
                 for job in config["jobs"]
             }
-            (stage / "comparison.json").write_text(
-                json.dumps(report, indent=2) + "\n", encoding="utf-8"
+            report["generated_at"] = utc_now()
+            report["evidence_floor_generated_at"] = min(
+                (
+                    values.get("verified_at", report["generated_at"])
+                    for values in report["jobs"].values()
+                ),
+                key=lambda value: dt.datetime.fromisoformat(
+                    value.replace("Z", "+00:00")
+                ),
             )
-            (stage / "comparison.md").write_text(
-                render_markdown(report), encoding="utf-8"
-            )
-            (stage / "catalog.json").write_text(
-                json.dumps(
-                    {
-                        "schema_version": 2,
-                        "generated_at": generated_at,
-                        "streams": config["streams"],
-                    },
-                    indent=2,
-                )
-                + "\n",
-                encoding="utf-8",
-            )
+            write_report_files(stage, report, config)
             update_progress(
                 state="publishing",
                 current_job=None,
@@ -825,7 +1119,7 @@ def main() -> int:
             publish(
                 root,
                 stage,
-                generated_at,
+                report["generated_at"],
                 int(config.get("history_keep", 12)),
             )
 

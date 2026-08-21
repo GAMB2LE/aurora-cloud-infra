@@ -1,3 +1,6 @@
 # This file is included from nginx's http context.
 limit_req_zone $binary_remote_addr zone=aurora_mobile_api:10m rate=30r/m;
+# Camera grids legitimately fetch up to 24 small thumbnails at once.  Keep
+# only that immutable, low-cost route on a separate bounded budget.
+limit_req_zone $binary_remote_addr zone=aurora_mobile_thumbnails:10m rate=300r/m;
 limit_conn_zone $binary_remote_addr zone=aurora_per_ip:10m;
