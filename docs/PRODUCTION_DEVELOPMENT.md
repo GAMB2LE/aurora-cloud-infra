@@ -259,5 +259,26 @@ sudo -u aurora git -C /opt/aurora-cloud-dashboard checkout <previous-prod-tag>
 sudo systemctl restart aurora-dashboard.service
 ```
 
+Before every dashboard, mobile API, runtime, or security release, the release
+playbooks create a root-only snapshot under
+`/var/lib/aurora-release-snapshots/<UTC timestamp>/`.  It contains the previous
+source identity, a dirty-worktree patch when present, service status, a list of
+untracked files, and a root-only archive of the dashboard environment, mobile
+API token, relevant systemd units, Nginx configuration, and alert-client
+configuration.  It does not enter Git or the public documentation portal.
+
+To restore a configuration as part of an approved rollback, first inspect the
+snapshot manifest and file list, then restore its archive from `/` and reload
+only the affected units:
+
+```bash
+sudo tar -xzf /var/lib/aurora-release-snapshots/<timestamp>/configuration.tar.gz -C /
+sudo systemctl daemon-reload
+sudo systemctl restart aurora-dashboard.service aurora-mobile-api.service
+```
+
+Confirm the recorded checksums before restart and retain the failed release
+snapshot for diagnosis.  Do not restore product data as part of a UI rollback.
+
 Only roll back data products from a separately preserved product backup, and
 only after confirming the product rollback is needed.

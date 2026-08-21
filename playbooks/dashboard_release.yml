@@ -3,6 +3,7 @@
   hosts: aurora_cloud
   become: true
   roles:
+    - release_snapshot
     - dashboard_app
     - dashboard_services
     - nginx
