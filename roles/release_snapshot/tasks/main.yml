@@ -1,0 +1,33 @@
+---
+- name: Ensure release snapshot root exists
+  ansible.builtin.file:
+    path: "{{ aurora_release_snapshot_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  when:
+    - aurora_release_snapshot_enabled | bool
+    - not ansible_check_mode
+
+- name: Install release snapshot helper
+  ansible.builtin.template:
+    src: aurora-release-snapshot.sh.j2
+    dest: /usr/local/sbin/aurora-release-snapshot
+    owner: root
+    group: root
+    mode: "0700"
+  when:
+    - aurora_release_snapshot_enabled | bool
+    - not ansible_check_mode
+
+- name: Preserve current dashboard release and configuration
+  ansible.builtin.command:
+    argv:
+      - /usr/local/sbin/aurora-release-snapshot
+      - "{{ aurora_app_version }}"
+  register: aurora_release_snapshot
+  changed_when: true
+  when:
+    - aurora_release_snapshot_enabled | bool
+    - not ansible_check_mode

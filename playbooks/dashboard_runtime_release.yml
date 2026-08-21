@@ -16,6 +16,7 @@
         - "{{ aurora_paths.raw_auroracam }}"
         - "{{ aurora_dev_raw_root }}"
   roles:
+    - release_snapshot
     - source_sync
     - dashboard_app
     - dashboard_services

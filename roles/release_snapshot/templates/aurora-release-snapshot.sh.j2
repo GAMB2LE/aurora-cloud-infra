@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+umask 077
+
+if [[ $# -ne 1 ]]; then
+  echo "usage: $0 <target-release>" >&2
+  exit 64
+fi
+
+snapshot_root={{ aurora_release_snapshot_root | quote }}
+app_dir={{ aurora_app_dir | quote }}
+service_user={{ aurora_service_user | quote }}
+target_release=$1
+timestamp=$(date -u +%Y%m%dT%H%M%SZ)
+snapshot_dir="${snapshot_root}/${timestamp}"
+file_list="${snapshot_dir}/configuration-files.txt"
+
+install -d -m 0700 "${snapshot_dir}"
+
+{
+  printf 'captured_at_utc=%s\n' "$(date -u +%FT%TZ)"
+  printf 'target_release=%s\n' "${target_release}"
+  printf 'app_dir=%s\n' "${app_dir}"
+  if [[ -d "${app_dir}/.git" ]]; then
+    printf 'source_commit=%s\n' "$(git -c safe.directory="${app_dir}" -C "${app_dir}" rev-parse HEAD)"
+    printf 'source_describe=%s\n' "$(git -c safe.directory="${app_dir}" -C "${app_dir}" describe --tags --always --dirty)"
+    printf 'source_branch=%s\n' "$(git -c safe.directory="${app_dir}" -C "${app_dir}" branch --show-current || true)"
+  fi
+  systemctl is-active aurora-dashboard.service || true
+  systemctl is-active aurora-mobile-api.service || true
+  systemctl is-enabled aurora-dashboard.service || true
+  systemctl is-enabled aurora-mobile-api.service || true
+} > "${snapshot_dir}/manifest.txt"
+
+if [[ -d "${app_dir}/.git" ]]; then
+  git -c safe.directory="${app_dir}" -C "${app_dir}" diff --binary > "${snapshot_dir}/worktree.patch"
+  git -c safe.directory="${app_dir}" -C "${app_dir}" ls-files --others --exclude-standard > "${snapshot_dir}/untracked-files.txt"
+fi
+
+{
+  for path in \
+    /etc/aurora-dashboard.env \
+    /etc/aurora-mobile-api.token \
+    /etc/nginx \
+    "/home/${service_user}/.msmtprc"; do
+    [[ -e "${path}" ]] && printf '%s\n' "${path#/}"
+  done
+  find /etc/systemd/system -maxdepth 1 -type f -name 'aurora-*' -print 2>/dev/null | sed 's#^/##'
+  find /etc/systemd/system -maxdepth 1 -type d -name 'aurora-*.service.d' -print 2>/dev/null | sed 's#^/##'
+} | sort -u > "${file_list}"
+
+tar -C / -czf "${snapshot_dir}/configuration.tar.gz" --ignore-failed-read -T "${file_list}"
+
+{
+  while IFS= read -r path; do
+    absolute_path="/${path}"
+    if [[ -f "${absolute_path}" ]]; then
+      printf '%s\0' "${absolute_path}"
+    elif [[ -d "${absolute_path}" ]]; then
+      find "${absolute_path}" -type f -print0
+    fi
+  done < "${file_list}"
+} | sort -z | xargs -0 -r sha256sum > "${snapshot_dir}/configuration.sha256"
+
+chmod 0600 "${snapshot_dir}"/*
+printf '%s\n' "${snapshot_dir}"

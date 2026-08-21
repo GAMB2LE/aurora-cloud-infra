@@ -96,6 +96,8 @@ aurora_app_repo: https://github.com/GAMB2LE/aurora_cloud_dashboard.git
 # guards. Host vars repeat this pin so either environment cannot downgrade the
 # live checkout during a routine deployment.
 aurora_app_version: prod-20260726.1
+aurora_release_snapshot_enabled: true
+aurora_release_snapshot_root: /var/lib/aurora-release-snapshots
 aurora_infra_repo_dir: /tmp/aurora-cloud-infra-codex
 aurora_python: /usr/bin/python3
 aurora_venv: "{{ aurora_app_dir }}/venv"
