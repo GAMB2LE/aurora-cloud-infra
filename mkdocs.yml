@@ -46,6 +46,7 @@ nav:
       - ASFS Fast Gas: ASFS_FAST_GAS_SOURCE_SYNC.md
       - ASS PDU: PDU_SOURCE_SYNC.md
       - Power: POWER_SOURCE_SYNC.md
+      - Menapia Flight Data: MENAPIA_FLIGHT_SOURCE_SYNC.md
       - WXcam: WXCAM_SOURCE_SYNC.md
       - MX4 Cameras: MX4_CAMERA_FTP.md
       - AURORACam: AURORACAM_SOURCE_SYNC.md

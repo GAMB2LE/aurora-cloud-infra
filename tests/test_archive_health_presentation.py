@@ -1,5 +1,7 @@
 import datetime as dt
 from pathlib import Path
+import sqlite3
+import tempfile
 import unittest
 
 
@@ -20,6 +22,19 @@ def load_operator_status():
 
 
 operator_status = load_operator_status()
+
+
+def load_prefix_delivery():
+    source = TEMPLATE.read_text(encoding="utf-8")
+    function_source = "def prefix_delivery" + source.split(
+        "def prefix_delivery", 1
+    )[1].split("\n\ndef source_sync_pairs", 1)[0]
+    namespace = {"Path": Path, "sqlite3": sqlite3}
+    exec(function_source, namespace)
+    return namespace["prefix_delivery"]
+
+
+prefix_delivery = load_prefix_delivery()
 
 
 class ArchiveHealthPresentationTests(unittest.TestCase):
@@ -121,6 +136,46 @@ class ArchiveHealthPresentationTests(unittest.TestCase):
         self.assertIn("2 of 5 archive families", result["detail"])
         self.assertIn("no settled archive gap", result["detail"])
         self.assertTrue(result["pruning_paused"])
+
+    def test_menapia_delivery_is_scoped_to_its_raw_prefix(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "queue.sqlite"
+            with sqlite3.connect(database) as connection:
+                connection.execute(
+                    """
+                    CREATE TABLE delivery (
+                        job TEXT,
+                        relative_path TEXT,
+                        gws_delivered INTEGER,
+                        object_delivered INTEGER
+                    )
+                    """
+                )
+                connection.executemany(
+                    "INSERT INTO delivery VALUES (?, ?, ?, ?)",
+                    [
+                        ("raw", "menapia/drone-uploads/a.bin", 1, 1),
+                        ("raw", "menapia/drone-uploads/b.bin", 0, 1),
+                        ("raw", "menapia/drone-uploads/c.bin", 1, 0),
+                        ("raw", "cl61/unrelated.nc", 0, 0),
+                        ("products", "menapia/not-raw.bin", 0, 0),
+                    ],
+                )
+            result = prefix_delivery(database, "menapia/")
+
+        self.assertTrue(result["available"])
+        self.assertEqual(result["tracked_files"], 3)
+        self.assertEqual(result["dual_delivered_files"], 1)
+        self.assertEqual(result["gws_pending_files"], 1)
+        self.assertEqual(result["object_store_pending_files"], 1)
+
+    def test_health_contract_contains_menapia_source_and_archive_metrics(self):
+        source = TEMPLATE.read_text(encoding="utf-8")
+
+        self.assertIn('"source_ingest": {', source)
+        self.assertIn('"menapia": {', source)
+        self.assertIn('"menapia_flight_gws_pending_files"', source)
+        self.assertIn('"menapia_flight_object_store_pending_files"', source)
 
 
 if __name__ == "__main__":

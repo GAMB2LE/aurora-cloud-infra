@@ -510,6 +510,34 @@ uas_source_destination: "{{ aurora_paths.raw_menapia }}/menapia_mqtt.log"
 uas_source_sync_interval: 30s
 uas_source_sync_randomized_delay: 10
 
+# Menapia's corrected flight-data bucket is an external, read-only source. The
+# existing pair is installed out of band and is expected to expire at the end
+# of September 2026. Keep commissioning false until that file has been placed
+# and a metadata-only inventory has been reviewed on the production writer.
+menapia_flight_source_sync_enabled: true
+menapia_flight_credentials_commissioned: false
+menapia_flight_source_sync_timer_enabled: >-
+  {{ (aurora_writer_timers_enabled | bool)
+     and (menapia_flight_credentials_commissioned | bool) }}
+menapia_flight_source_bucket: menapia-flight-data-corrected
+menapia_flight_source_region: eu-west-1
+menapia_flight_rclone_config: /etc/aurora-menapia/rclone.conf
+menapia_flight_rclone_config_content: ""
+menapia_flight_rclone_config_source: ""
+menapia_flight_config_path: /etc/aurora-menapia/config.json
+menapia_flight_state_root: "{{ aurora_state_root }}/menapia-flight"
+menapia_flight_manifest_root: "{{ aurora_data_root }}/internal/menapia-flight/manifests"
+menapia_flight_status_path: "{{ archive_monitor_output_root }}/menapia-flight-source-sync.json"
+menapia_flight_credential_expires_on: "2026-09-30"
+menapia_flight_source_sync_interval: 15min
+menapia_flight_source_sync_randomized_delay: 60
+menapia_flight_source_service_timeout: 2h
+menapia_flight_max_objects_per_run: 500
+# The shared bucket includes non-AURORA flights. Empty maps deliberately retain
+# and label every object as unknown until Menapia supplies a reliable mapping.
+menapia_flight_campaign_dock_ids: {}
+menapia_flight_campaign_flight_ids: {}
+
 wxcam_source_sync_enabled: true
 wxcam_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 wxcam_source_auth: "{{ edge_source_sync_auth }}"
@@ -691,6 +719,11 @@ gws_sync_jobs:
     schedule: "*:09/30"
     timeout_start_sec: 12h
     copy_links: true
+  - name: menapia-flight-manifests
+    source: "{{ menapia_flight_manifest_root }}/"
+    destination: "{{ gws_internal_root }}/menapia-flight/manifests/"
+    schedule: "*:08/15"
+    timeout_start_sec: 2h
   - name: manifests
     source: "{{ gws_manifest_root }}/"
     destination: "{{ gws_internal_root }}/manifests/"
@@ -880,6 +913,18 @@ object_store_jobs:
     timeout_start_sec: 12h
     transfers: 4
     copy_links: true
+  - name: menapia-flight-manifests
+    source: "{{ menapia_flight_manifest_root }}/"
+    destination: data/internal/aurora-cloud/menapia-flight/manifests
+    gws_destination: "{{ gws_internal_root }}/menapia-flight/manifests"
+    schedule: "*:14/30"
+    settle_age: 5m
+    verification_settle_age: 2h
+    timeout_start_sec: 2h
+    transfers: 2
+    recent_first: 2d
+    recent_max_duration: 4m
+    backfill_max_duration: 8m
   - name: manifests
     source: "{{ gws_manifest_root }}/"
     destination: data/internal/aurora-cloud/manifests/gws

@@ -1,0 +1,21 @@
+[Unit]
+Description=Aurora ingest immutable Menapia flight data from S3
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists={{ menapia_flight_rclone_config }}
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+LoadCredential=menapia-rclone.conf:{{ menapia_flight_rclone_config }}
+ExecStart=/usr/local/bin/aurora-menapia-flight-sync --config {{ menapia_flight_config_path }}
+TimeoutStartSec={{ menapia_flight_source_service_timeout }}
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths={{ aurora_paths.raw_menapia }} {{ menapia_flight_state_root }} {{ menapia_flight_manifest_root }} {{ archive_monitor_output_root }} {{ archive_dispatch_state_root }}
