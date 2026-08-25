@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule Aurora Menapia flight data ingest
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec={{ menapia_flight_source_sync_interval }}
+Persistent=true
+RandomizedDelaySec={{ menapia_flight_source_sync_randomized_delay }}
+Unit=aurora-menapia-flight-source-sync.service
+
+[Install]
+WantedBy=timers.target

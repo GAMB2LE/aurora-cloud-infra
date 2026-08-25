@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "source_remote": "menapia",
+  "source_bucket": {{ menapia_flight_source_bucket | to_json }},
+  "source_region": {{ menapia_flight_source_region | to_json }},
+  "raw_root": {{ aurora_paths.raw_menapia | to_json }},
+  "state_database": {{ (menapia_flight_state_root ~ '/ingest.sqlite3') | to_json }},
+  "status_path": {{ menapia_flight_status_path | to_json }},
+  "manifest_root": {{ menapia_flight_manifest_root | to_json }},
+  "lock_path": {{ (menapia_flight_state_root ~ '/ingest.lock') | to_json }},
+  "credential_expires_on": {{ menapia_flight_credential_expires_on | to_json }},
+  "rclone_binary": "/usr/bin/rclone",
+  "archive_dispatch_command": "/usr/local/bin/aurora-archive-dispatch",
+  "archive_dispatch_required": {{ aurora_is_production | bool | to_json }},
+  "max_objects_per_run": {{ menapia_flight_max_objects_per_run | int }},
+  "classification": {
+    "dock_ids": {{ menapia_flight_campaign_dock_ids | to_json }},
+    "flight_ids": {{ menapia_flight_campaign_flight_ids | to_json }}
+  }
+}

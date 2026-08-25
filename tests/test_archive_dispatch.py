@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib.util
-import json
 import os
 from pathlib import Path
 import tempfile
@@ -188,6 +187,72 @@ class ArchiveDispatchTests(unittest.TestCase):
 
         self.assertEqual(marked, 0)
         self.assertEqual(current["gws_delivered"], 0)
+
+    def test_inaccessible_gws_and_object_store_remain_pending(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = self.config(root)
+            source = Path(config["jobs"]["raw"]["source"])
+            path = source / "menapia/drone-uploads/flight.bin"
+            path.parent.mkdir(parents=True)
+            path.write_bytes(b"flight")
+            connection = dispatch.connect(config)
+            dispatch.enqueue_paths(
+                config,
+                connection,
+                job_name="raw",
+                base=source,
+                paths=["menapia/drone-uploads/flight.bin"],
+            )
+            try:
+                with mock.patch.object(
+                    dispatch, "deliver_gws", side_effect=RuntimeError("GWS unavailable")
+                ), mock.patch.object(
+                    dispatch,
+                    "deliver_object",
+                    side_effect=RuntimeError("object store unavailable"),
+                ):
+                    result = dispatch.run_worker(config, connection)
+                row = connection.execute("SELECT * FROM delivery").fetchone()
+                status = dispatch.build_status(config, connection)
+            finally:
+                connection.close()
+
+        self.assertEqual(result, 1)
+        self.assertEqual(row["gws_delivered"], 0)
+        self.assertEqual(row["object_delivered"], 0)
+        self.assertEqual(status["queue"]["gws_pending_files"], 1)
+        self.assertEqual(status["queue"]["object_store_pending_files"], 1)
+        self.assertEqual(status["last_run"]["state"], "failed")
+
+    def test_menapia_subroot_keeps_the_common_raw_relative_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = self.config(root)
+            source = Path(config["jobs"]["raw"]["source"])
+            menapia = source / "menapia"
+            path = menapia / "drone-uploads/2026/08/24/dock-1/flight-7/data.bin"
+            path.parent.mkdir(parents=True)
+            path.write_bytes(b"flight")
+            connection = dispatch.connect(config)
+            try:
+                dispatch.enqueue_paths(
+                    config,
+                    connection,
+                    job_name="raw",
+                    base=menapia,
+                    paths=["drone-uploads/2026/08/24/dock-1/flight-7/data.bin"],
+                )
+                relative = connection.execute(
+                    "SELECT relative_path FROM delivery"
+                ).fetchone()[0]
+            finally:
+                connection.close()
+
+        self.assertEqual(
+            relative,
+            "menapia/drone-uploads/2026/08/24/dock-1/flight-7/data.bin",
+        )
 
 
 if __name__ == "__main__":

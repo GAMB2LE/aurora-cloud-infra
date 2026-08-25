@@ -6,6 +6,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 from pathlib import Path
+import sqlite3
 import subprocess
 
 OUTPUT = Path({{ archive_monitor_latest_path | to_json }})
@@ -13,6 +14,10 @@ GWS = Path({{ gws_manifest_root | to_json }}) / "latest/summary.json"
 OBJECT = Path({{ object_store_manifest_root | to_json }}) / "latest/comparison.json"
 INVENTORY_PROGRESS = Path({{ object_store_manifest_root | to_json }}) / "progress.json"
 DISPATCH = Path({{ archive_dispatch_state_root | to_json }}) / "status.json"
+DISPATCH_DATABASE = Path({{ archive_dispatch_state_root | to_json }}) / "queue.sqlite"
+MENAPIA_FLIGHT_STATUS = Path({{ menapia_flight_status_path | to_json }})
+MENAPIA_FLIGHT_ENABLED = {{ 'True' if menapia_flight_source_sync_enabled | bool else 'False' }}
+MENAPIA_FLIGHT_TIMER_EXPECTED = {{ 'True' if menapia_flight_source_sync_timer_enabled | bool else 'False' }}
 GATE = Path({{ aurora_state_root | to_json }}) / "object-store-verification-gate/state.json"
 STREAMS = json.loads(r'''{{ aurora_archive_streams | to_json }}''')
 EVIDENCE_MAX_AGE_HOURS = {{ object_store_inventory_max_age_hours | int }}
@@ -28,6 +33,7 @@ GWS_WRITERS = [
     "aurora-gws-rsync-products.service",
     "aurora-gws-rsync-products-wxcam.service",
     "aurora-gws-rsync-model-evaluation.service",
+    "aurora-gws-rsync-menapia-flight-manifests.service",
     "aurora-gws-rsync-manifests.service",
 ]
 OBJECT_WRITERS = [
@@ -35,6 +41,7 @@ OBJECT_WRITERS = [
     "aurora-object-store-copy-products.service",
     "aurora-object-store-copy-products-wxcam.service",
     "aurora-object-store-copy-model-evaluation.service",
+    "aurora-object-store-copy-menapia-flight-manifests.service",
     "aurora-object-store-copy-manifests.service",
 ]
 ARCHIVE_SERVICES = [
@@ -119,6 +126,45 @@ def timer_active(state: dict) -> bool:
 
 def unit_enabled(state: dict) -> bool:
     return bool(state.get("_exists")) and state.get("UnitFileState") == "enabled"
+
+
+def prefix_delivery(path: Path, prefix: str) -> dict[str, int | bool]:
+    """Read destination state for one raw prefix from the shared dispatcher."""
+    empty = {
+        "available": False,
+        "tracked_files": 0,
+        "dual_delivered_files": 0,
+        "gws_pending_files": 0,
+        "object_store_pending_files": 0,
+    }
+    connection = None
+    try:
+        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        connection.row_factory = sqlite3.Row
+        row = connection.execute(
+            """
+            SELECT
+              COUNT(*) AS tracked,
+              SUM(CASE WHEN gws_delivered = 1 AND object_delivered = 1 THEN 1 ELSE 0 END) AS delivered,
+              SUM(CASE WHEN gws_delivered = 0 THEN 1 ELSE 0 END) AS gws_pending,
+              SUM(CASE WHEN object_delivered = 0 THEN 1 ELSE 0 END) AS object_pending
+            FROM delivery
+            WHERE job = 'raw' AND relative_path LIKE ?
+            """,
+            (f"{prefix}%",),
+        ).fetchone()
+    except (OSError, sqlite3.Error):
+        return empty
+    finally:
+        if connection is not None:
+            connection.close()
+    return {
+        "available": True,
+        "tracked_files": int(row["tracked"] or 0),
+        "dual_delivered_files": int(row["delivered"] or 0),
+        "gws_pending_files": int(row["gws_pending"] or 0),
+        "object_store_pending_files": int(row["object_pending"] or 0),
+    }
 
 
 def source_sync_pairs(stream: dict) -> list[tuple[str, str, bool]]:
@@ -405,6 +451,8 @@ def main() -> int:
     object_report = read(OBJECT)
     inventory_progress = read(INVENTORY_PROGRESS)
     dispatch = read(DISPATCH)
+    menapia_status = read(MENAPIA_FLIGHT_STATUS)
+    menapia_delivery = prefix_delivery(DISPATCH_DATABASE, "menapia/")
     gate = read(GATE)
     metrics: dict[str, object] = {}
     failures: list[str] = []
@@ -531,6 +579,13 @@ def main() -> int:
             source_sync_units.extend(
                 [f"{unit_stem}.timer", f"{unit_stem}.service"]
             )
+    if MENAPIA_FLIGHT_ENABLED:
+        source_sync_units.extend(
+            [
+                "aurora-menapia-flight-source-sync.timer",
+                "aurora-menapia-flight-source-sync.service",
+            ]
+        )
     for name in [*archive_units, *incremental_units, *source_sync_units]:
         services[name] = unit(name)
     metrics["mirror_verify_service_healthy_state"] = int(
@@ -655,6 +710,102 @@ def main() -> int:
                 failures.append(f"source_sync_timer_inactive={timer_name}")
             if not healthy:
                 failures.append(f"source_sync_service_unhealthy={service_name}")
+    if MENAPIA_FLIGHT_ENABLED:
+        timer_name = "aurora-menapia-flight-source-sync.timer"
+        service_name = "aurora-menapia-flight-source-sync.service"
+        timer_state = services[timer_name]
+        service_state = services[service_name]
+        timer_active_state = timer_active(timer_state)
+        timer_enabled_state = unit_enabled(timer_state)
+        unit_healthy = service_healthy(service_state)
+        source_state = str(menapia_status.get("state") or "missing")
+        authentication_failure = bool(
+            menapia_status.get("authentication_failure")
+        )
+        source_healthy = bool(
+            unit_healthy
+            and source_state in {"success", "success_with_backlog", "inventory_only"}
+            and not authentication_failure
+        )
+        credential = menapia_status.get("credential")
+        if not isinstance(credential, dict):
+            credential = {}
+        last_success_age = evidence_age_hours(
+            menapia_status.get("last_success_at")
+        )
+        latest_flight = menapia_status.get("latest_source_flight")
+        if not isinstance(latest_flight, dict):
+            latest_flight = {}
+        metrics.update(
+            {
+                "menapia_flight_commissioned_state": int(
+                    MENAPIA_FLIGHT_TIMER_EXPECTED
+                ),
+                "menapia_flight_timer_active_state": int(timer_active_state),
+                "menapia_flight_timer_enabled_state": int(timer_enabled_state),
+                "menapia_flight_source_sync_service_healthy_state": int(
+                    source_healthy
+                ),
+                "menapia_flight_authentication_failure_state": int(
+                    authentication_failure
+                ),
+                "menapia_flight_last_success_age_minutes": (
+                    last_success_age * 60
+                    if last_success_age is not None
+                    else None
+                ),
+                "menapia_flight_upstream_objects_examined": int(
+                    menapia_status.get("upstream_objects_examined") or 0
+                ),
+                "menapia_flight_new_objects_ingested": int(
+                    menapia_status.get("new_objects_ingested") or 0
+                ),
+                "menapia_flight_bytes_transferred": int(
+                    menapia_status.get("bytes_transferred") or 0
+                ),
+                "menapia_flight_failure_count": int(
+                    menapia_status.get("failure_count") or 0
+                ),
+                "menapia_flight_unclassified_object_count": int(
+                    menapia_status.get("unclassified_objects") or 0
+                ),
+                "menapia_flight_upstream_revision_count": int(
+                    menapia_status.get("upstream_revisions_ingested") or 0
+                ),
+                "menapia_flight_credential_days_remaining": credential.get(
+                    "days_remaining"
+                ),
+                "menapia_flight_latest_source_date": latest_flight.get("date"),
+                "menapia_flight_latest_source_flight": latest_flight.get(
+                    "flight"
+                ),
+                "menapia_flight_archive_tracked_files": int(
+                    menapia_delivery["tracked_files"]
+                ),
+                "menapia_flight_archive_dual_delivered_files": int(
+                    menapia_delivery["dual_delivered_files"]
+                ),
+                "menapia_flight_gws_pending_files": int(
+                    menapia_delivery["gws_pending_files"]
+                ),
+                "menapia_flight_object_store_pending_files": int(
+                    menapia_delivery["object_store_pending_files"]
+                ),
+            }
+        )
+        if MENAPIA_FLIGHT_TIMER_EXPECTED:
+            failed_source_sync += int(not timer_active_state) + int(
+                not source_healthy
+            )
+            source_sync_enabled += int(timer_enabled_state)
+            if not timer_active_state:
+                failures.append(f"source_sync_timer_inactive={timer_name}")
+            if not source_healthy:
+                failures.append(
+                    f"source_sync_service_unhealthy={service_name}"
+                )
+            if authentication_failure:
+                failures.append("menapia_flight_authentication_failure=true")
     metrics["failed_source_sync_unit_count"] = failed_source_sync
     metrics["source_sync_enabled_count"] = source_sync_enabled
     if issues:
@@ -713,6 +864,14 @@ def main() -> int:
         "operator_status": presentation,
         "metrics": metrics,
         "services": services,
+        "source_ingest": {
+            "menapia": {
+                **menapia_status,
+                "enabled": MENAPIA_FLIGHT_ENABLED,
+                "commissioned": MENAPIA_FLIGHT_TIMER_EXPECTED,
+                "archive_delivery": menapia_delivery,
+            }
+        },
         "delivery": {
             "level": delivery_level,
             "mode": "newest-first",
