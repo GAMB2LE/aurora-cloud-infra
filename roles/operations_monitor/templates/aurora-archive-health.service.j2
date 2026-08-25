@@ -11,4 +11,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths={{ archive_monitor_output_root }}
+# SQLite needs to create or lock its journal beside the dispatcher database even
+# when the connection itself is opened read-only.  Keep the writable exception
+# limited to the dispatcher's internal state directory.
+ReadWritePaths={{ archive_monitor_output_root }} {{ archive_dispatch_state_root }}

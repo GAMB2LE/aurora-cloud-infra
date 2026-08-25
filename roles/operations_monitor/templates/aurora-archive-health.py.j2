@@ -452,7 +452,10 @@ def main() -> int:
     inventory_progress = read(INVENTORY_PROGRESS)
     dispatch = read(DISPATCH)
     menapia_status = read(MENAPIA_FLIGHT_STATUS)
-    menapia_delivery = prefix_delivery(DISPATCH_DATABASE, "menapia/")
+    menapia_delivery = prefix_delivery(
+        DISPATCH_DATABASE,
+        "menapia/drone-uploads/",
+    )
     gate = read(GATE)
     metrics: dict[str, object] = {}
     failures: list[str] = []
