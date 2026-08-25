@@ -512,10 +512,11 @@ uas_source_sync_randomized_delay: 10
 
 # Menapia's corrected flight-data bucket is an external, read-only source. The
 # existing pair is installed out of band and is expected to expire at the end
-# of September 2026. Keep commissioning false until that file has been placed
-# and a metadata-only inventory has been reviewed on the production writer.
+# of September 2026. Commissioning was enabled after the protected credential,
+# inventory, representative ingest, idempotency check, full backfill, and
+# three-tier parity audit completed successfully on 2026-08-25.
 menapia_flight_source_sync_enabled: true
-menapia_flight_credentials_commissioned: false
+menapia_flight_credentials_commissioned: true
 menapia_flight_source_sync_timer_enabled: >-
   {{ (aurora_writer_timers_enabled | bool)
      and (menapia_flight_credentials_commissioned | bool) }}
