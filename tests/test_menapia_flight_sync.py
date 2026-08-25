@@ -46,11 +46,21 @@ class FakeRunner:
         self.download_failures: dict[str, str] = {}
         self.list_failure = ""
         self.archive_failure = ""
+        self.metadata_unsupported = False
         self.calls: list[list[str]] = []
 
     def __call__(self, command, **_kwargs):
         command = [str(value) for value in command]
         self.calls.append(command)
+        if (
+            self.metadata_unsupported
+            and len(command) > 1
+            and command[1] in {"lsjson", "copyto"}
+            and "--metadata" in command
+        ):
+            return subprocess.CompletedProcess(
+                command, 1, "", "Fatal error: unknown flag: --metadata"
+            )
         if len(command) > 1 and command[1] == "lsjson":
             if self.list_failure:
                 return subprocess.CompletedProcess(command, 1, "", self.list_failure)
@@ -350,6 +360,34 @@ class MenapiaFlightSyncTests(unittest.TestCase):
         self.assertEqual(status["non_flight_path_objects"], 0)
         self.assertEqual(status["source_path_samples"], [key])
         self.assertEqual(runner.copy_calls, [])
+
+    def test_old_rclone_retries_listing_and_copy_without_metadata_flag(self):
+        key = "drone-uploads/2026/08/24/dock-1/flight-7/data.bin"
+        payload = b"compatible"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config, credential, runner = self.setup_case(
+                root, [entry(key, payload)], {key: payload}
+            )
+            runner.metadata_unsupported = True
+            result = sync.run_sync(config, credential, runner=runner)
+            status = json.loads(Path(config["status_path"]).read_text())
+            landed = (Path(config["raw_root"]) / key).read_bytes()
+
+        self.assertEqual(result, 0)
+        self.assertEqual(landed, payload)
+        self.assertEqual(status["source_metadata_listing"], "basic_compatibility")
+        self.assertTrue(
+            any("does not support optional S3 metadata" in warning for warning in status["source_path_warnings"])
+        )
+        list_calls = [call for call in runner.calls if len(call) > 1 and call[1] == "lsjson"]
+        copy_calls = [call for call in runner.calls if len(call) > 1 and call[1] == "copyto"]
+        self.assertEqual(len(list_calls), 2)
+        self.assertEqual(len(copy_calls), 2)
+        self.assertIn("--metadata", list_calls[0])
+        self.assertNotIn("--metadata", list_calls[1])
+        self.assertIn("--metadata", copy_calls[0])
+        self.assertNotIn("--metadata", copy_calls[1])
 
     def test_ansible_uses_loadcredential_and_starts_uncommissioned(self):
         service = SERVICE.read_text(encoding="utf-8")

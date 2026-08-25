@@ -26,6 +26,9 @@ AUTH_FAILURE = re.compile(
 )
 AWS_ACCESS_KEY = re.compile(r"\b(?:AKIA|ASIA|AIDA|AROA)[A-Z0-9]{12,}\b")
 SECRET_VALUE = re.compile(r"\b[A-Za-z0-9/+_=.-]{32,}\b")
+UNSUPPORTED_METADATA_FLAG = re.compile(
+    r"(?:unknown flag|flag provided but not defined).*--?metadata", re.IGNORECASE
+)
 DATE_PATH = re.compile(
     r"(?:^|/)drone-uploads/(?P<year>\d{4})/(?P<month>\d{2})/"
     r"(?P<day>\d{2})/(?P<dock>[^/]+)/(?P<flight>[^/]+)(?:/|$)"
@@ -105,6 +108,32 @@ def source_metadata(entry: dict[str, Any]) -> dict[str, str]:
     if not isinstance(value, dict):
         return {}
     return {str(key): str(item) for key, item in value.items()}
+
+
+def run_rclone_with_metadata_fallback(
+    command: Sequence[str], *, runner: RunCommand
+) -> tuple[subprocess.CompletedProcess[str], bool]:
+    """Run rclone, retrying without optional metadata on older installations."""
+    completed = runner(
+        list(command), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    detail = completed.stderr or completed.stdout or ""
+    if (
+        completed.returncode
+        and "--metadata" in command
+        and UNSUPPORTED_METADATA_FLAG.search(detail)
+    ):
+        compatible = [value for value in command if value != "--metadata"]
+        return (
+            runner(
+                compatible,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            ),
+            False,
+        )
+    return completed, True
 
 
 def safe_local_relative_path(key: str) -> tuple[Path, bool]:
@@ -199,7 +228,7 @@ def list_upstream(
     credential_path: Path,
     *,
     runner: RunCommand = subprocess.run,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], bool]:
     remote = str(config["source_remote"])
     bucket = str(config["source_bucket"])
     command = [
@@ -214,7 +243,9 @@ def list_upstream(
         "--metadata",
         "--fast-list",
     ]
-    completed = runner(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    completed, metadata_supported = run_rclone_with_metadata_fallback(
+        command, runner=runner
+    )
     if completed.returncode:
         detail = sanitize_error(completed.stderr or completed.stdout or "upstream listing failed")
         raise SyncError(detail, authentication=bool(AUTH_FAILURE.search(detail)))
@@ -229,7 +260,7 @@ def list_upstream(
         key = entry.get("Path")
         if not isinstance(key, str) or not key:
             raise SyncError("upstream inventory contained an object without a Path")
-    return entries
+    return entries, metadata_supported
 
 
 def download_object(
@@ -257,7 +288,9 @@ def download_object(
         "--contimeout=30s",
         "--timeout=10m",
     ]
-    completed = runner(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    completed, _metadata_supported = run_rclone_with_metadata_fallback(
+        command, runner=runner
+    )
     if completed.returncode:
         detail = sanitize_error(completed.stderr or completed.stdout or f"download failed for {key}")
         raise SyncError(detail, authentication=bool(AUTH_FAILURE.search(detail)))
@@ -581,13 +614,16 @@ def run_sync(
             "non_flight_path_objects": 0,
             "source_path_samples": [],
             "source_path_warnings": [],
+            "source_metadata_listing": None,
         }
         atomic_json(status_path, status)
         records: list[dict[str, Any]] = []
         connection = connect_database(state_path)
         try:
             try:
-                entries = list_upstream(config, credential_path, runner=runner)
+                entries, metadata_supported = list_upstream(
+                    config, credential_path, runner=runner
+                )
             except SyncError as exc:
                 status["state"] = "failed"
                 status["authentication_failure"] = exc.authentication
@@ -597,6 +633,15 @@ def run_sync(
                 atomic_json(status_path, status)
                 write_manifest(manifest_root, attempted_at, records, status)
                 return 1
+
+            status["source_metadata_listing"] = (
+                "full" if metadata_supported else "basic_compatibility"
+            )
+            if not metadata_supported:
+                status["source_path_warnings"].append(
+                    "Installed rclone does not support optional S3 metadata listing; "
+                    "provenance retains object size, modification time, and available hashes"
+                )
 
             if include_keys:
                 entries = [entry for entry in entries if str(entry["Path"]) in include_keys]
