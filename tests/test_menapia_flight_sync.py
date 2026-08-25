@@ -361,6 +361,10 @@ class MenapiaFlightSyncTests(unittest.TestCase):
         self.assertNotIn("AWS_ACCESS_KEY", service)
         self.assertIn("no_log: true", tasks)
         self.assertIn("menapia_flight_rclone_credential.stat.mode", tasks)
+        self.assertIn(
+            '{ path: /etc/aurora-menapia, owner: root, group: "{{ aurora_service_group }}", mode: "0750" }',
+            tasks,
+        )
         self.assertIn("menapia_flight_credentials_commissioned: false", inventory)
         self.assertIn("OnUnitActiveSec={{ menapia_flight_source_sync_interval }}", TIMER.read_text())
 
