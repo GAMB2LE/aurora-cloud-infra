@@ -676,7 +676,10 @@
     group: "{{ item.group }}"
     mode: "{{ item.mode }}"
   loop:
-    - { path: /etc/aurora-menapia, owner: root, group: root, mode: "0700" }
+    # The service account must traverse this directory to read the group-owned
+    # non-secret config. The rclone credential inside remains root:root 0600
+    # and is exposed to the service only through systemd LoadCredential.
+    - { path: /etc/aurora-menapia, owner: root, group: "{{ aurora_service_group }}", mode: "0750" }
     - { path: "{{ menapia_flight_state_root }}", owner: "{{ aurora_service_user }}", group: "{{ aurora_service_group }}", mode: "0750" }
     - { path: "{{ menapia_flight_manifest_root }}", owner: "{{ aurora_service_user }}", group: "{{ aurora_service_group }}", mode: "0755" }
     - { path: "{{ archive_monitor_output_root }}", owner: "{{ aurora_service_user }}", group: "{{ aurora_service_group }}", mode: "0755" }
