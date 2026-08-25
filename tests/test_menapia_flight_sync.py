@@ -389,7 +389,7 @@ class MenapiaFlightSyncTests(unittest.TestCase):
         self.assertIn("--metadata", copy_calls[0])
         self.assertNotIn("--metadata", copy_calls[1])
 
-    def test_ansible_uses_loadcredential_and_starts_uncommissioned(self):
+    def test_ansible_uses_loadcredential_and_commissioning_gate(self):
         service = SERVICE.read_text(encoding="utf-8")
         tasks = TASKS.read_text(encoding="utf-8")
         inventory = INVENTORY.read_text(encoding="utf-8")
@@ -403,7 +403,7 @@ class MenapiaFlightSyncTests(unittest.TestCase):
             '{ path: /etc/aurora-menapia, owner: root, group: "{{ aurora_service_group }}", mode: "0750" }',
             tasks,
         )
-        self.assertIn("menapia_flight_credentials_commissioned: false", inventory)
+        self.assertIn("menapia_flight_credentials_commissioned: true", inventory)
         self.assertIn("OnUnitActiveSec={{ menapia_flight_source_sync_interval }}", TIMER.read_text())
 
     def test_storage_roots_and_internal_manifests_follow_existing_layout(self):
