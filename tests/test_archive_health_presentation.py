@@ -9,6 +9,10 @@ TEMPLATE = (
     Path(__file__).parents[1]
     / "roles/operations_monitor/templates/aurora-archive-health.py.j2"
 )
+SERVICE_TEMPLATE = (
+    Path(__file__).parents[1]
+    / "roles/operations_monitor/templates/aurora-archive-health.service.j2"
+)
 
 
 def load_operator_status():
@@ -157,17 +161,24 @@ class ArchiveHealthPresentationTests(unittest.TestCase):
                         ("raw", "menapia/drone-uploads/a.bin", 1, 1),
                         ("raw", "menapia/drone-uploads/b.bin", 0, 1),
                         ("raw", "menapia/drone-uploads/c.bin", 1, 0),
+                        ("raw", "menapia/menapia_mqtt.log", 0, 0),
                         ("raw", "cl61/unrelated.nc", 0, 0),
                         ("products", "menapia/not-raw.bin", 0, 0),
                     ],
                 )
-            result = prefix_delivery(database, "menapia/")
+            result = prefix_delivery(database, "menapia/drone-uploads/")
 
         self.assertTrue(result["available"])
         self.assertEqual(result["tracked_files"], 3)
         self.assertEqual(result["dual_delivered_files"], 1)
         self.assertEqual(result["gws_pending_files"], 1)
         self.assertEqual(result["object_store_pending_files"], 1)
+
+    def test_health_service_can_open_dispatcher_sqlite_state(self):
+        source = SERVICE_TEMPLATE.read_text(encoding="utf-8")
+
+        self.assertIn("{{ archive_monitor_output_root }}", source)
+        self.assertIn("{{ archive_dispatch_state_root }}", source)
 
     def test_health_contract_contains_menapia_source_and_archive_metrics(self):
         source = TEMPLATE.read_text(encoding="utf-8")
@@ -176,6 +187,7 @@ class ArchiveHealthPresentationTests(unittest.TestCase):
         self.assertIn('"menapia": {', source)
         self.assertIn('"menapia_flight_gws_pending_files"', source)
         self.assertIn('"menapia_flight_object_store_pending_files"', source)
+        self.assertIn('"menapia/drone-uploads/"', source)
 
 
 if __name__ == "__main__":
