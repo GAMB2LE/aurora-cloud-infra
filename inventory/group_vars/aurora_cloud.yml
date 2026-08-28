@@ -551,6 +551,8 @@ aurora_menapia_product_root: "{{ aurora_paths.products_menapia }}"
 aurora_menapia_quicklook_root: "{{ aurora_quicklook_dirs.uas }}"
 aurora_menapia_product_state_root: "{{ aurora_state_root }}/menapia-products"
 aurora_menapia_product_state_path: "{{ aurora_menapia_product_state_root }}/state.json"
+aurora_menapia_product_status_root: "{{ aurora_data_root }}/internal/menapia-products"
+aurora_menapia_product_status_path: "{{ aurora_menapia_product_status_root }}/status.json"
 aurora_menapia_product_campaign_start_day: "2026-08-25"
 aurora_menapia_product_timeout: 2h
 aurora_menapia_product_randomized_delay: 60

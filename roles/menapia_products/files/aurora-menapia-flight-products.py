@@ -32,6 +32,7 @@ from typing import Any, Iterable
 UTC = dt.timezone.utc
 SCHEMA_VERSION = 1
 DEFAULT_CAMPAIGN_START_DAY = dt.date(2026, 8, 25)
+DEFAULT_STATUS_PATH = Path("/data/aurora/internal/menapia-products/status.json")
 PATH_RE = re.compile(
     r"^drone-uploads/(?P<year>\d{4})/(?P<month>\d{2})/(?P<day>\d{2})/"
     r"(?P<dock>[^/]+)/(?P<flight>[^/]+)/data_files$"
@@ -119,6 +120,43 @@ def atomic_copy(source: Path, destination: Path) -> None:
         handle.flush()
         os.fsync(handle.fileno())
     temporary.replace(destination)
+
+
+def publish_run_status(
+    path: Path,
+    *,
+    state: str,
+    completed_at: str,
+    catalog: dict[str, Any] | None = None,
+    error: BaseException | None = None,
+) -> None:
+    """Publish a small operational heartbeat outside the product archive.
+
+    The science catalog deliberately keeps its modification time when its
+    contents are unchanged so the archive safety window can elapse. This
+    heartbeat is instead updated after every builder attempt and is mirrored
+    to the development host with the internal operational tree.
+    """
+    payload: dict[str, Any] = {
+        "schemaVersion": SCHEMA_VERSION,
+        "state": state,
+        "completedAt": completed_at,
+    }
+    if catalog is not None:
+        flights = catalog.get("flights")
+        days = catalog.get("availableDays")
+        payload.update(
+            {
+                "catalogGeneratedAt": catalog.get("generatedAt"),
+                "flightCount": len(flights) if isinstance(flights, list) else 0,
+                "latestFlightID": catalog.get("latestFlightID"),
+                "availableDays": days if isinstance(days, list) else [],
+                "deferredBundleCount": int(catalog.get("deferredBundleCount") or 0),
+            }
+        )
+    if error is not None:
+        payload["error"] = str(error)[:500]
+    atomic_json(path, payload)
 
 
 def same_file_content(left: Path, right: Path) -> bool:
@@ -1106,6 +1144,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--quicklook-root", type=Path, default=Path("/data/aurora/products/quicklooks/uas"))
     parser.add_argument("--state-path", type=Path, default=Path("/var/lib/aurora-cloud/menapia-products/state.json"))
     parser.add_argument(
+        "--status-path",
+        type=Path,
+        default=DEFAULT_STATUS_PATH,
+        help="atomic operational run heartbeat outside the product archive",
+    )
+    parser.add_argument(
         "--campaign-start-day",
         type=campaign_day,
         default=DEFAULT_CAMPAIGN_START_DAY,
@@ -1127,8 +1171,28 @@ def main(argv: list[str] | None = None) -> int:
             campaign_start_day=args.campaign_start_day,
         )
     except ProductError as exc:
+        publish_run_status(
+            args.status_path,
+            state="failed",
+            completed_at=utc_now(),
+            error=exc,
+        )
         print(f"Menapia product build failed: {exc}", file=sys.stderr)
         return 1
+    except Exception as exc:
+        publish_run_status(
+            args.status_path,
+            state="failed",
+            completed_at=utc_now(),
+            error=exc,
+        )
+        raise
+    publish_run_status(
+        args.status_path,
+        state=str(catalog["lastRunState"]),
+        completed_at=utc_now(),
+        catalog=catalog,
+    )
     print(
         json.dumps(
             {
