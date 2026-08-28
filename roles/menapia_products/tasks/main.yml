@@ -13,6 +13,7 @@
     - "{{ aurora_menapia_quicklook_root }}"
     - "{{ aurora_menapia_product_state_root }}"
     - "{{ aurora_menapia_product_state_root }}/matplotlib"
+    - "{{ aurora_menapia_product_status_root }}"
   when: aurora_menapia_product_enabled | bool
 
 - name: Install Menapia flight product builder

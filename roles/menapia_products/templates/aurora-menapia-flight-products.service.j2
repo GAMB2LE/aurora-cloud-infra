@@ -10,7 +10,7 @@ Type=oneshot
 User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
 Environment=MPLCONFIGDIR={{ aurora_menapia_product_state_root }}/matplotlib
-ExecStart={{ aurora_venv }}/bin/python /usr/local/bin/aurora-menapia-flight-products --raw-root {{ aurora_menapia_product_raw_root }} --product-root {{ aurora_menapia_product_root }} --quicklook-root {{ aurora_menapia_quicklook_root }} --state-path {{ aurora_menapia_product_state_path }} --campaign-start-day {{ aurora_menapia_product_campaign_start_day }}
+ExecStart={{ aurora_venv }}/bin/python /usr/local/bin/aurora-menapia-flight-products --raw-root {{ aurora_menapia_product_raw_root }} --product-root {{ aurora_menapia_product_root }} --quicklook-root {{ aurora_menapia_quicklook_root }} --state-path {{ aurora_menapia_product_state_path }} --status-path {{ aurora_menapia_product_status_path }} --campaign-start-day {{ aurora_menapia_product_campaign_start_day }}
 TimeoutStartSec={{ aurora_menapia_product_timeout }}
 UMask=0022
 Nice=10
@@ -31,4 +31,4 @@ RestrictAddressFamilies=AF_UNIX
 RestrictRealtime=true
 LockPersonality=true
 ReadOnlyPaths={{ aurora_menapia_product_raw_root }}
-ReadWritePaths={{ aurora_menapia_product_root }} {{ aurora_menapia_quicklook_root }} {{ aurora_menapia_product_state_root }}
+ReadWritePaths={{ aurora_menapia_product_root }} {{ aurora_menapia_quicklook_root }} {{ aurora_menapia_product_state_root }} {{ aurora_menapia_product_status_root }}
