@@ -452,6 +452,58 @@ class MenapiaPlotContractTests(unittest.TestCase):
 
 
 class MenapiaPublicationTests(unittest.TestCase):
+    def test_main_refreshes_run_heartbeat_without_changing_catalog_generation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            status_path = root / "internal/menapia-products/status.json"
+            catalog = {
+                "schemaVersion": 1,
+                "generatedAt": "2026-08-28T12:29:50Z",
+                "lastRunState": "success",
+                "latestFlightID": "abc123",
+                "availableDays": ["2026-08-28"],
+                "flights": [{"id": "abc123"}],
+                "deferredBundleCount": 0,
+            }
+            argv = ["--status-path", str(status_path)]
+            with (
+                mock.patch.object(products, "build_products", return_value=(catalog, 0)),
+                mock.patch.object(
+                    products,
+                    "utc_now",
+                    side_effect=["2026-08-28T13:30:00Z", "2026-08-28T14:00:00Z"],
+                ),
+            ):
+                self.assertEqual(products.main(argv), 0)
+                first = json.loads(status_path.read_text(encoding="utf-8"))
+                self.assertEqual(products.main(argv), 0)
+                second = json.loads(status_path.read_text(encoding="utf-8"))
+
+            self.assertEqual(first["completedAt"], "2026-08-28T13:30:00Z")
+            self.assertEqual(second["completedAt"], "2026-08-28T14:00:00Z")
+            self.assertEqual(second["catalogGeneratedAt"], catalog["generatedAt"])
+            self.assertEqual(second["state"], "success")
+            self.assertEqual(second["flightCount"], 1)
+
+    def test_main_publishes_failed_heartbeat_for_fatal_product_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            status_path = Path(temporary) / "internal/menapia-products/status.json"
+            with (
+                mock.patch.object(
+                    products,
+                    "build_products",
+                    side_effect=products.ProductError("synthetic fatal failure"),
+                ),
+                mock.patch.object(products, "utc_now", return_value="2026-08-28T14:00:00Z"),
+            ):
+                result = products.main(["--status-path", str(status_path)])
+
+            heartbeat = json.loads(status_path.read_text(encoding="utf-8"))
+            self.assertEqual(result, 1)
+            self.assertEqual(heartbeat["state"], "failed")
+            self.assertEqual(heartbeat["completedAt"], "2026-08-28T14:00:00Z")
+            self.assertIn("synthetic fatal failure", heartbeat["error"])
+
     def test_catalog_products_quicklooks_and_repeat_run_are_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -642,12 +694,18 @@ class MenapiaInfrastructureTests(unittest.TestCase):
         self.assertIn("Environment=MPLCONFIGDIR=", service)
         self.assertIn("ReadOnlyPaths={{ aurora_menapia_product_raw_root }}", service)
         self.assertIn("{{ aurora_menapia_product_state_root }}", service)
+        self.assertIn("--status-path {{ aurora_menapia_product_status_path }}", service)
+        self.assertIn("{{ aurora_menapia_product_status_root }}", service)
         self.assertIn(
             "--campaign-start-day {{ aurora_menapia_product_campaign_start_day }}",
             service,
         )
         self.assertIn(
             'aurora_menapia_product_campaign_start_day: "2026-08-25"',
+            inventory,
+        )
+        self.assertIn(
+            'aurora_menapia_product_status_path: "{{ aurora_menapia_product_status_root }}/status.json"',
             inventory,
         )
         self.assertNotIn("restart", tasks.lower())
