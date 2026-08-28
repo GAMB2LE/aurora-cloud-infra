@@ -29,3 +29,15 @@ class NginxMobileMediaLimitTests(unittest.TestCase):
 
         self.assertIn("limit_req zone=aurora_mobile_api burst=20 nodelay;", site)
         self.assertIn("limit_conn aurora_per_ip 8;", site)
+
+    def test_development_app_slash_is_canonicalized_without_changing_production(self) -> None:
+        site = SITE_TEMPLATE.read_text(encoding="utf-8")
+        guarded_redirect = """{% if aurora_is_development | default(false) | bool %}
+    # Panel emits relative extension assets. Canonicalise the development
+    # route so they resolve through the global /static/ location.
+    location = /app/ {
+        return 302 /app$is_args$args;
+    }
+{% endif %}"""
+
+        self.assertEqual(site.count(guarded_redirect), 2)

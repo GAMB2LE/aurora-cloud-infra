@@ -35,6 +35,14 @@ server {
         return 302 /app;
     }
 
+{% if aurora_is_development | default(false) | bool %}
+    # Panel emits relative extension assets. Canonicalise the development
+    # route so they resolve through the global /static/ location.
+    location = /app/ {
+        return 302 /app$is_args$args;
+    }
+{% endif %}
+
     # WXcam thumbnails are still authenticated by the mobile API, but their
     # request shape is different from JSON: the camera screen loads a 24-image
     # hourly grid. Give only this small-image route a bounded pool large enough
@@ -185,6 +193,14 @@ server {
     location = / {
         return 302 /app;
     }
+
+{% if aurora_is_development | default(false) | bool %}
+    # Panel emits relative extension assets. Canonicalise the development
+    # route so they resolve through the global /static/ location.
+    location = /app/ {
+        return 302 /app$is_args$args;
+    }
+{% endif %}
 
     location ^~ /mobile/v1/media/wxcam/thumb/ {
         proxy_pass http://{{ aurora_mobile_api_host }}:{{ aurora_mobile_api_port }}/media/wxcam/thumb/;

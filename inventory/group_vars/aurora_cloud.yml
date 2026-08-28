@@ -1043,6 +1043,10 @@ aurora_standby_replication_paths:
     exclude:
       - dev-live-mirror/**
       - dashboard-probe/**
+      # The development UI consumes the compact archive-status product, not
+      # multi-gigabyte historical verification evidence retained on production.
+      - mirror_manifests/history/**
+      - object_store_manifests/**
       - "*.lock"
       - "*.tmp"
   - name: state
