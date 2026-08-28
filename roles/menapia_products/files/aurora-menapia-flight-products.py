@@ -36,6 +36,13 @@ PATH_RE = re.compile(
     r"^drone-uploads/(?P<year>\d{4})/(?P<month>\d{2})/(?P<day>\d{2})/"
     r"(?P<dock>[^/]+)/(?P<flight>[^/]+)/data_files$"
 )
+DATED_UPSTREAM_FLIGHT_RE = re.compile(
+    r"^(?P<token>[0-9A-Fa-f]{8})-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-"
+    r"[0-9A-Fa-f]{4}-(?P<stamp>\d{12})$"
+)
+MANUAL_FLIGHT_RE = re.compile(
+    r"^(?P<day>\d{6})-(?P<time>\d{6})-(?P<token>[0-9A-Fa-f]{8})$"
+)
 RECORD = struct.Struct(">BBHBBfBfBfBfIBH")
 TIMESTAMP_MODULUS = 2**32
 CSV_COLUMNS = {
@@ -413,6 +420,25 @@ def read_preferred_stream(
     raise ProductError(f"{stream} CSV rejected and no binary fallback is available")
 
 
+def source_flight_signature(source_flight_id: str) -> tuple[dt.datetime, str] | None:
+    """Return an embedded UTC flight time and cross-upload identity when present."""
+    dated = DATED_UPSTREAM_FLIGHT_RE.fullmatch(source_flight_id)
+    if dated:
+        stamp = dated.group("stamp")
+        token = dated.group("token").lower()
+    else:
+        manual = MANUAL_FLIGHT_RE.fullmatch(source_flight_id)
+        if not manual:
+            return None
+        stamp = f"{manual.group('day')}{manual.group('time')}"
+        token = manual.group("token").lower()
+    try:
+        timestamp = dt.datetime.strptime(stamp, "%y%m%d%H%M%S").replace(tzinfo=UTC)
+    except ValueError:
+        return None
+    return timestamp, f"{stamp}:{token}"
+
+
 def bundle_identity(raw_root: Path, data_files: Path) -> dict[str, Any] | None:
     try:
         relative = data_files.relative_to(raw_root).as_posix()
@@ -428,14 +454,35 @@ def bundle_identity(raw_root: Path, data_files: Path) -> dict[str, Any] | None:
         return None
     bundle_relative = data_files.parent.relative_to(raw_root).as_posix()
     stable_id = hashlib.sha256(bundle_relative.encode("utf-8")).hexdigest()[:20]
+    signature = source_flight_signature(groups["flight"])
+    effective_day = signature[0].date() if signature else path_day
+    canonical_key = signature[1] if signature else f"path:{bundle_relative}"
     return {
         "id": stable_id,
         "sourceFlightID": groups["flight"],
         "dock": groups["dock"],
-        "day": path_day,
-        "dayUTC": path_day.isoformat(),
+        "day": effective_day,
+        "dayUTC": effective_day.isoformat(),
+        "pathDayUTC": path_day.isoformat(),
+        "canonicalFlightKey": canonical_key,
         "relative": bundle_relative,
     }
+
+
+def bundle_preference(
+    candidate: tuple[Path, dict[str, Any], dict[str, bool]],
+) -> tuple[int, int, int]:
+    """Prefer complete, correctly dated, CSV-rich copies of one flight."""
+    data_files, identity, available = candidate
+    csv_streams = sum(
+        bool(file_candidates(data_files, stream)[0])
+        for stream in ("Drone", "SN0122", "SN0123")
+    )
+    return (
+        int(all(available.values())),
+        int(identity["pathDayUTC"] == identity["dayUTC"]),
+        csv_streams,
+    )
 
 
 def discover_bundles(
@@ -445,8 +492,9 @@ def discover_bundles(
     base = raw_root / "drone-uploads"
     if not base.exists():
         return [], []
-    complete: list[tuple[Path, dict[str, Any]]] = []
-    incomplete: list[str] = []
+    candidates: dict[
+        str, list[tuple[Path, dict[str, Any], dict[str, bool]]]
+    ] = {}
     for data_files in sorted(base.glob("[0-9][0-9][0-9][0-9]/[0-9][0-9]/[0-9][0-9]/*/*/data_files")):
         if not data_files.is_dir():
             continue
@@ -454,7 +502,7 @@ def discover_bundles(
         if identity is None:
             continue
         # The shared bucket contains pre-campaign test bundles with qualifying
-        # filenames but no telemetry on their path day. Exclude them before
+        # filenames but no eligible campaign telemetry. Exclude them before
         # completeness/deferred classification so they cannot create false
         # product failures or backlog counts.
         if identity["day"] < campaign_start_day:
@@ -463,10 +511,20 @@ def discover_bundles(
             stream: any(file_candidates(data_files, stream))
             for stream in ("Drone", "SN0122", "SN0123")
         }
+        candidates.setdefault(identity["canonicalFlightKey"], []).append(
+            (data_files, identity, available)
+        )
+
+    complete: list[tuple[Path, dict[str, Any]]] = []
+    incomplete: list[str] = []
+    for grouped in candidates.values():
+        data_files, identity, available = max(grouped, key=bundle_preference)
         if all(available.values()):
             complete.append((data_files, identity))
         elif any(available.values()):
             incomplete.append(identity["relative"])
+    complete.sort(key=lambda item: item[1]["relative"])
+    incomplete.sort()
     return complete, incomplete
 
 
@@ -991,9 +1049,10 @@ def build_products(
             key=lambda item: (item["startTimeUTC"], item["id"]),
             reverse=True,
         )
+        run_completed_at = utc_now()
         catalog = {
             "schemaVersion": SCHEMA_VERSION,
-            "generatedAt": utc_now(),
+            "generatedAt": run_completed_at,
             "lastRunState": "partial_failure" if failures else "success",
             "latestFlightID": flights[0]["id"] if flights else None,
             "availableDays": sorted_days,
@@ -1001,12 +1060,32 @@ def build_products(
             "deferredBundleCount": len(incomplete),
             "runWarnings": failures,
         }
-        atomic_json(product_root / "catalog.json", catalog)
+        # Product archives intentionally settle files before copying them.  Do
+        # not replace an otherwise identical catalog every 30 minutes, or its
+        # age can never cross that safety window.  Runtime state still records
+        # every completed scan below.
+        old_catalog_generated_at = old_catalog.get("generatedAt")
+        old_catalog_semantics = {
+            key: value for key, value in old_catalog.items() if key != "generatedAt"
+        }
+        catalog_semantics = {
+            key: value for key, value in catalog.items() if key != "generatedAt"
+        }
+        catalog_unchanged = (
+            not force
+            and isinstance(old_catalog_generated_at, str)
+            and bool(old_catalog_generated_at)
+            and old_catalog_semantics == catalog_semantics
+        )
+        if catalog_unchanged:
+            catalog["generatedAt"] = old_catalog_generated_at
+        else:
+            atomic_json(product_root / "catalog.json", catalog)
         atomic_json(
             state_path,
             {
                 "schemaVersion": SCHEMA_VERSION,
-                "updatedAt": catalog["generatedAt"],
+                "updatedAt": run_completed_at,
                 "flights": state_flights,
             },
         )
