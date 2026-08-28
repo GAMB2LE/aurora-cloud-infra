@@ -6,6 +6,7 @@ import importlib.util
 import json
 import math
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 from unittest import mock
@@ -162,6 +163,48 @@ def product_paths(root: Path) -> tuple[Path, Path, Path, Path, Path]:
 
 
 class MenapiaDecoderTests(unittest.TestCase):
+    def test_embedded_flight_day_deduplicates_late_upstream_revisions(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            raw_root = Path(temporary) / "raw/menapia"
+            manual, _paths = make_bundle(
+                raw_root,
+                flight="260827-120000-deadbeef",
+            )
+            duplicate = (
+                raw_root
+                / "drone-uploads/2026/08/28/unknown_dock"
+                / "deadbeef-0000-4000-8000-260827120000/data_files"
+            )
+            unique = (
+                raw_root
+                / "drone-uploads/2026/08/28/unknown_dock"
+                / "feedface-0000-4000-8000-260827120000/data_files"
+            )
+            shutil.copytree(manual, duplicate)
+            shutil.copytree(manual, unique)
+
+            duplicate_identity = products.bundle_identity(raw_root, duplicate)
+            unique_identity = products.bundle_identity(raw_root, unique)
+            assert duplicate_identity is not None
+            assert unique_identity is not None
+            found, deferred = products.discover_bundles(raw_root)
+            detail = products.decode_bundle(
+                unique,
+                unique_identity,
+                "2026-08-28T10:30:00Z",
+            )
+
+        self.assertEqual(duplicate_identity["dayUTC"], "2026-08-27")
+        self.assertEqual(duplicate_identity["pathDayUTC"], "2026-08-28")
+        self.assertEqual(
+            duplicate_identity["canonicalFlightKey"],
+            "260827120000:deadbeef",
+        )
+        self.assertEqual([path for path, _identity in found], [manual, unique])
+        self.assertEqual(deferred, [])
+        self.assertEqual(detail["flight"]["dayUTC"], "2026-08-27")
+        self.assertEqual(detail["flight"]["startTimeUTC"], "2026-08-27T12:00:00Z")
+
     def test_campaign_lower_bound_excludes_aug24_before_bundle_classification(self) -> None:
         def named_bundle(
             raw_root: Path,
@@ -433,7 +476,13 @@ class MenapiaPublicationTests(unittest.TestCase):
                 latest_path = quicklook_root / "uas__summary__latest.png"
                 mtimes = {
                     path: path.stat().st_mtime_ns
-                    for path in (detail_path, plot_path, daily_path, latest_path)
+                    for path in (
+                        catalog_path,
+                        detail_path,
+                        plot_path,
+                        daily_path,
+                        latest_path,
+                    )
                 }
                 second_catalog, second_status = products.build_products(
                     raw, product_root, quicklook_root, state_path
@@ -454,6 +503,7 @@ class MenapiaPublicationTests(unittest.TestCase):
             self.assertEqual(catalog["availableDays"], ["2026-08-27"])
             self.assertEqual(catalog["latestFlightID"], flight_id)
             self.assertEqual(second_catalog["latestFlightID"], flight_id)
+            self.assertEqual(second_catalog["generatedAt"], catalog["generatedAt"])
             self.assertEqual(catalog["flights"][0]["detailPath"], f"flights/{flight_id}.json")
             self.assertEqual(catalog["flights"][0]["plotPath"], f"plots/{flight_id}.png")
             self.assertEqual(
