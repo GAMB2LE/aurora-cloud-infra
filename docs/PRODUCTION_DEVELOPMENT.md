@@ -46,6 +46,7 @@ Production owns:
 - source-sync timers
 - UAS Menapia MQTT source-sync timer
 - Menapia S3 flight-data source-sync timer, once separately commissioned
+- Menapia flight JSON/PNG and UAS science-quicklook producer every 30 minutes
 - append/build timers
 - quicklook timers
 - Operations monitor and alert timers
@@ -61,6 +62,8 @@ Development owns:
   dashboard writer timers
 - independent `aurora-dev-live-pull-<stage>.timer` units for each raw or
   product family
+- `product-menapia` and `product-quicklooks` mirrors of production-owned
+  Menapia JSON/PNG products; development does not rebuild them
 - the shared `aurora-dev-live-pull@.service` template used by those timers
 - a mirror-lag success stamp at
   `/data/aurora/internal/dev-live-mirror/last_success.json`

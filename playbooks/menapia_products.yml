@@ -1,0 +1,6 @@
+---
+- name: Deploy the authoritative Menapia flight display-product builder
+  hosts: aurora_cloud
+  become: true
+  roles:
+    - menapia_products

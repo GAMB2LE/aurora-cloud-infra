@@ -202,6 +202,7 @@ aurora_paths:
   products_asfs_fast_sonic: "{{ aurora_product_root }}/asfs_fast_sonic"
   products_asfs_fast_gas: "{{ aurora_product_root }}/asfs_fast_gas"
   products_power: "{{ aurora_product_root }}/power"
+  products_menapia: "{{ aurora_product_root }}/menapia"
   products_power_ecmwf_solar_forecast: "{{ aurora_power_forecast_root }}/ecmwf_solar_forecast"
   products_power_ecmwf_solar_ensemble: "{{ aurora_power_forecast_root }}/ecmwf_solar_ensemble"
   products_ops_monitor: "{{ aurora_product_root }}/ops_monitor"
@@ -247,6 +248,7 @@ aurora_quicklook_dirs:
   asfs_fast_sonic: "{{ aurora_paths.quicklooks }}/asfs_fast_sonic"
   power: "{{ aurora_paths.quicklooks }}/power"
   ops_monitor: "{{ aurora_paths.quicklooks }}/ops_monitor"
+  uas: "{{ aurora_paths.quicklooks }}/uas"
 
 aurora_quicklook_latest:
   ceilometer: "{{ aurora_quicklook_dirs.ceilometer }}/latest.png"
@@ -257,6 +259,7 @@ aurora_quicklook_latest:
   asfs_fast_sonic: "{{ aurora_quicklook_dirs.asfs_fast_sonic }}/latest.png"
   power: "{{ aurora_quicklook_dirs.power }}/latest.png"
   ops_monitor: "{{ aurora_quicklook_dirs.ops_monitor }}/latest.png"
+  uas: "{{ aurora_quicklook_dirs.uas }}/uas__summary__latest.png"
 
 aurora_dashboard_allowed_origins:
   - "{{ aurora_domain }}"
@@ -538,6 +541,19 @@ menapia_flight_max_objects_per_run: 500
 # and label every object as unknown until Menapia supplies a reliable mapping.
 menapia_flight_campaign_dock_ids: {}
 menapia_flight_campaign_flight_ids: {}
+
+# Presentation products are built only by the authoritative production writer.
+# Data-ocean receives the immutable JSON/PNG products through standby
+# replication and never scans or rewrites the production product tree itself.
+aurora_menapia_product_enabled: true
+aurora_menapia_product_raw_root: "{{ aurora_paths.raw_menapia }}"
+aurora_menapia_product_root: "{{ aurora_paths.products_menapia }}"
+aurora_menapia_quicklook_root: "{{ aurora_quicklook_dirs.uas }}"
+aurora_menapia_product_state_root: "{{ aurora_state_root }}/menapia-products"
+aurora_menapia_product_state_path: "{{ aurora_menapia_product_state_root }}/state.json"
+aurora_menapia_product_campaign_start_day: "2026-08-25"
+aurora_menapia_product_timeout: 2h
+aurora_menapia_product_randomized_delay: 60
 
 wxcam_source_sync_enabled: true
 wxcam_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"

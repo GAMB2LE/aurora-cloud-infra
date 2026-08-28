@@ -126,6 +126,11 @@ live products do not oscillate between “present” and “missing”.
 | `model-evaluation` | Campaign products, dereferencing approved symlinked inputs | 1 h | 6 h | GWS and object-store model-evaluation roots |
 | `manifests` | GWS verification evidence, excluding operational logs | 5 min | 2 h | GWS internal and object-store manifest roots |
 
+The generic `products` job includes the Menapia flight catalog, per-flight
+JSON/PNG files, and dated/latest UAS science quicklooks. They remain rebuildable
+presentation products and do not count as raw-retention evidence; there is no
+parallel Menapia-specific archive job.
+
 The raw six-hour horizon is strict: every settled raw file must be present and
 matching in object storage. The independent GWS stream verifier also publishes
 all-age counts for visibility and seven-day age-bounded counts for retention.

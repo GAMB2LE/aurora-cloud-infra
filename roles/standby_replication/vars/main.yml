@@ -86,6 +86,10 @@ aurora_standby_product_stages:
     source: /data/aurora/products/hatprog5/
     destination: /data/aurora/products/hatprog5/
     exclude: ["*.lock", "*.tmp"]
+  - name: product-menapia
+    source: /data/aurora/products/menapia/
+    destination: /data/aurora/products/menapia/
+    exclude: ["*.lock", "*.tmp"]
   - name: product-ops-monitor
     source: /data/aurora/products/ops_monitor/
     destination: /data/aurora/products/ops_monitor/

@@ -1,0 +1,12 @@
+[Unit]
+Description=Build Aurora Menapia flight products every 30 minutes
+
+[Timer]
+OnBootSec=5min
+OnCalendar=*:00/30
+Persistent=true
+RandomizedDelaySec={{ aurora_menapia_product_randomized_delay }}
+Unit=aurora-menapia-flight-products.service
+
+[Install]
+WantedBy=timers.target

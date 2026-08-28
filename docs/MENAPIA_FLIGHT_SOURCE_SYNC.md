@@ -46,6 +46,71 @@ under `raw/menapia/_upstream_revisions/`; the original is not overwritten.
 Unsafe filesystem keys are retained under `raw/menapia/_unsafe_keys/`, with
 their original S3 key recorded in provenance.
 
+## Flight display products
+
+The separate `aurora-menapia-flight-products.timer` runs on the authoritative
+production writer every 30 minutes. It is a read-only consumer of canonical
+bundles below:
+
+```text
+/project/aurora/raw/menapia/drone-uploads/YYYY/MM/DD/<dock>/<flight>/data_files/
+```
+
+A bundle qualifies only when it contains Drone/DRN, SN0122, and SN0123
+streams. M350-only bundles, incomplete bundles, `_upstream_revisions`, and
+`_unsafe_keys` do not become public flight products. CSV is preferred when it
+is valid; the original binary stream is the fallback for legacy flights. The
+campaign product boundary defaults to 25 August 2026; earlier shared-bucket
+test bundles are excluded before completeness and deferred-bundle accounting.
+Change `aurora_menapia_product_campaign_start_day` only after campaign scope is
+reviewed.
+Values are filtered to the UTC date encoded in the canonical path and then to
+the first-to-last valid drone-altitude second. Products contain exact
+one-second medians with explicit null gaps and no interpolation. Temperature
+is degrees Celsius, pressure is converted from Pa to hPa, relative humidity is
+percent, and fused drone altitude is metres. Physical bounds exclude corrupt
+values and are recorded in the flight quality warnings.
+
+The public-safe product contract is:
+
+```text
+/data/aurora/products/menapia/catalog.json
+/data/aurora/products/menapia/flights/<stable-path-hash>.json
+/data/aurora/products/menapia/plots/<stable-path-hash>.png
+/data/aurora/products/quicklooks/uas/uas__summary__YYYYMMDD.png
+/data/aurora/products/quicklooks/uas/uas__summary__latest.png
+```
+
+`catalog.json` is schema version 1 and lists days newest first plus flight
+metadata and relative detail/plot filenames. Each detail JSON holds equal
+length, columnar `timeUTC`, temperature, pressure, humidity, and altitude
+arrays. A per-flight PNG has the same four panels. The dated UAS science
+quicklook overlays every decoded flight for its UTC day; `latest` is an atomic
+copy of the newest complete dated image. Sparse legacy pressure values have
+visible point markers, while null seconds remain line breaks.
+
+Publication is day-transactional. Changed JSON, per-flight PNGs, and the dated
+all-flights image are staged before any of them replaces a published artifact.
+If decode or rendering fails, the previous complete day and catalog entries
+remain available, the catalog reports `partial_failure`, and the input
+fingerprint is not committed. Repeated successful runs do not rewrite
+unchanged flight or quicklook artifacts.
+
+Deploy only this headless production producer with the focused playbook:
+
+```bash
+uv run ansible-playbook playbooks/menapia_products.yml --limit aurora-cloud --check --diff
+uv run ansible-playbook playbooks/menapia_products.yml --limit aurora-cloud
+```
+
+This playbook does not apply or restart the dashboard, mobile API, source
+ingest, or archive services. Its systemd unit has no network access, reads the
+raw tree read-only, and can write only its product, quicklook, and state roots.
+The existing generic `products` GWS/object-store jobs archive these rebuildable
+files; no Menapia-specific archive writer is added. The standby replication
+stages `product-menapia` and `product-quicklooks` mirror them to data-ocean,
+which never runs the product builder itself.
+
 ## Credentials and rotation
 
 The root-owned rclone profile is:
@@ -121,6 +186,9 @@ systemctl status aurora-menapia-flight-source-sync.service
 journalctl -u aurora-menapia-flight-source-sync.service --since today
 jq . /data/aurora/internal/archive_status/menapia-flight-source-sync.json
 jq '.source_ingest.menapia' /data/aurora/internal/archive_status/health-v1.json
+systemctl status aurora-menapia-flight-products.timer
+journalctl -u aurora-menapia-flight-products.service --since today
+jq '{lastRunState, latestFlightID, availableDays}' /data/aurora/products/menapia/catalog.json
 ```
 
 The health contract and UAS dashboard show the last attempt and success, source
