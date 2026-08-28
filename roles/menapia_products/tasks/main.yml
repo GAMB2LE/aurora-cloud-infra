@@ -1,0 +1,60 @@
+---
+- name: Ensure Menapia flight product directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "02775"
+  loop:
+    - "{{ aurora_menapia_product_root }}"
+    - "{{ aurora_menapia_product_root }}/flights"
+    - "{{ aurora_menapia_product_root }}/plots"
+    - "{{ aurora_menapia_quicklook_root }}"
+    - "{{ aurora_menapia_product_state_root }}"
+    - "{{ aurora_menapia_product_state_root }}/matplotlib"
+  when: aurora_menapia_product_enabled | bool
+
+- name: Install Menapia flight product builder
+  ansible.builtin.copy:
+    src: aurora-menapia-flight-products.py
+    dest: /usr/local/bin/aurora-menapia-flight-products
+    owner: root
+    group: root
+    mode: "0755"
+  when: aurora_menapia_product_enabled | bool
+
+- name: Install Menapia flight product service and timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - aurora-menapia-flight-products.service
+    - aurora-menapia-flight-products.timer
+  when: aurora_menapia_product_enabled | bool
+  notify: Reload systemd for Menapia products
+
+- name: Manage authoritative Menapia flight product timer
+  ansible.builtin.systemd:
+    name: aurora-menapia-flight-products.timer
+    enabled: >-
+      {{ (aurora_menapia_product_enabled | bool)
+         and (aurora_writer_timers_enabled | bool) }}
+    state: >-
+      {{ 'started'
+         if ((aurora_menapia_product_enabled | bool)
+             and (aurora_writer_timers_enabled | bool))
+         else 'stopped' }}
+    daemon_reload: true
+  when: not ansible_check_mode
+
+- name: Clear disabled Menapia flight product service state
+  ansible.builtin.command: systemctl reset-failed aurora-menapia-flight-products.service
+  changed_when: false
+  failed_when: false
+  when:
+    - not ansible_check_mode
+    - not ((aurora_menapia_product_enabled | bool) and (aurora_writer_timers_enabled | bool))
