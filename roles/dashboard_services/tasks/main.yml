@@ -56,6 +56,22 @@
     mode: "02775"
   when: aurora_power_operating_enabled | bool
 
+- name: Assert the v12 hybrid candidate is development-only
+  ansible.builtin.assert:
+    that:
+      - aurora_site_env == 'development'
+    fail_msg: The v12 hybrid candidate is permitted only on the development host.
+  when: aurora_power_v12_candidate_enabled | bool
+
+- name: Ensure isolated v12 hybrid candidate root exists
+  ansible.builtin.file:
+    path: "{{ aurora_power_v12_candidate_root }}"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "02775"
+  when: aurora_power_v12_candidate_enabled | bool
+
 - name: Install dashboard environment file
   ansible.builtin.template:
     src: aurora-dashboard.env.j2
@@ -222,6 +238,30 @@
     - Reload systemd
     - Restart dashboard
     - Restart mobile API
+
+- name: Install isolated development v12 hybrid candidate units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - aurora-power-v12-candidate.service
+    - aurora-power-v12-candidate.timer
+  when: aurora_power_v12_candidate_enabled | bool
+  notify:
+    - Reload systemd
+
+- name: Manage isolated v12 hybrid candidate timer
+  ansible.builtin.systemd:
+    name: aurora-power-v12-candidate.timer
+    enabled: "{{ aurora_power_v12_candidate_timer_enabled | bool }}"
+    state: "{{ 'started' if aurora_power_v12_candidate_timer_enabled | bool else 'stopped' }}"
+    daemon_reload: true
+  when:
+    - aurora_power_v12_candidate_enabled | bool
+    - not ansible_check_mode
 
 - name: Install development display artifact manifest units
   ansible.builtin.template:

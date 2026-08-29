@@ -1,0 +1,44 @@
+[Unit]
+Description=Aurora isolated v12 hybrid power-forecast candidate
+After=network-online.target aurora-power-soc-forecast.service
+Wants=network-online.target
+ConditionPathExists={{ aurora_zarr.power_soc_forecast }}
+ConditionPathExists={{ aurora_zarr.power_soc_forecast_archive }}
+ConditionPathExists={{ aurora_zarr.power }}
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+WorkingDirectory={{ aurora_app_dir }}
+EnvironmentFile=/etc/aurora-dashboard.env
+ExecStart=/usr/bin/flock --nonblock {{ aurora_power_v12_candidate_root }}/.runner.lock /usr/bin/timeout --signal=TERM --kill-after=30s 14m {{ aurora_venv }}/bin/python generate_power_soc_v12_candidate.py --baseline-forecast-zarr {{ aurora_zarr.power_soc_forecast }} --baseline-archive-zarr {{ aurora_zarr.power_soc_forecast_archive }} --candidate-root {{ aurora_power_v12_candidate_root }} --power-zarr {{ aurora_zarr.power }} --pdu-zarr {{ aurora_zarr.pdu }} --physical-config {{ aurora_app_dir }}/config/power_solar_physical_candidate_v1.json
+Nice=19
+CPUQuota=25%
+CPUWeight=5
+# The first isolated canary needs more than 512 MiB simply to read the
+# site-level history.  Keep pressure below the hard 1.5 GiB ceiling without
+# throttling useful progress before a lane can be evaluated.
+MemoryHigh=1G
+MemoryMax=1.5G
+IOSchedulingClass=idle
+OOMPolicy=stop
+TimeoutStartSec=900
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictNamespaces=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX
+ReadOnlyPaths={{ aurora_app_dir }} {{ aurora_product_root }} {{ aurora_dev_product_root }} {{ aurora_raw_root }}
+ReadWritePaths={{ aurora_power_v12_candidate_root }}

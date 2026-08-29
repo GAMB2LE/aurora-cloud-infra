@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the isolated v12 hybrid candidate after each full SOC forecast cycle
+
+[Timer]
+OnCalendar=00/3:40
+RandomizedDelaySec=2min
+Persistent=true
+Unit=aurora-power-v12-candidate.service
+
+[Install]
+WantedBy=timers.target

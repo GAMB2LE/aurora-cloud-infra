@@ -162,6 +162,11 @@ aurora_power_operating_root: >-
 # The deterministic/ensemble forecast consumes mirrored power and PDU inputs on
 # development, but every derived artifact must remain in the isolated dev tree.
 aurora_power_forecast_root: "{{ aurora_power_operating_root }}"
+# v12 remains an isolated development candidate.  The default is deliberately
+# false so no production or newly-added host acquires a candidate writer/API.
+aurora_power_v12_candidate_enabled: false
+aurora_power_v12_candidate_timer_enabled: false
+aurora_power_v12_candidate_root: "{{ aurora_dev_product_root }}/power/candidates/v12"
 aurora_power_planning_forecast_path: "{{ aurora_power_operating_root }}/power_soc_planning_forecast.zarr"
 aurora_power_planning_forecast_cache: "{{ aurora_power_operating_root }}/ecmwf_solar_planning"
 aurora_power_planning_forecast_state: "{{ aurora_power_operating_root }}/power_soc_planning_state.json"
