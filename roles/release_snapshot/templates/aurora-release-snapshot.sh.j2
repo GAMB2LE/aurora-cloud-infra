@@ -22,10 +22,13 @@ install -d -m 0700 "${snapshot_dir}"
   printf 'captured_at_utc=%s\n' "$(date -u +%FT%TZ)"
   printf 'target_release=%s\n' "${target_release}"
   printf 'app_dir=%s\n' "${app_dir}"
-  if [[ -d "${app_dir}/.git" ]]; then
-    printf 'source_commit=%s\n' "$(git -c safe.directory="${app_dir}" -C "${app_dir}" rev-parse HEAD)"
-    printf 'source_describe=%s\n' "$(git -c safe.directory="${app_dir}" -C "${app_dir}" describe --tags --always --dirty)"
-    printf 'source_branch=%s\n' "$(git -c safe.directory="${app_dir}" -C "${app_dir}" branch --show-current || true)"
+if [[ -d "${app_dir}/.git" ]]; then
+    # Run every Git operation as the checkout owner.  `git diff` may refresh
+    # the index, so invoking it as root would leave a root-owned index and
+    # block the next deliberately non-root deployment clean check.
+    printf 'source_commit=%s\n' "$(runuser -u "${service_user}" -- git -C "${app_dir}" rev-parse HEAD)"
+    printf 'source_describe=%s\n' "$(runuser -u "${service_user}" -- git -C "${app_dir}" describe --tags --always --dirty)"
+    printf 'source_branch=%s\n' "$(runuser -u "${service_user}" -- git -C "${app_dir}" branch --show-current || true)"
   fi
   systemctl is-active aurora-dashboard.service || true
   systemctl is-active aurora-mobile-api.service || true
@@ -34,8 +37,8 @@ install -d -m 0700 "${snapshot_dir}"
 } > "${snapshot_dir}/manifest.txt"
 
 if [[ -d "${app_dir}/.git" ]]; then
-  git -c safe.directory="${app_dir}" -C "${app_dir}" diff --binary > "${snapshot_dir}/worktree.patch"
-  git -c safe.directory="${app_dir}" -C "${app_dir}" ls-files --others --exclude-standard > "${snapshot_dir}/untracked-files.txt"
+  runuser -u "${service_user}" -- git -C "${app_dir}" diff --binary > "${snapshot_dir}/worktree.patch"
+  runuser -u "${service_user}" -- git -C "${app_dir}" ls-files --others --exclude-standard > "${snapshot_dir}/untracked-files.txt"
 fi
 
 {
