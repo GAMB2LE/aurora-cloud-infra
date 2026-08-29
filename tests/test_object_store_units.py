@@ -34,6 +34,16 @@ class ObjectStoreUnitTests(unittest.TestCase):
             source,
         )
 
+    def test_recheck_unit_can_persist_confirmation_state(self) -> None:
+        source = (
+            TEMPLATES / "aurora-object-store-recheck-after-repair.service.j2"
+        ).read_text(encoding="utf-8")
+        read_write_paths = next(
+            line for line in source.splitlines() if line.startswith("ReadWritePaths=")
+        )
+
+        self.assertIn("{{ object_store_repair_state_root }}", read_write_paths)
+
     def test_retention_uses_the_independent_raw_gate(self) -> None:
         source = (
             Path(__file__).parents[1]
