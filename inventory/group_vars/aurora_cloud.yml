@@ -167,6 +167,10 @@ aurora_power_forecast_root: "{{ aurora_power_operating_root }}"
 aurora_power_v12_candidate_enabled: false
 aurora_power_v12_candidate_timer_enabled: false
 aurora_power_v12_candidate_root: "{{ aurora_dev_product_root }}/power/candidates/v12"
+# Public-model inputs, if later enrolled, are compact site-extraction manifests
+# only.  The v12 candidate never reads a global grid or the model-evaluation
+# product tree.
+aurora_power_v12_public_source_manifest_root: "{{ aurora_dev_product_root }}/power/public_model_inputs"
 aurora_power_planning_forecast_path: "{{ aurora_power_operating_root }}/power_soc_planning_forecast.zarr"
 aurora_power_planning_forecast_cache: "{{ aurora_power_operating_root }}/ecmwf_solar_planning"
 aurora_power_planning_forecast_state: "{{ aurora_power_operating_root }}/power_soc_planning_state.json"

@@ -8,7 +8,7 @@ aurora_public_ip: 167.172.54.82
 aurora_app_repo: https://github.com/GAMB2LE/aurora_cloud_dashboard.git
 # Exact clean dashboard commit currently validated on development. Production
 # remains independently pinned to its immutable release tag.
-aurora_app_version: 0f2585b7afe1cdaea6854020ca2adc62a643ae6d
+aurora_app_version: 178b20385b8fc1cd0f26eeb01ac3d3874589cc3f
 # Development-only performance experiment. Panel supports reconnecting after a
 # brief disconnect, while this prevents unused phone sessions retaining a full
 # dashboard document. Production currently uses a two-minute lifetime.
@@ -44,10 +44,11 @@ aurora_power_forecast_display_path: "{{ aurora_dev_product_root }}/power/power_f
 aurora_power_display_manifest_path: "{{ aurora_dev_product_root }}/power/power_display_manifest.json"
 
 # The v12 hybrid forecast is an unpublished, isolated evaluation lane.  Install
-# its constrained unit on development only; retain a manual canary until a
-# complete ECMWF-cycle baseline can be observed and verified.
+# its constrained unit on development only.  The manual canary completed with
+# isolated paths and resource checks, so retain the bounded timer as the
+# development evidence collector; it remains an unpublished candidate.
 aurora_power_v12_candidate_enabled: true
-aurora_power_v12_candidate_timer_enabled: false
+aurora_power_v12_candidate_timer_enabled: true
 aurora_power_v12_candidate_root: "{{ aurora_dev_product_root }}/power/candidates/v12"
 
 # The droplet has its own public development hostname. Full public failover is
