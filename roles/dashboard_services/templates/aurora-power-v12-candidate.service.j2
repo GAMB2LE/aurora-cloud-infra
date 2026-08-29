@@ -12,7 +12,7 @@ User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
 WorkingDirectory={{ aurora_app_dir }}
 EnvironmentFile=/etc/aurora-dashboard.env
-ExecStart=/usr/bin/flock --nonblock {{ aurora_power_v12_candidate_root }}/.runner.lock /usr/bin/timeout --signal=TERM --kill-after=30s 14m {{ aurora_venv }}/bin/python generate_power_soc_v12_candidate.py --baseline-forecast-zarr {{ aurora_zarr.power_soc_forecast }} --baseline-archive-zarr {{ aurora_zarr.power_soc_forecast_archive }} --candidate-root {{ aurora_power_v12_candidate_root }} --power-zarr {{ aurora_zarr.power }} --pdu-zarr {{ aurora_zarr.pdu }} --physical-config {{ aurora_app_dir }}/config/power_solar_physical_candidate_v1.json
+ExecStart=/usr/bin/flock --nonblock {{ aurora_power_v12_candidate_root }}/.runner.lock /usr/bin/timeout --signal=TERM --kill-after=30s 22m {{ aurora_venv }}/bin/python generate_power_soc_v12_candidate.py --baseline-forecast-zarr {{ aurora_zarr.power_soc_forecast }} --baseline-archive-zarr {{ aurora_zarr.power_soc_forecast_archive }} --candidate-root {{ aurora_power_v12_candidate_root }} --power-zarr {{ aurora_zarr.power }} --pdu-zarr {{ aurora_zarr.pdu }} --physical-config {{ aurora_app_dir }}/config/power_solar_physical_candidate_v1.json
 Nice=19
 CPUQuota=25%
 CPUWeight=5
@@ -23,7 +23,10 @@ MemoryHigh=1G
 MemoryMax=1.5G
 IOSchedulingClass=idle
 OOMPolicy=stop
-TimeoutStartSec=900
+# Three sequential, isolated ablation lanes run at 25%% CPU.  Twenty-two
+# minutes preserves a bounded development-only job while allowing all lanes
+# to complete without relaxing its memory or scheduling isolation.
+TimeoutStartSec=24min
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true
