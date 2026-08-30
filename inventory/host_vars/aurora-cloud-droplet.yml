@@ -51,6 +51,10 @@ aurora_power_v12_candidate_enabled: true
 aurora_power_v12_candidate_timer_enabled: true
 aurora_power_v12_candidate_root: "{{ aurora_dev_product_root }}/power/candidates/v12"
 
+# Development-only CL61 schedule evidence. This publishes an explicitly
+# non-executable status/intent next to the isolated development power product.
+aurora_cl61_automation_shadow_enabled: true
+
 # The droplet has its own public development hostname. Full public failover is
 # manual and should not be done by changing this development baseline silently.
 aurora_certbot_enabled: true

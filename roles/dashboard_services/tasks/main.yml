@@ -56,6 +56,16 @@
     mode: "02775"
   when: aurora_power_operating_enabled | bool
 
+- name: Assert CL61 shadow automation is development-only
+  ansible.builtin.assert:
+    that:
+      - aurora_site_env == 'development'
+      - aurora_failover_role != 'primary'
+    fail_msg: >-
+      CL61 automation shadow evidence is permitted only on the isolated
+      development host. It must not be enabled on the authoritative product.
+  when: aurora_cl61_automation_shadow_enabled | bool
+
 - name: Assert the v12 hybrid candidate is development-only
   ansible.builtin.assert:
     that:

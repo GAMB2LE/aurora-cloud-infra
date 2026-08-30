@@ -181,6 +181,14 @@ aurora_power_operating_state_path: "{{ aurora_power_operating_root }}/power_oper
 aurora_power_operating_scenarios_path: "{{ aurora_power_operating_root }}/power_operating_scenarios.zarr"
 aurora_power_operating_model_state_path: "{{ aurora_power_operating_root }}/power_operating_model_state.json"
 aurora_power_operating_recommendations_path: "{{ aurora_power_operating_root }}/power_operating_recommendations.json"
+# The cloud can publish a diagnostic intent only.  This is intentionally not a
+# PDU-control setting: the status is read-only and the edge controller rejects
+# diagnostic authority.  Keep it development-only while evidence accumulates.
+aurora_cl61_automation_shadow_enabled: "{{ aurora_is_development }}"
+aurora_cl61_automation_environment: "{{ aurora_site_env }}"
+aurora_cl61_automation_intent_path: "{{ aurora_power_operating_root }}/cl61_automation_intent.json"
+aurora_cl61_automation_status_path: "{{ aurora_power_operating_root }}/cl61_automation_status.json"
+aurora_cl61_automation_history_path: "{{ aurora_power_operating_root }}/cl61_automation_history.jsonl"
 aurora_power_display_summary_path: "{{ aurora_product_root }}/power/power_display_summary.zarr"
 aurora_power_display_energy_path: "{{ aurora_product_root }}/power/power_display_energy.zarr"
 aurora_power_current_display_path: "{{ aurora_product_root }}/power/power_current_display.zarr"
