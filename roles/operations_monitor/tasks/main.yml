@@ -16,6 +16,11 @@
     group: root
     mode: "0755"
   when: archive_monitor_enabled | bool
+  # The focused WXcam release must publish the new auxiliary-unit contract in
+  # the same run. Replacing this executable requires no unit restart: its
+  # existing timer invokes the path afresh on every collection cycle.
+  tags:
+    - wxcam_reconcile
 
 - name: Install archive health units
   ansible.builtin.template:

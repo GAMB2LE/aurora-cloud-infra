@@ -138,7 +138,7 @@ class ArchiveDispatchTests(unittest.TestCase):
             radar.write_bytes(b"100.0\t42\tY2026/file.nc\0")
             rsync = root / "rsync"
             rsync.write_text(
-                ">f+++++++++\t2026/camera.jpg\n.d..t......\t2026/\n",
+                ">f+++++++++1048576\t2026/camera.jpg\n.d..t......0\t2026/\n",
                 encoding="utf-8",
             )
 

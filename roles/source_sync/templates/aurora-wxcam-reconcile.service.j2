@@ -1,0 +1,14 @@
+[Unit]
+Description=Reconcile recent WXcam HDR media missing from the cloud raw archive
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+ExecStart=/usr/local/bin/aurora-wxcam-reconcile
+TimeoutStartSec=2h
+Nice=15
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
