@@ -581,6 +581,15 @@ wxcam_source_scope_version: final-hdr-media-all-history-v1
 # Keep live ingestion independent from historical recovery. Missing or stale
 # checkpoints resume at the live edge after the versioned archive backfill.
 wxcam_source_start_fresh: true
+# The live timestamp cursor cannot discover a late or restored file whose mtime
+# predates that cursor. Reconcile completed UTC folders independently, using a
+# window longer than the seven-day retention hold and copy-only semantics so
+# every ordinary retention candidate gets repeated gap checks before pruning.
+wxcam_reconcile_enabled: true
+wxcam_reconcile_timer_enabled: "{{ aurora_writer_timers_enabled }}"
+wxcam_reconcile_lookback_days: 10
+wxcam_reconcile_interval: 6h
+wxcam_reconcile_randomized_delay: 5min
 
 wxcam_zarr_state_file: "{{ aurora_state_root }}/wxcam-zarr-state-20260704.json"
 
@@ -822,6 +831,8 @@ aurora_archive_streams:
   - name: wxcam
     site: ass
     source_sync_stem: wxcam
+    source_sync_auxiliary_stems:
+      - wxcam-reconcile
     source_root: "{{ wxcam_source_path }}"
     cloud_root: "{{ wxcam_source_destination }}"
     archive_relpath: wxcam

@@ -845,6 +845,61 @@
     - not wxcam_source_sync_enabled | bool or not wxcam_source_sync_timer_enabled | bool
     - not ansible_check_mode
 
+- name: Install WXcam recent archive reconciliation script
+  ansible.builtin.template:
+    src: aurora-wxcam-reconcile.j2
+    dest: /usr/local/bin/aurora-wxcam-reconcile
+    owner: root
+    group: root
+    mode: "0755"
+  when:
+    - wxcam_source_sync_enabled | bool
+    - wxcam_reconcile_enabled | bool
+  tags:
+    - wxcam_reconcile
+
+- name: Install WXcam recent archive reconciliation units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - aurora-wxcam-reconcile.service
+    - aurora-wxcam-reconcile.timer
+  when:
+    - wxcam_source_sync_enabled | bool
+    - wxcam_reconcile_enabled | bool
+  tags:
+    - wxcam_reconcile
+
+- name: Enable WXcam recent archive reconciliation timer
+  ansible.builtin.systemd:
+    name: aurora-wxcam-reconcile.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - wxcam_source_sync_enabled | bool
+    - wxcam_reconcile_enabled | bool
+    - wxcam_reconcile_timer_enabled | bool
+    - not ansible_check_mode
+  tags:
+    - wxcam_reconcile
+
+- name: Disable WXcam recent archive reconciliation timer when requested
+  ansible.builtin.systemd:
+    name: aurora-wxcam-reconcile.timer
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  when:
+    - not wxcam_source_sync_enabled | bool or not wxcam_reconcile_enabled | bool or not wxcam_reconcile_timer_enabled | bool
+    - not ansible_check_mode
+  tags:
+    - wxcam_reconcile
+
 - name: Install AURORACam source sync script
   ansible.builtin.template:
     src: aurora-auroracam-sync.j2

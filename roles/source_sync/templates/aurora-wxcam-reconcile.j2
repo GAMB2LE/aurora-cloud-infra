@@ -1,0 +1,216 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Bounded archive reconciliation for immutable WXcam HDR media. The live sync
+# keeps its low-latency timestamp cursor; this lane deliberately ignores that
+# cursor so a late or restored file with an old mtime cannot remain hidden
+# behind it. It scans completed UTC days and requires an independent ctime
+# settle interval. Only destination-missing paths are copied; nothing is
+# overwritten or deleted.
+source_user={{ wxcam_source_user | quote }}
+source_host={{ wxcam_source_host | quote }}
+source_port={{ wxcam_source_port | int }}
+source_path={{ wxcam_source_path | quote }}
+destination={{ wxcam_source_destination | quote }}
+source_auth={{ wxcam_source_auth | default('tailscale') | quote }}
+ssh_key={{ wxcam_source_ssh_key_path | quote }}
+lookback_days={{ wxcam_reconcile_lookback_days | int }}
+mtime_grace_seconds={{ wxcam_source_mtime_grace_seconds | int }}
+known_hosts=/home/{{ aurora_service_user }}/.ssh/known_hosts
+run_lock_file={{ aurora_state_root | quote }}/wxcam-reconcile.lock
+# Share the live lane's destination lock. Discovery happens before acquisition
+# so only the additive destination write is serialized.
+destination_lock_file={{ aurora_state_root | quote }}/wxcam-sync.lock
+pending_file={{ aurora_state_root | quote }}/wxcam-reconcile.pending
+archive_dispatch=/usr/local/bin/aurora-archive-dispatch
+
+mkdir -p "$(dirname "$known_hosts")" "$(dirname "$run_lock_file")"
+
+# Systemd already serializes this oneshot unit; retain an explicit run lock so
+# an operator invocation cannot race its persistent receipt journal.
+exec 8>"$run_lock_file"
+if ! flock -n 8; then
+  echo "WXcam recent archive reconciliation already running; exiting."
+  exit 0
+fi
+
+# Keep exact completed-file receipts until the durable archive queue accepts
+# them. Replaying a receipt is safe because archive-dispatch enqueue is
+# idempotent for an unchanged path.
+flush_pending_receipts() {
+  if [[ ! -s "$pending_file" ]]; then
+    return 0
+  fi
+  if [[ ! -x "$archive_dispatch" ]]; then
+    echo "Cannot enqueue pending WXcam additions: $archive_dispatch is unavailable." >&2
+    return 1
+  fi
+
+  local dedupe_file
+  dedupe_file="$(mktemp "${pending_file}.dedupe.XXXXXX")"
+  if ! awk '
+    {
+      separator = index($0, "\t")
+      key = separator ? substr($0, separator + 1) : $0
+      if (!seen[key]++) print
+    }
+  ' "$pending_file" > "$dedupe_file"; then
+    rm -f "$dedupe_file"
+    return 1
+  fi
+  if ! mv "$dedupe_file" "$pending_file"; then
+    rm -f "$dedupe_file"
+    return 1
+  fi
+
+  if "$archive_dispatch" enqueue --job raw --base "$destination" \
+    --files-from "$pending_file" --records-format rsync; then
+    if ! rm -f "$pending_file"; then
+      echo "WXcam additions were queued but the pending receipt could not be removed." >&2
+      return 1
+    fi
+    return 0
+  fi
+
+  echo "WXcam addition receipts remain pending for archive-queue replay." >&2
+  return 1
+}
+
+# Preserve only rsync's completed regular-file records. The transfer-byte
+# escape in out-format makes rsync emit these records after transfer completion.
+# Other itemized output remains visible but never enters the journal.
+record_additions() {
+  awk -v journal="$pending_file" '
+    BEGIN { FS = "\t" }
+    { print }
+    $1 ~ /^>f/ && NF >= 2 {
+      print $0 >> journal
+      close(journal)
+    }
+  '
+}
+
+# A previous run may have copied files before rsync or archive-dispatch failed.
+# Queue those durable receipts before discovering or copying anything else.
+flush_pending_receipts
+
+if [[ "$source_auth" == "ssh_key" ]]; then
+  if [[ ! -f "$ssh_key" ]]; then
+    echo "Missing WXcam source SSH key: $ssh_key" >&2
+    exit 1
+  fi
+  ssh_opts=(
+    -p "$source_port"
+    -i "$ssh_key"
+    -o BatchMode=yes
+    -o ConnectTimeout=15
+    -o IdentitiesOnly=yes
+    -o ServerAliveInterval=15
+    -o ServerAliveCountMax=4
+    -o StrictHostKeyChecking=accept-new
+    -o UserKnownHostsFile="$known_hosts"
+  )
+else
+  ssh_opts=(
+    -p "$source_port"
+    -o BatchMode=yes
+    -o ConnectTimeout=15
+    -o IdentitiesOnly=yes
+    -o IdentityFile=none
+    -o PubkeyAuthentication=no
+    -o ServerAliveInterval=15
+    -o ServerAliveCountMax=4
+    -o StrictHostKeyChecking=accept-new
+    -o UserKnownHostsFile="$known_hosts"
+  )
+fi
+
+files_from="$(mktemp)"
+trap 'rm -f "$files_from"' EXIT
+
+ssh "${ssh_opts[@]}" "${source_user}@${source_host}" bash -s -- \
+  "$source_path" "$lookback_days" "$mtime_grace_seconds" > "$files_from" <<'REMOTE_FIND'
+set -euo pipefail
+source_path="$1"
+lookback_days="$2"
+mtime_grace_seconds="$3"
+fish_jpg_pattern={{ wxcam_source_fish_pattern | quote }}
+pano_jpg_pattern={{ wxcam_source_pano_pattern | quote }}
+fish_mp4_pattern="${fish_jpg_pattern%.jpg}.mp4"
+pano_mp4_pattern="${pano_jpg_pattern%.jpg}.mp4"
+
+cd "$source_path"
+upper_epoch=$(( $(date +%s) - mtime_grace_seconds ))
+
+# Folder chronology bounds the scan. There is intentionally no lower mtime
+# bound: a recovered file may keep its original old timestamp even though it
+# appeared after the live checkpoint advanced. Current UTC day is left to the
+# live lane, and ctime independently defers a newly restored old-mtime file.
+for (( offset = 1; offset <= lookback_days; offset++ )); do
+  day="$(date -u -d "-${offset} day" +%Y%m%d)"
+  fish_dir="FISH/${day}"
+  pano_dir="PANO/${day}"
+
+  if [[ -d "$fish_dir" ]]; then
+    find "$fish_dir" -maxdepth 2 -type f \
+      ! -newermt "@${upper_epoch}" ! -newerct "@${upper_epoch}" \
+      \( -name "$fish_jpg_pattern" -o -name "$fish_mp4_pattern" \) \
+      -printf '%p\0'
+  fi
+  if [[ -d "$pano_dir" ]]; then
+    find "$pano_dir" -maxdepth 2 -type f \
+      ! -newermt "@${upper_epoch}" ! -newerct "@${upper_epoch}" \
+      \( -name "$pano_jpg_pattern" -o -name "$pano_mp4_pattern" \) \
+      -printf '%p\0'
+  fi
+done
+REMOTE_FIND
+
+if [[ ! -s "$files_from" ]]; then
+  echo "No settled WXcam files found in the recent reconciliation window."
+  exit 0
+fi
+
+# The live and reconciliation lanes must not both decide the same missing path
+# is theirs to create. Wait briefly for the short live transfer, then hold the
+# shared lock only through this rsync.
+exec 9>"$destination_lock_file"
+if ! flock -w 120 9; then
+  echo "Timed out waiting for the shared WXcam destination lock." >&2
+  exit 1
+fi
+mkdir -p "$destination"
+
+# Discard interrupted transfer temporaries: retaining them could leave a final
+# destination path that every later missing-only pass would skip. Capture each
+# successful regular-file addition in the persistent receipt journal.
+set +e
+rsync -a --ignore-existing --omit-dir-times \
+  --no-perms --no-owner --no-group --timeout=120 \
+  --from0 --files-from="$files_from" \
+  --itemize-changes --out-format=$'%i%b\t%n' \
+  -e "ssh ${ssh_opts[*]}" \
+  "${source_user}@${source_host}:${source_path%/}/" \
+  "${destination%/}/" | record_additions
+transfer_status=("${PIPESTATUS[@]}")
+set -e
+flock -u 9
+
+# Queue completed additions even when rsync later failed. On dispatch failure,
+# leave the journal intact so the next run retries it before any new transfer.
+receipt_status=0
+flush_pending_receipts || receipt_status=$?
+
+if (( transfer_status[0] != 0 )); then
+  echo "WXcam recent archive rsync failed with status ${transfer_status[0]}." >&2
+  exit "${transfer_status[0]}"
+fi
+if (( transfer_status[1] != 0 )); then
+  echo "WXcam addition receipt capture failed with status ${transfer_status[1]}." >&2
+  exit "${transfer_status[1]}"
+fi
+if (( receipt_status != 0 )); then
+  exit "$receipt_status"
+fi
+
+echo "WXcam recent archive reconciliation completed without overwriting existing files."
