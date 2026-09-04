@@ -9,13 +9,16 @@ are rechecked for settle age before transfer.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import csv
 import datetime as dt
+import fcntl
 import json
 from pathlib import Path
 from pathlib import PurePosixPath
 import subprocess
 import tempfile
+from typing import Iterator
 
 
 DEFAULT_REPORT = Path(
@@ -47,6 +50,15 @@ def publish_result(path: Path, payload: dict) -> None:
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     temporary.replace(path)
+
+
+@contextmanager
+def inventory_lock(catalog: dict) -> Iterator[None]:
+    """Serialize repair with inventory publication without modifying its lock."""
+    lock_path = Path(catalog["manifest_root"]) / ".inventory.lock"
+    with lock_path.open("r", encoding="utf-8") as lock_handle:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        yield
 
 
 def duration_seconds(value: str) -> int:
@@ -192,34 +204,44 @@ def repair_job(
     return result
 
 
-def main() -> int:
-    args = parse_args()
-    catalog = json.loads(args.catalog.read_text(encoding="utf-8"))
-    report = json.loads(args.report.read_text(encoding="utf-8"))
+def repair_latest(args: argparse.Namespace, catalog: dict) -> dict:
     jobs = {job["name"]: job for job in catalog["jobs"]}
     selected = set(args.job or jobs)
     unknown = selected - set(jobs)
     if unknown:
         raise SystemExit(f"unknown catalogue jobs: {', '.join(sorted(unknown))}")
-    results = []
-    for name, job in jobs.items():
-        if name not in selected:
-            continue
-        results.append(
-            repair_job(
-                name,
-                job,
-                report["jobs"][name],
-                catalog,
-                args.dry_run,
-                read_local_evidence(args.report, name),
+    # A path trigger may fire on a per-family checkpoint while the publishing
+    # inventory is still running. Wait for that inventory to finish, then read
+    # the terminal latest report and keep its identity stable until the repair
+    # result has been published for the strict post-repair recheck.
+    with inventory_lock(catalog):
+        report = json.loads(args.report.read_text(encoding="utf-8"))
+        results = []
+        for name, job in jobs.items():
+            if name not in selected:
+                continue
+            results.append(
+                repair_job(
+                    name,
+                    job,
+                    report["jobs"][name],
+                    catalog,
+                    args.dry_run,
+                    read_local_evidence(args.report, name),
+                )
             )
-        )
-    payload = {"report": report["generated_at"], "jobs": results}
-    if not args.dry_run:
-        publish_result(args.result, payload)
+        payload = {"report": report["generated_at"], "jobs": results}
+        if not args.dry_run:
+            publish_result(args.result, payload)
+    return payload
+
+
+def main() -> int:
+    args = parse_args()
+    catalog = json.loads(args.catalog.read_text(encoding="utf-8"))
+    payload = repair_latest(args, catalog)
     print(json.dumps(payload, indent=2))
-    return 1 if any(item["returncode"] for item in results) else 0
+    return 1 if any(item["returncode"] for item in payload["jobs"]) else 0
 
 
 if __name__ == "__main__":

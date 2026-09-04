@@ -4,6 +4,7 @@ import importlib.util
 import os
 from pathlib import Path
 import tempfile
+import threading
 import unittest
 from unittest import mock
 import json
@@ -32,6 +33,144 @@ class ObjectStoreRepairTests(unittest.TestCase):
 
             self.assertEqual(json.loads(path.read_text(encoding="utf-8")), payload)
             self.assertFalse(path.with_suffix(".tmp").exists())
+
+    def test_repair_waits_for_inventory_then_reads_terminal_latest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest_root = root / "manifests"
+            latest = manifest_root / "latest"
+            latest.mkdir(parents=True)
+            lock_path = manifest_root / ".inventory.lock"
+            lock_path.touch()
+            report_path = latest / "comparison.json"
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "generated_at": "checkpoint",
+                        "jobs": {"products": {"phase": "checkpoint"}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (latest / "products-local.tsv").write_text(
+                "relative_path\tsize\tmtime\tchecksum\n",
+                encoding="utf-8",
+            )
+            result_path = root / "state" / "result.json"
+            args = mock.Mock(
+                report=report_path,
+                result=result_path,
+                job=None,
+                dry_run=False,
+            )
+            catalog = {
+                "manifest_root": str(manifest_root),
+                "jobs": [{"name": "products"}],
+            }
+            started_waiting = threading.Event()
+            finished = threading.Event()
+            outcome: dict[str, object] = {}
+            original_inventory_lock = repair.inventory_lock
+            original_publish_result = repair.publish_result
+
+            def observed_inventory_lock(value: dict):
+                started_waiting.set()
+                return original_inventory_lock(value)
+
+            def run_repair() -> None:
+                try:
+                    outcome["payload"] = repair.repair_latest(args, catalog)
+                except BaseException as error:  # Preserve worker failures for assertion.
+                    outcome["error"] = error
+                finally:
+                    finished.set()
+
+            def observed_publish_result(path: Path, payload: dict) -> None:
+                with lock_path.open("r", encoding="utf-8") as contender:
+                    try:
+                        repair.fcntl.flock(
+                            contender.fileno(),
+                            repair.fcntl.LOCK_EX | repair.fcntl.LOCK_NB,
+                        )
+                    except BlockingIOError:
+                        outcome["lock_held_during_publish"] = True
+                    else:
+                        repair.fcntl.flock(
+                            contender.fileno(), repair.fcntl.LOCK_UN
+                        )
+                original_publish_result(path, payload)
+
+            with lock_path.open("r", encoding="utf-8") as inventory_handle:
+                repair.fcntl.flock(inventory_handle.fileno(), repair.fcntl.LOCK_EX)
+                with (
+                    mock.patch.object(
+                        repair,
+                        "inventory_lock",
+                        side_effect=observed_inventory_lock,
+                    ),
+                    mock.patch.object(
+                        repair,
+                        "repair_job",
+                        return_value={
+                            "job": "products",
+                            "candidates": 0,
+                            "ready": 0,
+                            "deferred": 0,
+                            "returncode": 0,
+                        },
+                    ) as repair_job,
+                    mock.patch.object(
+                        repair,
+                        "publish_result",
+                        side_effect=observed_publish_result,
+                    ),
+                ):
+                    worker = threading.Thread(target=run_repair)
+                    worker.start()
+                    self.assertTrue(started_waiting.wait(timeout=1))
+                    self.assertFalse(finished.wait(timeout=0.1))
+                    self.assertFalse(result_path.exists())
+
+                    replacement = latest / "comparison.next.json"
+                    replacement.write_text(
+                        json.dumps(
+                            {
+                                "generated_at": "terminal",
+                                "jobs": {"products": {"phase": "terminal"}},
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    replacement.replace(report_path)
+                    repair.fcntl.flock(
+                        inventory_handle.fileno(), repair.fcntl.LOCK_UN
+                    )
+
+                    self.assertTrue(finished.wait(timeout=2))
+                    worker.join(timeout=1)
+
+            self.assertNotIn("error", outcome)
+            self.assertIs(outcome["lock_held_during_publish"], True)
+            self.assertEqual(
+                outcome["payload"],
+                {
+                    "report": "terminal",
+                    "jobs": [
+                        {
+                            "job": "products",
+                            "candidates": 0,
+                            "ready": 0,
+                            "deferred": 0,
+                            "returncode": 0,
+                        }
+                    ],
+                },
+            )
+            self.assertEqual(
+                json.loads(result_path.read_text(encoding="utf-8")),
+                outcome["payload"],
+            )
+            self.assertEqual(repair_job.call_args.args[2]["phase"], "terminal")
 
     def test_repair_uses_verification_horizon_not_writer_latency(self) -> None:
         self.assertEqual(

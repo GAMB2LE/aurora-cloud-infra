@@ -5,6 +5,7 @@ import unittest
 TEMPLATES = (
     Path(__file__).parents[1] / "roles" / "object_store_mirror" / "templates"
 )
+FILES = Path(__file__).parents[1] / "roles" / "object_store_mirror" / "files"
 GROUP_VARS = (
     Path(__file__).parents[1] / "inventory" / "group_vars" / "aurora_cloud.yml"
 )
@@ -67,6 +68,20 @@ class ObjectStoreUnitTests(unittest.TestCase):
         )
 
         self.assertIn("{{ object_store_repair_state_root }}", read_write_paths)
+
+    def test_repair_serializes_latest_read_and_result_publication(self) -> None:
+        source = (FILES / "aurora-object-store-repair-from-report.py").read_text(
+            encoding="utf-8"
+        )
+
+        lock = source.index("with inventory_lock(catalog):")
+        read = source.index('args.report.read_text(encoding="utf-8")')
+        publish = source.index("publish_result(args.result, payload)")
+        self.assertIn('Path(catalog["manifest_root"]) / ".inventory.lock"', source)
+        self.assertIn('lock_path.open("r", encoding="utf-8")', source)
+        self.assertIn("fcntl.LOCK_EX", source)
+        self.assertLess(lock, read)
+        self.assertLess(read, publish)
 
     def test_retention_uses_the_independent_raw_gate(self) -> None:
         source = (
