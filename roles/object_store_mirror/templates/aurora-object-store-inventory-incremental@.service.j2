@@ -15,7 +15,9 @@ LoadCredential=gws-known-hosts:/home/{{ aurora_service_user }}/.ssh/known_hosts
 ExecStart=/usr/local/bin/aurora-object-store-inventory --reuse-latest --job %i
 ExecStartPost=+/usr/local/sbin/aurora-object-store-verification-gate
 ExecStartPost=+/usr/local/sbin/aurora-object-store-trigger-retention
-TimeoutStartSec=4h
+# Incremental jobs still inventory a complete family. Large raw/product trees
+# can legitimately take longer than four hours, so use the full-audit budget.
+TimeoutStartSec=12h
 Nice=10
 NoNewPrivileges=true
 PrivateTmp=true
