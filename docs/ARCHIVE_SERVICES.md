@@ -236,6 +236,9 @@ disabled appender before it can remove the directory.
 
 When an inventory publishes exact missing or mismatched paths,
 `aurora-object-store-repair.path` starts the catalog-driven repair service.
+The repair service takes the inventory publisher's manifest lock before reading
+`latest` and holds it through result publication, so a checkpoint trigger
+cannot bind a repair result to a report superseded by the same inventory run.
 It revalidates every settled source file, rejects paths outside the configured
 source root, follows symlinks only for jobs explicitly marked `copy_links`,
 orders candidates newest first, and performs only
