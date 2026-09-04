@@ -880,11 +880,20 @@ object_store_inventory_gws_attempts: 3
 object_store_inventory_gws_retry_delay_seconds: 15
 object_store_inventory_history_keep: 12
 object_store_inventory_schedule: "*-*-* 03:20:00"
+# Raw evidence authorizes retention and therefore remains on the strict
+# eight-hour clock used by the independent GWS verifier and edge coordinator.
 object_store_inventory_max_age_hours: 8
+object_store_inventory_raw_evidence_max_age_hours: 8
+# Derived products are audited daily and a complete audit may legitimately use
+# its full 12-hour service budget.  Their evidence clock must cover one daily
+# cadence plus that bounded runtime without relaxing the raw-retention clock.
+object_store_inventory_products_evidence_max_age_hours: 36
 object_store_inventory_raw_refresh_schedule: "*-*-* 07,11,15,19,23:20:00"
 object_store_repair_state_root: "{{ aurora_state_root }}/object-store-repair"
 object_store_post_repair_recheck_attempts: 2
 object_store_post_repair_recheck_retry_delay_seconds: 600
+object_store_post_repair_recheck_timeout_start_sec: 36h
+object_store_post_repair_gate_wait_seconds: 120
 object_store_jobs:
   - name: raw
     source: "{{ aurora_raw_root }}/"

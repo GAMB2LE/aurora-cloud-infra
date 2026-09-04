@@ -11,7 +11,7 @@ from pathlib import Path
 CATALOG = Path("/etc/aurora-object-store/catalog.json")
 STATE = Path("/var/lib/aurora-cloud/object-store-verification-gate/state.json")
 REQUIRED = 2
-POLICY_VERSION = 5
+POLICY_VERSION = 6
 
 
 def domain_for_job(name: str) -> str:
@@ -24,9 +24,9 @@ def previous_domain(previous: dict, name: str) -> dict:
         result = dict(domains[name])
         # Policy v4 reset a domain's streak when a shared merge-base timestamp
         # aged out, even when the domain's last check was clean and contained
-        # no measured gap. Preserve one such clean observation during the v5
-        # migration; a current complete family audit is still required before
-        # stable parity can be restored.
+        # no measured gap. Preserve one such clean observation during later
+        # policy migrations; a current complete family audit is still required
+        # before stable parity can be restored.
         stale_only = result.get("failures") and all(
             str(failure).startswith(
                 ("report_stale_hours=", "base_evidence_stale_hours=")
@@ -46,7 +46,7 @@ def previous_domain(previous: dict, name: str) -> dict:
             )
         return result
     # Migrate a clean v3 state conservatively.  It may seed a streak, but a
-    # v4 report still has to establish domain-specific evidence before the
+    # current report still has to establish domain-specific evidence before the
     # domain becomes ready.
     if previous.get("policy_version") == 3 and previous.get("clean"):
         return {
@@ -66,6 +66,7 @@ def build_domain_state(
     generated_at: str,
     evidence_floor: str,
     evidence_id: str,
+    evidence_max_age_hours: float,
     verified: bool,
     complete_verification: bool,
 ) -> dict:
@@ -93,12 +94,18 @@ def build_domain_state(
         "clean": clean,
         "clean_streak": streak,
         "required_clean_reports": REQUIRED,
-        "stable_parity": clean and streak >= REQUIRED and full_clean >= 1,
+        "stable_parity": (
+            clean
+            and complete_verification
+            and streak >= REQUIRED
+            and full_clean >= 1
+        ),
         "failures": failures,
         "verification_mode": mode,
         "verified_in_report": verified,
         "complete_verification": complete_verification,
         "evidence_floor_generated_at": evidence_floor,
+        "evidence_max_age_hours": evidence_max_age_hours,
         "evidence_id": evidence_id,
         "full_clean_reports_in_streak": full_clean,
         "last_clean_at": last_clean_at,
@@ -206,7 +213,11 @@ def main() -> int:
     for name, values in report.get("jobs", {}).items():
         domain = domain_for_job(name)
         domain_jobs[domain].add(name)
-        evidence_at = values.get("verified_at", legacy_evidence_floor)
+        if values.get("verification_scope") != "full_family":
+            domain_failures[domain].append(
+                f"{name}:verification_scope_not_full_family"
+            )
+        evidence_at = values.get("verified_at")
         try:
             parse_time(evidence_at)
         except (TypeError, ValueError):
@@ -226,7 +237,7 @@ def main() -> int:
             if name == "raw" and comparison_name == "source_vs_gws":
                 continue
             comparison = values.get(comparison_name)
-            if comparison is None:
+            if not isinstance(comparison, dict):
                 domain_failures[domain].append(
                     f"{name}:{destination}evidence_missing"
                 )
@@ -236,7 +247,13 @@ def main() -> int:
                 "size_mismatch",
                 "checksum_mismatch",
             ):
-                count = len(comparison.get(field, []))
+                entries = comparison.get(field)
+                if not isinstance(entries, list):
+                    domain_failures[domain].append(
+                        f"{name}:{destination}{field}_invalid"
+                    )
+                    continue
+                count = len(entries)
                 if count:
                     domain_failures[domain].append(
                         f"{name}:{destination}{field}={count}"
@@ -276,17 +293,29 @@ def main() -> int:
             f"raw:gws_retention_evidence_unavailable={exc}"
         )
 
-    age_hours = (
-        dt.datetime.now(dt.timezone.utc) - parse_time(generated_at)
-    ).total_seconds() / 3600
-    if age_hours > float(config.get("report_max_age_hours", 8)):
-        common_failures.append(f"report_stale_hours={age_hours:.2f}")
-
     domain_evidence_floor: dict[str, str] = {}
     domain_evidence_id: dict[str, str] = {}
-    evidence_max_age = float(config.get("report_max_age_hours", 8))
+    legacy_evidence_max_age = float(config.get("report_max_age_hours", 8))
+    configured_domain_max_age = config.get("domain_evidence_max_age_hours", {})
+    if not isinstance(configured_domain_max_age, dict):
+        configured_domain_max_age = {}
+    domain_evidence_max_age: dict[str, float] = {}
     now = dt.datetime.now(dt.timezone.utc)
     for name, values_by_job in domain_evidence.items():
+        try:
+            evidence_max_age = float(
+                configured_domain_max_age.get(name, legacy_evidence_max_age)
+            )
+        except (TypeError, ValueError):
+            evidence_max_age = legacy_evidence_max_age
+            domain_failures[name].append(
+                f"{name}:evidence_max_age_invalid"
+            )
+        if evidence_max_age <= 0:
+            domain_failures[name].append(
+                f"{name}:evidence_max_age_not_positive"
+            )
+        domain_evidence_max_age[name] = evidence_max_age
         if not domain_jobs[name]:
             domain_evidence_floor[name] = legacy_evidence_floor
             domain_evidence_id[name] = json.dumps(
@@ -324,13 +353,15 @@ def main() -> int:
     for name in ("raw_retention", "products"):
         failures = [*common_failures, *domain_failures[name]]
         verified_domain_jobs = domain_jobs[name] & verified_jobs
+        # Incremental reports merge complete per-family evidence.  A clean
+        # report therefore has complete domain coverage when every retained
+        # family carries full-family scope, even if this event rechecked only
+        # the repaired family.  ``verified`` below still requires fresh work
+        # in this report, so reused evidence cannot manufacture a streak.
         complete_verification = (
             bool(domain_jobs[name])
-            and domain_jobs[name] <= verified_jobs
             and all(
-                report["jobs"][job].get(
-                    "verification_scope", "full_family"
-                )
+                report["jobs"][job].get("verification_scope")
                 == "full_family"
                 for job in domain_jobs[name]
             )
@@ -342,6 +373,9 @@ def main() -> int:
             generated_at=generated_at,
             evidence_floor=domain_evidence_floor.get(
                 name, legacy_evidence_floor
+            ),
+            evidence_max_age_hours=domain_evidence_max_age.get(
+                name, legacy_evidence_max_age
             ),
             evidence_id=domain_evidence_id.get(
                 name,

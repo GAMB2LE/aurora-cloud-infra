@@ -12,10 +12,12 @@ Group={{ aurora_service_group }}
 Environment=XDG_CACHE_HOME={{ object_store_cache_root }}
 LoadCredential=gws-key:{{ gws_ssh_private_key }}
 LoadCredential=gws-known-hosts:/home/{{ aurora_service_user }}/.ssh/known_hosts
-ExecStart=/usr/local/bin/aurora-object-store-recheck-after-repair --repair-result {{ object_store_repair_state_root }}/result.json --report {{ object_store_manifest_root }}/latest/comparison.json --attempts {{ object_store_post_repair_recheck_attempts }} --retry-delay-seconds {{ object_store_post_repair_recheck_retry_delay_seconds }} --confirmations 2 --confirmation-delay-seconds 600 --state {{ object_store_repair_state_root }}/recheck-state.json
+ExecStart=/usr/local/bin/aurora-object-store-recheck-after-repair --repair-result {{ object_store_repair_state_root }}/result.json --report {{ object_store_manifest_root }}/latest/comparison.json --attempts {{ object_store_post_repair_recheck_attempts }} --retry-delay-seconds {{ object_store_post_repair_recheck_retry_delay_seconds }} --confirmations 2 --confirmation-delay-seconds 600 --state {{ object_store_repair_state_root }}/recheck-state.json --gate-state {{ aurora_state_root }}/object-store-verification-gate/state.json --gate-wait-seconds {{ object_store_post_repair_gate_wait_seconds }}
 ExecStopPost=+/usr/local/sbin/aurora-object-store-verification-gate
 ExecStopPost=+/usr/local/sbin/aurora-object-store-trigger-retention
-TimeoutStartSec=4h
+# Two complete high-cardinality family confirmations can exceed the ordinary
+# single-inventory budget while remaining bounded and fail-closed.
+TimeoutStartSec={{ object_store_post_repair_recheck_timeout_start_sec }}
 Nice=10
 NoNewPrivileges=true
 PrivateTmp=true

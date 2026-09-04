@@ -20,7 +20,8 @@ MENAPIA_FLIGHT_ENABLED = {{ 'True' if menapia_flight_source_sync_enabled | bool 
 MENAPIA_FLIGHT_TIMER_EXPECTED = {{ 'True' if menapia_flight_source_sync_timer_enabled | bool else 'False' }}
 GATE = Path({{ aurora_state_root | to_json }}) / "object-store-verification-gate/state.json"
 STREAMS = json.loads(r'''{{ aurora_archive_streams | to_json }}''')
-EVIDENCE_MAX_AGE_HOURS = {{ object_store_inventory_max_age_hours | int }}
+RAW_EVIDENCE_MAX_AGE_HOURS = {{ object_store_inventory_raw_evidence_max_age_hours | int }}
+OBJECT_REPORT_MAX_AGE_HOURS = {{ object_store_inventory_products_evidence_max_age_hours | int }}
 PREFIX = {
     "rpgfmcw94": "radar",
     "hatprog5": "hatpro",
@@ -194,6 +195,8 @@ def operator_status(
     metrics: dict[str, object],
     gate: dict,
     progress: dict,
+    raw_evidence_max_age_hours: float = 8,
+    product_evidence_max_age_hours: float = 36,
 ) -> dict[str, object]:
     """Translate the fail-closed pruning gate into actionable operations state."""
     def metric_count(key: str) -> int:
@@ -244,10 +247,32 @@ def operator_status(
         gate.get("raw_retention_ready", raw_gate.get("stable_parity", False))
     )
     raw_clean = bool(raw_gate.get("clean"))
-    raw_evidence_at = raw_gate.get("last_clean_at") or (
+    raw_evidence_at = raw_gate.get("evidence_floor_generated_at") or raw_gate.get(
+        "last_clean_at"
+    ) or (
         gate.get("last_generated_at") if raw_clean else None
     )
     raw_evidence_age = age_hours(raw_evidence_at)
+    raw_ready = bool(
+        raw_ready
+        and raw_evidence_age is not None
+        and raw_evidence_age <= raw_evidence_max_age_hours
+    )
+    product_gate = domains.get("products")
+    if not isinstance(product_gate, dict):
+        product_gate = gate
+    product_clean = bool(product_gate.get("clean"))
+    product_evidence_at = product_gate.get(
+        "evidence_floor_generated_at"
+    ) or product_gate.get("last_clean_at") or (
+        gate.get("last_generated_at") if product_clean else None
+    )
+    product_evidence_age = age_hours(product_evidence_at)
+    product_current = bool(
+        product_clean
+        and product_evidence_age is not None
+        and product_evidence_age <= product_evidence_max_age_hours
+    )
     delivery_oldest = float(
         metrics.get("archive_delivery_oldest_pending_age_minutes", 0) or 0
     )
@@ -332,7 +357,35 @@ def operator_status(
             ),
             "pruning_paused": True,
         }
-    if raw_clean and raw_evidence_age is not None and raw_evidence_age <= 8 and not delivery_amber:
+    if (
+        raw_clean
+        and raw_evidence_age is not None
+        and raw_evidence_age <= raw_evidence_max_age_hours
+        and product_evidence_age is not None
+        and product_evidence_age > product_evidence_max_age_hours
+    ):
+        retention_detail = (
+            "Raw retention evidence remains independently current."
+            if raw_ready
+            else "Raw evidence is current, but its second retention confirmation is pending."
+        )
+        return {
+            "level": "amber",
+            "title": "Product archive verification is overdue",
+            "detail": (
+                f"The oldest product-family evidence is {product_evidence_age:.1f} "
+                f"hours old, beyond its {product_evidence_max_age_hours:g}-hour limit. "
+                f"{retention_detail}"
+            ),
+            "pruning_paused": pruning_paused,
+        }
+    if (
+        raw_clean
+        and raw_evidence_age is not None
+        and raw_evidence_age <= raw_evidence_max_age_hours
+        and product_current
+        and not delivery_amber
+    ):
         if progress.get("state") in {"running", "publishing"}:
             verification_detail = " A routine strict audit is running in the background."
         elif progress.get("state") == "failed":
@@ -388,11 +441,17 @@ def operator_status(
             ),
             "pruning_paused": True,
         }
-    if delivery_amber or (raw_evidence_age is not None and raw_evidence_age > 8):
+    if delivery_amber or (
+        raw_evidence_age is not None
+        and raw_evidence_age > raw_evidence_max_age_hours
+    ):
         reasons = []
         if delivery_amber:
             reasons.append(f"oldest pending delivery is {delivery_oldest:.0f} minutes")
-        if raw_evidence_age is not None and raw_evidence_age > 8:
+        if (
+            raw_evidence_age is not None
+            and raw_evidence_age > raw_evidence_max_age_hours
+        ):
             reasons.append(f"certified raw evidence is {raw_evidence_age:.1f} hours old")
         return {
             "level": "amber",
@@ -463,11 +522,11 @@ def main() -> int:
     object_age = evidence_age_hours(object_report.get("generated_at"))
     if gws_age is None:
         failures.append("gws_evidence_missing")
-    elif gws_age > EVIDENCE_MAX_AGE_HOURS:
+    elif gws_age > RAW_EVIDENCE_MAX_AGE_HOURS:
         failures.append(f"gws_evidence_stale_hours={gws_age:.2f}")
     if object_age is None:
         failures.append("object_store_evidence_missing")
-    elif object_age > EVIDENCE_MAX_AGE_HOURS:
+    elif object_age > OBJECT_REPORT_MAX_AGE_HOURS:
         failures.append(f"object_store_evidence_stale_hours={object_age:.2f}")
     issues = 0
     prune_ready = 0
@@ -823,7 +882,14 @@ def main() -> int:
         failures.append(f"gws_all_mismatch={gws_job_mismatch}")
     if not gate.get("stable_parity", False):
         failures.append("object_store_stable_parity=false")
-    presentation = operator_status(failures, metrics, gate, inventory_progress)
+    presentation = operator_status(
+        failures,
+        metrics,
+        gate,
+        inventory_progress,
+        RAW_EVIDENCE_MAX_AGE_HOURS,
+        OBJECT_REPORT_MAX_AGE_HOURS,
+    )
     metrics["archive_pruning_paused_state"] = int(
         bool(presentation["pruning_paused"])
     )
