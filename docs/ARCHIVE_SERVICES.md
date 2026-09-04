@@ -174,6 +174,14 @@ continues on the next activation.
 | Archive-health publication | Every 2 minutes |
 | ASS retention | Daily at 03:30, provided every gate passes |
 
+Raw-retention evidence expires after eight hours. Derived-product evidence has
+a separate 36-hour limit: one daily cadence plus the full inventory service's
+bounded 12-hour runtime. This longer product clock cannot authorize raw
+deletion; the retention coordinator independently rechecks the raw family's
+eight-hour evidence floor immediately before issuing any permit. Expired
+product evidence is reported as an amber product-verification issue without
+revoking otherwise-current raw retention proof.
+
 The dispatch queue avoids a recursive discovery scan in the critical path:
 source-sync jobs provide the exact files that just arrived. It sends at most
 5,000 files or 20 GiB per run, ordered by newest mtime, and keeps independent
@@ -248,7 +256,12 @@ After a successful repair, the repair service records exactly which catalogue
 families copied settled paths and starts a bounded incremental inventory for
 those families. It requires two clean confirmations ten minutes apart and
 records the consumed repair report, so a path trigger cannot repeat completed
-work. A transient inventory failure is retried once.
+work. Each confirmation must publish a new gap-free full-family report and be
+accepted by the verification gate with the exact report SHA; a zero inventory
+exit alone is insufficient. A transient inventory or gate-observation failure
+is retried once. The recheck unit has a
+36-hour outer bound because two complete checks of a high-cardinality family
+can exceed the ordinary single-inventory runtime without being stalled.
 Every successful full, incremental, or resumable-family checkpoint reevaluates
 the verification gate, including checkpoints retained when a later family
 fails. Scheduled retention is started immediately only when the independent
@@ -372,6 +385,12 @@ those units directly.
 A fresh product can be pending without hiding raw archive health. A settled
 product gap remains a real global archive-health failure, so aggregate object
 parity cannot be green while an older non-raw job still has a gap.
+Complete product coverage is compositional: each retained family must have a
+fresh `full_family` proof with zero settled gaps, while at least one product
+family must actually be rechecked to advance the clean streak. This allows an
+exact-repair recheck to close the affected family from a complete report
+without pretending that merely republishing reused evidence is a new clean
+observation.
 
 ## Safe convergence runbook
 

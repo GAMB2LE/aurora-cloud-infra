@@ -22,6 +22,10 @@
   "s3_list_retry_max_delay_seconds": {{ object_store_inventory_s3_list_retry_max_delay_seconds | int }},
   "history_keep": {{ object_store_inventory_history_keep | int }},
   "report_max_age_hours": {{ object_store_inventory_max_age_hours | int }},
+  "domain_evidence_max_age_hours": {
+    "raw_retention": {{ object_store_inventory_raw_evidence_max_age_hours | int }},
+    "products": {{ object_store_inventory_products_evidence_max_age_hours | int }}
+  },
   "jobs": {{ object_store_jobs | to_nice_json }},
   "streams": {{ aurora_archive_streams | to_nice_json }}
 }

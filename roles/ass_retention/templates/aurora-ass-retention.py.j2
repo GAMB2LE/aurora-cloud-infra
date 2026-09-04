@@ -37,6 +37,43 @@ def timestamp(value: str) -> dt.datetime:
     return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+def raw_evidence_time(object_gate: dict) -> dt.datetime:
+    """Return the exact raw-domain evidence floor or fail closed."""
+    domains = object_gate.get("domains")
+    if not isinstance(domains, dict):
+        raise ValueError("raw retention domain is missing")
+    raw_domain = domains.get("raw_retention")
+    if not isinstance(raw_domain, dict):
+        raise ValueError("raw retention domain is missing")
+    value = raw_domain.get("evidence_floor_generated_at")
+    if not isinstance(value, str) or not value:
+        raise ValueError("raw retention evidence timestamp is missing")
+    try:
+        return timestamp(value)
+    except ValueError as error:
+        raise ValueError("raw retention evidence timestamp is invalid") from error
+
+
+def raw_evidence_is_fresh(
+    object_gate: dict,
+    now: dt.datetime,
+    max_age: dt.timedelta,
+) -> bool:
+    return now < raw_evidence_time(object_gate) + max_age
+
+
+def bounded_permit_expiry(
+    object_gate: dict,
+    now: dt.datetime,
+    max_age: dt.timedelta,
+    lifetime: dt.timedelta,
+) -> dt.datetime:
+    evidence_deadline = raw_evidence_time(object_gate) + max_age
+    if now >= evidence_deadline:
+        raise ValueError("raw object-store verification is stale")
+    return min(now + lifetime, evidence_deadline)
+
+
 def fail(message: str) -> None:
     print(f"ASS retention blocked: {message}", file=sys.stderr)
     raise SystemExit(2)
@@ -134,12 +171,20 @@ def main() -> None:
         fail("immutable GWS verification snapshot is inconsistent")
     report = json.loads(OBJECT.read_text(encoding="utf-8"))
     object_gate = json.loads(OBJECT_GATE.read_text(encoding="utf-8"))
+    verification_run = summary["generated_at"]
+    object_store_run = report["generated_at"]
     if now - timestamp(summary["generated_at"]) > MAX_AGE:
         fail("GWS verification is stale")
     if now - timestamp(report["generated_at"]) > MAX_AGE:
         fail("object-store inventory is stale")
     if object_gate.get("last_generated_at") != report.get("generated_at"):
         fail("object-store stability gate does not describe the latest inventory")
+    try:
+        raw_verified = raw_evidence_is_fresh(object_gate, now, MAX_AGE)
+    except ValueError as error:
+        fail(str(error))
+    if not raw_verified:
+        fail("raw object-store verification is stale")
     if args.canary:
         if not object_gate.get("clean", False):
             fail("object-store parity is not clean for canary")
@@ -220,16 +265,81 @@ def main() -> None:
         min(args.max_candidates, candidate_total),
     )
 
-    expires = now + dt.timedelta(minutes=30)
     for index in range(0, len(candidates), 500):
+        # A large candidate set can outlive the evidence that authorized it.
+        # Re-read the latest mutable evidence before every signed batch while
+        # retaining the pinned immutable candidate snapshot. Never issue a
+        # permit beyond either the pinned or current raw-evidence deadline.
+        current_summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        current_report = json.loads(OBJECT.read_text(encoding="utf-8"))
+        current_gate = json.loads(OBJECT_GATE.read_text(encoding="utf-8"))
+        if current_gate.get("last_generated_at") != current_report.get(
+            "generated_at"
+        ):
+            fail("object-store gate does not describe the current inventory")
+        if args.canary:
+            if not current_gate.get("clean", False):
+                fail("object-store parity changed during canary preparation")
+        elif not current_gate.get(
+            "raw_retention_ready",
+            current_gate.get("stable_parity", False),
+        ):
+            fail("raw object-store parity changed during retention preparation")
+        if current_gate.get("writers_policy") != "independent":
+            fail("object-store writer policy changed during retention preparation")
+        batch_now = dt.datetime.now(dt.timezone.utc)
+        try:
+            current_gws_at = timestamp(current_summary["generated_at"])
+        except (KeyError, TypeError, ValueError):
+            fail("current GWS verification timestamp is invalid")
+        if batch_now >= current_gws_at + MAX_AGE:
+            fail("current GWS verification is stale")
+        for stream in STREAMS:
+            if not stream.get("prune_enabled", False):
+                continue
+            name = stream["name"]
+            state = current_summary.get("streams", {}).get(name, {})
+            if state.get("error"):
+                fail(f"current GWS verification failed for {name}: {state['error']}")
+            required_counts = (
+                "retention_local_missing_count",
+                "retention_local_mismatch_count",
+                "retention_gws_missing_count",
+                "retention_gws_mismatch_count",
+            )
+            if not all(field in state for field in required_counts):
+                fail(f"current GWS retention evidence is missing for {name}")
+            for field in required_counts:
+                if int(state.get(field, 0) or 0):
+                    fail(f"current GWS {field} is non-zero for {name}")
+        try:
+            expires = min(
+                bounded_permit_expiry(
+                    object_gate,
+                    batch_now,
+                    MAX_AGE,
+                    dt.timedelta(minutes=30),
+                ),
+                bounded_permit_expiry(
+                    current_gate,
+                    batch_now,
+                    MAX_AGE,
+                    dt.timedelta(minutes=30),
+                ),
+                timestamp(verification_run) + MAX_AGE,
+            )
+        except ValueError as error:
+            fail(str(error))
+        if batch_now >= expires:
+            fail("pinned retention evidence is stale")
         batch = candidates[index : index + 500]
         permit = {
             "schema_version": 1,
             "site": "ass",
-            "generated_at": now.isoformat().replace("+00:00", "Z"),
+            "generated_at": batch_now.isoformat().replace("+00:00", "Z"),
             "expires_at": expires.isoformat().replace("+00:00", "Z"),
-            "verification_run": summary["generated_at"],
-            "object_store_run": report["generated_at"],
+            "verification_run": verification_run,
+            "object_store_run": object_store_run,
             "cutoff_epoch": min(cutoffs),
             "dry_run": DRY_RUN,
             "candidates": batch,
@@ -270,7 +380,7 @@ def main() -> None:
             stderr=subprocess.PIPE,
             check=True,
         )
-        audit_path = AUDIT / f"{now:%Y%m%dT%H%M%SZ}-{index // 500:04d}.json"
+        audit_path = AUDIT / f"{batch_now:%Y%m%dT%H%M%SZ}-{index // 500:04d}.json"
         audit_path.write_bytes(result.stdout)
     print(
         f"ASS retention: issued {len(candidates)} exact-path "

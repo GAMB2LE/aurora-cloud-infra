@@ -49,6 +49,12 @@ GWS raw archive     object-store raw archive
   record the independently additive writer policy, and have passed two clean
   confirmations including a full baseline. Derived products have a separate
   durability gate and cannot reset clean raw-retention evidence.
+- The coordinator independently rechecks the raw domain's evidence-floor
+  timestamp against the eight-hour limit before every signed permit batch,
+  revalidates the latest GWS and object-store gate while retaining the pinned
+  immutable candidate snapshot, and caps the permit expiry at both the pinned
+  and current evidence deadlines. A newer product checkpoint or cached ready
+  state cannot keep an expired raw proof eligible.
 - The source path must be present in the GWS verifier's exact
   `prune_candidates.tsv` and have an mtime older than seven days.
 - The cloud coordinator creates a short-lived, site-specific permit containing

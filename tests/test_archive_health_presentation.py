@@ -104,6 +104,99 @@ class ArchiveHealthPresentationTests(unittest.TestCase):
         self.assertIn("last certified raw parity check is clean", result["detail"])
         self.assertTrue(result["pruning_paused"])
 
+    def test_clean_products_can_be_fourteen_hours_old_while_raw_is_green(self):
+        now = dt.datetime.now(dt.timezone.utc)
+        result = operator_status(
+            [],
+            self.base_metrics(),
+            {
+                "clean": True,
+                "stable_parity": True,
+                "raw_retention_ready": True,
+                "domains": {
+                    "raw_retention": {
+                        "clean": True,
+                        "stable_parity": True,
+                        "evidence_floor_generated_at": now.isoformat(),
+                    },
+                    "products": {
+                        "clean": True,
+                        "stable_parity": True,
+                        "evidence_floor_generated_at": (
+                            now - dt.timedelta(hours=14)
+                        ).isoformat(),
+                    },
+                },
+            },
+            {"state": "complete"},
+        )
+
+        self.assertEqual(result["level"], "green")
+        self.assertEqual(result["title"], "Archive copies are healthy")
+        self.assertFalse(result["pruning_paused"])
+
+    def test_expired_product_evidence_is_amber_without_pausing_raw(self):
+        now = dt.datetime.now(dt.timezone.utc)
+        result = operator_status(
+            ["object_store_stable_parity=false"],
+            self.base_metrics(),
+            {
+                "clean": False,
+                "stable_parity": False,
+                "raw_retention_ready": True,
+                "domains": {
+                    "raw_retention": {
+                        "clean": True,
+                        "stable_parity": True,
+                        "evidence_floor_generated_at": now.isoformat(),
+                    },
+                    "products": {
+                        "clean": False,
+                        "stable_parity": False,
+                        "evidence_floor_generated_at": (
+                            now - dt.timedelta(hours=37)
+                        ).isoformat(),
+                    },
+                },
+            },
+            {"state": "complete"},
+        )
+
+        self.assertEqual(result["level"], "amber")
+        self.assertEqual(
+            result["title"],
+            "Product archive verification is overdue",
+        )
+        self.assertIn("beyond its 36-hour limit", result["detail"])
+        self.assertFalse(result["pruning_paused"])
+
+    def test_raw_evidence_floor_age_overrides_cached_ready_state(self):
+        now = dt.datetime.now(dt.timezone.utc)
+        result = operator_status(
+            [],
+            self.base_metrics(),
+            {
+                "clean": True,
+                "stable_parity": True,
+                "raw_retention_ready": True,
+                "domains": {
+                    "raw_retention": {
+                        "clean": True,
+                        "stable_parity": True,
+                        "last_clean_at": now.isoformat(),
+                        "evidence_floor_generated_at": (
+                            now - dt.timedelta(hours=9)
+                        ).isoformat(),
+                    }
+                },
+            },
+            {"state": "complete"},
+        )
+
+        self.assertEqual(result["level"], "amber")
+        self.assertTrue(result["pruning_paused"])
+        self.assertIn("certified raw evidence", result["detail"].lower())
+
     def test_stale_clean_evidence_with_healthy_delivery_is_amber(self):
         last_clean_at = (
             dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=49)
