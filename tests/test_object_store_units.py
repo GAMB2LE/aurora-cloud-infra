@@ -34,6 +34,15 @@ class ObjectStoreUnitTests(unittest.TestCase):
             source,
         )
 
+    def test_incremental_inventory_allows_full_family_runtime(self) -> None:
+        source = (
+            TEMPLATES
+            / "aurora-object-store-inventory-incremental@.service.j2"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("TimeoutStartSec=12h", source)
+        self.assertNotIn("TimeoutStartSec=4h", source)
+
     def test_recheck_unit_can_persist_confirmation_state(self) -> None:
         source = (
             TEMPLATES / "aurora-object-store-recheck-after-repair.service.j2"
