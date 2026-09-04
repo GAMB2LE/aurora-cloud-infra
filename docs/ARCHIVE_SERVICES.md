@@ -211,10 +211,12 @@ year/month subtrees, and a global process semaphore limits nested listings to
 the configured `object_store_inventory_process_limit` (4 in production). This
 is deliberately below the cloud host's CPU count: JASMIN object-store listings
 are network-bound and excessive parallel scans can trigger gateway timeouts.
-Each listing has a 60-minute outer process guard, up to five retries, and an
-exponential, jittered backoff. The staggered retry prevents a group of failed
-shards from immediately overloading the gateway again while still detecting
-dead connections promptly.
+Each listing has a two-hour outer process guard in production, leaving
+headroom for valid high-cardinality CL61 product shards that can run beyond one
+hour while continuing to return data. The five-attempt policy and 12-hour
+service timeout keep repeated failures bounded. Retries use an exponential,
+jittered backoff so a group of failed shards does not immediately overload the
+gateway again while still detecting dead connections promptly.
 Source-proven flat families such as CL61 use a recursive files-only object
 listing instead of S3's slow delimiter-based directory emulation; this keeps
 the comparison exact while avoiding a pathological prefix scan.

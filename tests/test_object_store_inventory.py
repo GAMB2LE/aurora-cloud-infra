@@ -590,7 +590,7 @@ class ObjectStoreInventoryTests(unittest.TestCase):
                 "remote": "remote",
                 "bucket": "bucket",
                 "rclone_config": "/config",
-                "list_timeout_seconds": 3600,
+                "list_timeout_seconds": 7200,
             }
         )
 
@@ -601,7 +601,7 @@ class ObjectStoreInventoryTests(unittest.TestCase):
         ) as run:
             lister.list_json("remote:large-shard")
 
-        self.assertEqual(run.call_args.kwargs["timeout"], 3600)
+        self.assertEqual(run.call_args.kwargs["timeout"], 7200)
 
     def test_s3_listing_retries_after_transient_gateway_failure(self) -> None:
         lister = inventory.S3Lister(

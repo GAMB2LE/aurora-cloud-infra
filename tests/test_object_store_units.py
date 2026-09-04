@@ -5,6 +5,9 @@ import unittest
 TEMPLATES = (
     Path(__file__).parents[1] / "roles" / "object_store_mirror" / "templates"
 )
+GROUP_VARS = (
+    Path(__file__).parents[1] / "inventory" / "group_vars" / "aurora_cloud.yml"
+)
 
 
 class ObjectStoreUnitTests(unittest.TestCase):
@@ -42,6 +45,18 @@ class ObjectStoreUnitTests(unittest.TestCase):
 
         self.assertIn("TimeoutStartSec=12h", source)
         self.assertNotIn("TimeoutStartSec=4h", source)
+
+    def test_production_listing_timeout_allows_large_cl61_shards(self) -> None:
+        source = GROUP_VARS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "object_store_inventory_list_timeout_seconds: 7200",
+            source,
+        )
+        self.assertNotIn(
+            "object_store_inventory_list_timeout_seconds: 3600",
+            source,
+        )
 
     def test_recheck_unit_can_persist_confirmation_state(self) -> None:
         source = (
