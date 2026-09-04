@@ -869,7 +869,10 @@ object_store_inventory_workers: 2
 object_store_inventory_job_workers: 2
 object_store_inventory_shard_workers: 4
 object_store_inventory_process_limit: 4
-object_store_inventory_list_timeout_seconds: 3600
+# High-cardinality CL61 product shards can legitimately take longer than one
+# hour while continuing to return data. The 12-hour service limit still bounds
+# repeated failures across the five-attempt listing policy.
+object_store_inventory_list_timeout_seconds: 7200
 object_store_inventory_s3_list_attempts: 5
 object_store_inventory_s3_list_retry_delay_seconds: 45
 object_store_inventory_s3_list_retry_max_delay_seconds: 1800
