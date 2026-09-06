@@ -865,6 +865,21 @@ object_store_rclone_config: /etc/aurora-object-store/rclone.conf
 object_store_manifest_root: "{{ aurora_data_root }}/internal/object_store_manifests"
 object_store_log_root: /var/log/aurora-cloud/object-store
 object_store_cache_root: "{{ aurora_state_root }}/object-store-rclone-cache"
+# Enable after shadow validation; the legacy scheduler remains the rollback path.
+object_store_recovery_enabled: false
+object_store_recovery_deployment_id: ""
+object_store_recovery_root: "{{ object_store_manifest_root }}/recovery"
+object_store_recovery_runtime: /opt/aurora-object-store-recovery
+object_store_recovery_raw_refresh_hours: 3
+object_store_recovery_products_refresh_hours: 12
+object_store_recovery_raw_epoch_hours: 4
+object_store_recovery_products_epoch_hours: 12
+object_store_recovery_retry_delays_seconds: [900, 1800, 3600]
+object_store_recovery_cache_max_bytes: 10737418240
+object_store_recovery_free_reserve_bytes: 53687091200
+object_store_recovery_s3_page_size: 1000
+object_store_recovery_s3_connect_timeout_seconds: 30
+object_store_recovery_s3_read_timeout_seconds: 120
 object_store_inventory_workers: 2
 object_store_inventory_job_workers: 2
 object_store_inventory_shard_workers: 4

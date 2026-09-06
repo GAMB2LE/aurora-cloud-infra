@@ -27,6 +27,24 @@ SPEC.loader.exec_module(inventory)
 
 
 class ObjectStoreInventoryTests(unittest.TestCase):
+    def test_frozen_observation_cutoff_excludes_newly_settled_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'newly-settled.dat'
+            path.write_bytes(b'archive')
+            inventory.os.utime(path,(101,101))
+            with mock.patch.object(inventory.time,'time',return_value=1120):
+                self.assertEqual(inventory.local_inventory(tmp,[],"15m",observed_at=1000),{})
+                self.assertIn(path.name,inventory.local_inventory(tmp,[],"15m"))
+
+    def test_strict_source_walk_rejects_nested_permission_errors(self):
+        def unreadable(base, onerror=None):
+            onerror(PermissionError('nested source unavailable'))
+            return iter([])
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(inventory.os,'walk',side_effect=unreadable):
+            with self.assertRaises(PermissionError):
+                inventory.local_inventory(tmp,[],"0s",strict_errors=True)
+            self.assertEqual(inventory.local_inventory(tmp,[],"0s"),{})
+
     def test_incremental_base_can_refresh_one_family_from_old_deep_base(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -299,7 +317,7 @@ class ObjectStoreInventoryTests(unittest.TestCase):
     def test_local_inventory_prunes_fully_excluded_directories(self) -> None:
         entered: list[str] = []
 
-        def fake_walk(root: Path):
+        def fake_walk(root: Path, **kwargs):
             dirnames = ["wxcam.zarr", "daily_videos"]
             yield str(root), dirnames, []
             if "wxcam.zarr" in dirnames:

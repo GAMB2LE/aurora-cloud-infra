@@ -1,0 +1,11 @@
+[Unit]
+Description=Retry canonical archive verification uploads every fifteen minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+AccuracySec=30s
+Unit=aurora-object-store-recovery-upload.service
+
+[Install]
+WantedBy=timers.target

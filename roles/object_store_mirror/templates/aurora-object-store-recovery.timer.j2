@@ -1,0 +1,11 @@
+[Unit]
+Description=Recover archive verification every five minutes and after reboot
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+AccuracySec=15s
+Unit=aurora-object-store-recovery.service
+
+[Install]
+WantedBy=timers.target

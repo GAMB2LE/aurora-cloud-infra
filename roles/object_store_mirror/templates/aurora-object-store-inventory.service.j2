@@ -11,15 +11,20 @@ Group={{ aurora_service_group }}
 Environment=XDG_CACHE_HOME={{ object_store_cache_root }}
 LoadCredential=gws-key:{{ gws_ssh_private_key }}
 LoadCredential=gws-known-hosts:/home/{{ aurora_service_user }}/.ssh/known_hosts
+{% if object_store_recovery_enabled | bool %}
+ExecStart=/usr/local/bin/aurora-object-store-recovery --catalog /etc/aurora-object-store/catalog.json enqueue --daily
+TimeoutStartSec=2min
+{% else %}
 ExecStart=/usr/local/bin/aurora-object-store-inventory
 # A full audit publishes successful families as incremental checkpoints, so
 # always evaluate the last atomic checkpoint even when a later family fails.
 ExecStopPost=+/usr/local/sbin/aurora-object-store-verification-gate
 ExecStopPost=+/usr/local/sbin/aurora-object-store-trigger-retention
 TimeoutStartSec=12h
+{% endif %}
 Nice=10
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths={{ object_store_manifest_root }} {{ object_store_cache_root }} {{ aurora_state_root }}/object-store-verification-gate
+ReadWritePaths={{ object_store_manifest_root }} {{ object_store_cache_root }} {{ aurora_state_root }}/object-store-verification-gate {{ object_store_recovery_root }}

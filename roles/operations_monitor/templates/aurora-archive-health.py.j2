@@ -8,11 +8,15 @@ import json
 from pathlib import Path
 import sqlite3
 import subprocess
+import sys
+import time
 
 OUTPUT = Path({{ archive_monitor_latest_path | to_json }})
 GWS = Path({{ gws_manifest_root | to_json }}) / "latest/summary.json"
 OBJECT = Path({{ object_store_manifest_root | to_json }}) / "latest/comparison.json"
 INVENTORY_PROGRESS = Path({{ object_store_manifest_root | to_json }}) / "progress.json"
+RECOVERY_ENABLED = {{ 'True' if object_store_recovery_enabled | bool else 'False' }}
+RECOVERY_STATUS = Path({{ object_store_recovery_root | to_json }}) / "status.json"
 DISPATCH = Path({{ archive_dispatch_state_root | to_json }}) / "status.json"
 DISPATCH_DATABASE = Path({{ archive_dispatch_state_root | to_json }}) / "queue.sqlite"
 MENAPIA_FLIGHT_STATUS = Path({{ menapia_flight_status_path | to_json }})
@@ -63,6 +67,9 @@ ARCHIVE_TRIGGERS = [
     "aurora-object-store-repair.path",
     "aurora-object-store-verification-gate.path",
 ]
+if RECOVERY_ENABLED:
+    ARCHIVE_SERVICES.append("aurora-object-store-recovery.service")
+    ARCHIVE_TRIGGERS.append("aurora-object-store-recovery.timer")
 
 
 def now() -> str:
@@ -75,6 +82,30 @@ def read(path: Path) -> dict:
     except (FileNotFoundError, OSError, json.JSONDecodeError):
         return {}
     return value if isinstance(value, dict) else {}
+
+
+def archive_snapshot() -> tuple[dict, dict]:
+    """Read report and gate under the same immutable generation lease."""
+    if not RECOVERY_ENABLED and not OBJECT.parent.is_symlink():
+        # Legacy scans own the collection lock for hours. Reader-first rollout
+        # must keep the existing health collector responsive until migration.
+        return read(OBJECT), read(GATE)
+    sys.path.insert(0, "/usr/local/lib/aurora-object-store")
+    try:
+        from aurora_object_store_evidence import read_snapshot
+    except ImportError:
+        # Readers can be deployed before the new modules while recovery is off.
+        return ({}, {}) if RECOVERY_ENABLED else (read(OBJECT), read(GATE))
+    for _attempt in range(10):
+        try:
+            with read_snapshot({"manifest_root": str(OBJECT.parent.parent), "gate_state_path": str(GATE)}) as snapshot:
+                return snapshot.report, snapshot.gate
+        except BlockingIOError:
+            # A short publication must not manufacture a missing-evidence alert.
+            time.sleep(0.2)
+        except (OSError, ValueError):
+            return {}, {}
+    return {}, {}
 
 
 def unit(name: str) -> dict:
@@ -190,6 +221,113 @@ def evidence_age_hours(value: object) -> float | None:
     ).total_seconds() / 3600
 
 
+def recovery_status(status: dict, report: dict, enabled: bool, current=None) -> dict:
+    """Expose queue progress while independently checking recovery liveness."""
+    import datetime as _dt
+
+    current = current or _dt.datetime.now(_dt.timezone.utc)
+
+    def timestamp(value):
+        try:
+            parsed = _dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=_dt.timezone.utc)
+        except (TypeError, ValueError):
+            return None
+
+    if not enabled:
+        return {"enabled": False, "state": "disabled", "jobs": {}, "failures": []}
+    heartbeat = timestamp(status.get("heartbeat_at"))
+    heartbeat_age = (current - heartbeat).total_seconds() / 60 if heartbeat else None
+    failures = []
+    if heartbeat_age is None or heartbeat_age > 15 or heartbeat_age < -5:
+        failures.append("archive_recovery_heartbeat_overdue")
+    jobs = {}
+    raw_jobs = status.get("jobs")
+    evidence_jobs = report.get("jobs")
+    if not isinstance(raw_jobs, dict):
+        raw_jobs = {}
+    if not isinstance(evidence_jobs, dict):
+        evidence_jobs = {}
+    for name in sorted(set(raw_jobs) | set(evidence_jobs)):
+        value = raw_jobs.get(name)
+        value = value if isinstance(value, dict) else {}
+        evidence = evidence_jobs.get(name)
+        evidence = evidence if isinstance(evidence, dict) else {}
+        observed = timestamp(evidence.get("evidence_started_at") or evidence.get("verified_at"))
+        max_age = RAW_EVIDENCE_MAX_AGE_HOURS if name == "raw" else OBJECT_REPORT_MAX_AGE_HOURS
+        first_failure = timestamp(value.get("first_failure_at"))
+        failure_hours = (current - first_failure).total_seconds() / 3600 if first_failure else None
+        state = str(value.get("state") or "unknown")
+        if state == "blocked":
+            failures.append(f"archive_recovery_blocked={name}")
+        elif failure_hours is not None and failure_hours >= 6:
+            failures.append(f"archive_recovery_failure_overdue={name}")
+        jobs[name] = {
+            **{key: value.get(key) for key in (
+                "verification_id", "evidence_started_at", "attempt_count",
+                "first_failure_at", "next_retry_at", "error_class", "last_error",
+                "progress", "last_success_at", "last_evidence_at", "expires_at",
+            )},
+            "state": state,
+            "observation_age_hours": (current - observed).total_seconds() / 3600 if observed else None,
+            "evidence_expires_at": (observed + _dt.timedelta(hours=max_age)).isoformat() if observed else None,
+            "evidence_max_age_hours": max_age,
+            "failure_age_hours": failure_hours,
+        }
+    affected = [name for name, job in jobs.items() if job["state"] in {"queued", "running", "launching", "repairing", "retry_wait", "blocked"}]
+    state = str(status.get("state") or "unknown")
+    detail = ""
+    if any(item.startswith("archive_recovery_blocked=") for item in failures):
+        detail = "Automatic archive verification is blocked. Review the affected family and its recorded error in Ops."
+    elif "archive_recovery_heartbeat_overdue" in failures:
+        detail = "The archive recovery coordinator has not reported a current heartbeat within 15 minutes."
+    elif failures:
+        detail = "An archive family has failed to verify for at least six hours. Automatic retries are continuing."
+    elif any(job["state"] == "retry_wait" for job in jobs.values()):
+        detail = "Archive verification is retrying automatically; completed listing pages are preserved."
+        if status.get("next_retry_at"):
+            detail += f" Next retry: {status['next_retry_at']}."
+    elif any(job["state"] in {"running", "launching", "repairing"} for job in jobs.values()):
+        running = ", ".join(name for name, job in jobs.items() if job["state"] in {"running", "launching", "repairing"})
+        detail = f"Automatic archive verification is running for {running}."
+    elif state == "queued":
+        detail = "Archive verification is queued for its next automatic worker."
+    return {
+        **status,
+        "enabled": True,
+        "state": state,
+        "jobs": jobs,
+        "affected_jobs": affected,
+        "heartbeat_age_minutes": heartbeat_age,
+        "failures": failures,
+        "active_alert": bool(failures),
+        "level": "red" if any("blocked=" in item for item in failures) else "amber" if failures else "green",
+        "detail": detail,
+    }
+
+
+def recovery_progress(recovery: dict) -> dict:
+    """Adapt actual queue state to the existing verification contract."""
+    jobs = recovery.get("jobs", {})
+    audits = recovery.get("daily_audits")
+    audits = audits if isinstance(audits, dict) else {}
+    latest = max(audits.values(), key=lambda value: value.get("requested_at") or "", default={})
+    daily_jobs = latest.get("jobs") or {}
+    completed = [name for name, verification_id in daily_jobs.items() if verification_id]
+    if not latest:
+        completed = [name for name, job in jobs.items() if job.get("state") == "idle" and job.get("last_success_at")]
+    return {
+        "state": recovery.get("state", "unknown"),
+        "verification_mode": "automatic_recovery",
+        "completed_jobs": completed,
+        "total_jobs": len(jobs),
+        "current_jobs": [name for name, job in jobs.items() if job.get("state") in {"running", "launching", "repairing"}],
+        "phase": "recovery",
+        "updated_at": recovery.get("updated_at"),
+        "error": "; ".join(str(job.get("last_error")) for job in jobs.values() if job.get("last_error")) or None,
+    }
+
+
 def operator_status(
     failures: list[str],
     metrics: dict[str, object],
@@ -197,6 +335,7 @@ def operator_status(
     progress: dict,
     raw_evidence_max_age_hours: float = 8,
     product_evidence_max_age_hours: float = 36,
+    recovery: dict | None = None,
 ) -> dict[str, object]:
     """Translate the fail-closed pruning gate into actionable operations state."""
     def metric_count(key: str) -> int:
@@ -357,6 +496,20 @@ def operator_status(
             ),
             "pruning_paused": True,
         }
+    if recovery and recovery.get("active_alert"):
+        return {
+            "level": recovery["level"],
+            "title": "Archive verification recovery needs attention",
+            "detail": recovery["detail"],
+            "pruning_paused": pruning_paused,
+        }
+    if any(item.startswith("gws_evidence_stale_hours=") or item == "gws_evidence_missing" for item in failures):
+        return {
+            "level": "amber",
+            "title": "Archive verification is overdue",
+            "detail": "Independent GWS verification is overdue. A fresh check is required before edge pruning can resume.",
+            "pruning_paused": True,
+        }
     if (
         raw_clean
         and raw_evidence_age is not None
@@ -386,7 +539,9 @@ def operator_status(
         and product_current
         and not delivery_amber
     ):
-        if progress.get("state") in {"running", "publishing"}:
+        if recovery and recovery.get("detail"):
+            verification_detail = " " + recovery["detail"]
+        elif progress.get("state") in {"running", "publishing"}:
             verification_detail = " A routine strict audit is running in the background."
         elif progress.get("state") == "failed":
             verification_detail = " The latest listing attempt failed, but certified evidence remains current."
@@ -403,6 +558,13 @@ def operator_status(
                 + verification_detail
             ),
             "pruning_paused": pruning_paused,
+        }
+    if recovery and recovery.get("enabled") and (raw_evidence_age is None or raw_evidence_age > raw_evidence_max_age_hours):
+        return {
+            "level": "amber",
+            "title": "Archive verification is overdue",
+            "detail": "Certified raw archive evidence is missing or beyond its eight-hour limit. Automatic verification is continuing; pruning remains paused.",
+            "pruning_paused": True,
         }
     if raw_evidence_age is not None and raw_evidence_age > 24:
         completed_count = len(completed)
@@ -507,17 +669,19 @@ def operator_status(
 
 def main() -> int:
     gws = read(GWS)
-    object_report = read(OBJECT)
+    object_report, gate = archive_snapshot()
     inventory_progress = read(INVENTORY_PROGRESS)
+    recovery = recovery_status(read(RECOVERY_STATUS), object_report, RECOVERY_ENABLED)
+    if RECOVERY_ENABLED:
+        inventory_progress = recovery_progress(recovery)
     dispatch = read(DISPATCH)
     menapia_status = read(MENAPIA_FLIGHT_STATUS)
     menapia_delivery = prefix_delivery(
         DISPATCH_DATABASE,
         "menapia/drone-uploads/",
     )
-    gate = read(GATE)
     metrics: dict[str, object] = {}
-    failures: list[str] = []
+    failures: list[str] = list(recovery["failures"])
     gws_age = evidence_age_hours(gws.get("generated_at"))
     object_age = evidence_age_hours(object_report.get("generated_at"))
     if gws_age is None:
@@ -628,7 +792,9 @@ def main() -> int:
         "aurora-ass-retention.timer",
     ]
     incremental_units = []
-    if inventory_progress.get("verification_mode") == "incremental":
+    if RECOVERY_ENABLED:
+        incremental_units = [f"aurora-object-store-recovery-worker@{name}.service" for name in recovery["jobs"]]
+    elif inventory_progress.get("verification_mode") == "incremental":
         verified_jobs = inventory_progress.get("verified_jobs")
         if isinstance(verified_jobs, list):
             incremental_units = [
@@ -677,6 +843,9 @@ def main() -> int:
             for name in inventory_units
         )
     )
+    if RECOVERY_ENABLED:
+        metrics["archive_recovery_heartbeat_age_minutes"] = recovery.get("heartbeat_age_minutes")
+        metrics["archive_recovery_alert_state"] = int(recovery.get("active_alert", False))
     progress_age_hours = evidence_age_hours(inventory_progress.get("updated_at"))
     progress_age_minutes = (
         progress_age_hours * 60 if progress_age_hours is not None else None
@@ -714,6 +883,7 @@ def main() -> int:
     )
     if (
         metrics["object_store_inventory_running_state"]
+        and not RECOVERY_ENABLED
         and not progress_recent
     ):
         value = (
@@ -889,6 +1059,7 @@ def main() -> int:
         inventory_progress,
         RAW_EVIDENCE_MAX_AGE_HOURS,
         OBJECT_REPORT_MAX_AGE_HOURS,
+        recovery,
     )
     metrics["archive_pruning_paused_state"] = int(
         bool(presentation["pruning_paused"])
@@ -975,10 +1146,11 @@ def main() -> int:
             "current_jobs": inventory_progress.get("current_jobs") or [],
             "phase": inventory_progress.get("phase"),
             "updated_at": inventory_progress.get("updated_at"),
-            "last_complete_at": gate.get("last_generated_at"),
+            "last_complete_at": recovery.get("last_full_audit_at") if RECOVERY_ENABLED else gate.get("last_generated_at"),
             "last_certified_raw_at": raw_domain.get("last_clean_at"),
             "error": inventory_progress.get("error"),
         },
+        "recovery": recovery,
         "retention": {
             "ready": bool(gate.get("raw_retention_ready", False))
             and not bool(presentation["pruning_paused"]),
@@ -996,6 +1168,7 @@ def main() -> int:
             "object_store_generated_at": object_report.get("generated_at"),
             "object_store_gate": gate,
             "object_store_inventory_progress": inventory_progress,
+            "object_store_recovery": recovery,
             "archive_dispatch": dispatch,
         },
     }

@@ -1,0 +1,308 @@
+---
+# Run only after stage, real JASMIN shadow validation, and verified rollback
+# backup. Supply -e object_store_recovery_deployment_id=<deployed-revision>.
+# This playbook never stops an active service: temporary runtime condition
+# drop-ins prevent new verifier/repair/retention starts, then an idle check gates
+# migration. /etc unit files take precedence over /run runtime masks, so masks
+# are deliberately not used. On failure guards and stopped triggers can remain.
+# To roll back:
+# 1. Wait for every guarded service to be inactive (never kill retention).
+# 2. If latest is a generation pointer, call evidence.rollback_legacy(config,
+#    the retained legacy-latest-* path) using the staged Python environment.
+# 3. Restore the verified rollback bundle's exact catalogue/program/unit files,
+#    remove only the 90-archive-recovery-activation.conf runtime drop-ins and
+#    /run/aurora-archive-recovery/inhibit created here, daemon-reload, then restore
+#    activation-before.json trigger policy. Existing masks remain unchanged.
+- name: Activate staged archive recovery at an idle boundary
+  hosts: aurora-cloud
+  become: true
+  vars:
+    object_store_recovery_enabled: true
+    archive_recovery_triggers:
+      - aurora-object-store-inventory.timer
+      - aurora-object-store-inventory-incremental@raw.timer
+      - aurora-object-store-verification-gate.path
+      - aurora-object-store-repair.path
+      - aurora-ass-retention.timer
+      - aurora-object-store-recovery.timer
+      - aurora-object-store-recovery-upload.timer
+    archive_recovery_service_base:
+      - aurora-object-store-inventory.service
+      - aurora-object-store-verification-gate.service
+      - aurora-object-store-repair.service
+      - aurora-object-store-recheck-after-repair.service
+      - aurora-ass-retention.service
+      - aurora-object-store-recovery.service
+      - aurora-object-store-recovery-upload.service
+  tasks:
+    - name: Load deployed archive configuration
+      ansible.builtin.import_tasks: tasks/archive_recovery_context.yml
+
+    - name: Require a staged disabled catalogue and explicit deployment identity
+      ansible.builtin.assert:
+        that:
+          - not archive_recovery_live_catalog.recovery_enabled | default(false) | bool
+          - object_store_recovery_deployment_id | default('') | length > 0
+          - not ansible_check_mode
+        fail_msg: Stage and shadow-check first; activate with an explicit deployment identity. Preview readers using the stage playbook with --check --diff.
+
+    - name: Assemble the verifier service guard set
+      ansible.builtin.set_fact:
+        archive_recovery_guarded_services: "{{ archive_recovery_service_base + (object_store_jobs | map(attribute='name') | map('regex_replace', '^', 'aurora-object-store-recovery-worker@') | map('regex_replace', '$', '.service') | list) + (object_store_jobs | map(attribute='name') | map('regex_replace', '^', 'aurora-object-store-inventory-incremental@') | map('regex_replace', '$', '.service') | list) }}"
+
+    - name: Read prior unit configuration and trigger policy
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - -c
+          - >-
+            import json,subprocess,sys;
+            print(json.dumps({name:dict(line.split('=',1) for line in subprocess.run(['systemctl','show',name,'--property=ActiveState,UnitFileState,LoadState'],capture_output=True,text=True).stdout.splitlines() if '=' in line) for name in json.loads(sys.argv[1])}))
+          - "{{ (archive_recovery_guarded_services + archive_recovery_triggers) | to_json }}"
+      register: archive_recovery_prior_units_raw
+      changed_when: false
+
+    - name: Preserve prior unit state for recovery and rollback
+      ansible.builtin.set_fact:
+        archive_recovery_prior_units: "{{ archive_recovery_prior_units_raw.stdout | from_json }}"
+
+    - name: Inspect the original activation record before retrying a guarded boundary
+      ansible.builtin.stat:
+        path: "{{ object_store_recovery_runtime }}/activation-before.json"
+      register: archive_recovery_prior_activation
+
+    - name: Read the original activation record when resuming
+      ansible.builtin.slurp:
+        src: "{{ object_store_recovery_runtime }}/activation-before.json"
+      register: archive_recovery_original_activation_bytes
+      when: archive_recovery_prior_activation.stat.exists
+      no_log: true
+
+    - name: Load the original policy rather than inheriting our own stopped triggers
+      ansible.builtin.set_fact:
+        archive_recovery_original_activation: "{{ archive_recovery_original_activation_bytes.content | b64decode | from_json }}"
+      when: archive_recovery_prior_activation.stat.exists
+      no_log: true
+
+    - name: Require the same deployment identity for a guarded retry
+      ansible.builtin.assert:
+        that: archive_recovery_original_activation.deployment_id == object_store_recovery_deployment_id
+        fail_msg: Resolve the previous activation record and rollback state before starting a different deployment.
+      when: archive_recovery_prior_activation.stat.exists
+
+    - name: Reuse original unit policy for already guarded units
+      ansible.builtin.set_fact:
+        archive_recovery_prior_units: "{{ archive_recovery_prior_units | combine(archive_recovery_original_activation.units) }}"
+      when: archive_recovery_prior_activation.stat.exists
+
+    - name: Save the initial activation state without overwriting prior evidence
+      ansible.builtin.copy:
+        content: "{{ {'deployment_id': object_store_recovery_deployment_id, 'units': archive_recovery_prior_units, 'catalog': archive_recovery_live_catalog, 'guarded_services': archive_recovery_guarded_services, 'triggers': archive_recovery_triggers} | to_nice_json }}\n"
+        dest: "{{ object_store_recovery_runtime }}/activation-before.json"
+        owner: root
+        group: root
+        mode: '0600'
+        force: false
+      no_log: true
+
+    - name: Migrate under temporary guards
+      block:
+        - name: Stop verifier triggers that currently exist
+          ansible.builtin.systemd:
+            name: "{{ item }}"
+            state: stopped
+          loop: "{{ archive_recovery_triggers }}"
+          when: archive_recovery_prior_units[item].LoadState | default('not-found') != 'not-found'
+
+        - name: Create the runtime inhibition directory
+          ansible.builtin.file:
+            path: /run/aurora-archive-recovery
+            state: directory
+            owner: root
+            group: root
+            mode: '0755'
+
+        - name: Create the runtime inhibition marker
+          ansible.builtin.copy:
+            content: "{{ object_store_recovery_deployment_id }}\n"
+            dest: /run/aurora-archive-recovery/inhibit
+            owner: root
+            group: root
+            mode: '0600'
+
+        - name: Create only the guarded services' runtime drop-in directories
+          ansible.builtin.file:
+            path: "/run/systemd/system/{{ item }}.d"
+            state: directory
+            owner: root
+            group: root
+            mode: '0755'
+          loop: "{{ archive_recovery_guarded_services }}"
+
+        - name: Block new starts with an additive runtime condition without killing running work
+          ansible.builtin.copy:
+            content: "[Unit]\nConditionPathExists=!/run/aurora-archive-recovery/inhibit\n"
+            dest: "/run/systemd/system/{{ item }}.d/90-archive-recovery-activation.conf"
+            owner: root
+            group: root
+            mode: '0644'
+          loop: "{{ archive_recovery_guarded_services }}"
+
+        - name: Load the runtime guards before inspecting active states
+          ansible.builtin.systemd:
+            daemon_reload: true
+
+        - name: Verify every installed service has loaded the inhibition drop-in
+          ansible.builtin.command:
+            argv: [systemctl, show, "{{ item }}", --property=DropInPaths, --value]
+          loop: "{{ archive_recovery_guarded_services }}"
+          register: archive_recovery_loaded_conditions
+          changed_when: false
+          when: archive_recovery_prior_units[item].LoadState | default('not-found') != 'not-found' and archive_recovery_prior_units[item].UnitFileState | default('') not in ['masked', 'masked-runtime']
+
+        - name: Require loaded guards on existing unmasked services
+          ansible.builtin.assert:
+            that: "('/run/systemd/system/' ~ item.item ~ '.d/90-archive-recovery-activation.conf') in item.stdout"
+            fail_msg: "{{ item.item }} did not load its inhibition condition; activation cannot proceed."
+          loop: "{{ archive_recovery_loaded_conditions.results }}"
+          when: not item.skipped | default(false)
+          loop_control:
+            label: "{{ item.item }}"
+
+        - name: Read active states after installing guards
+          ansible.builtin.command:
+            argv: [systemctl, show, "{{ item }}", --property=ActiveState, --value]
+          loop: "{{ archive_recovery_guarded_services }}"
+          register: archive_recovery_guard_states
+          changed_when: false
+
+        - name: Require every guarded service to have reached the idle boundary
+          ansible.builtin.assert:
+            that: item.stdout | trim in ['inactive', 'failed']
+            fail_msg: "{{ item.item }} is still active. Guards remain installed; wait for it to finish before activation."
+          loop: "{{ archive_recovery_guard_states.results }}"
+          loop_control:
+            label: "{{ item.item }}"
+
+        - name: Install the new gate repair and recheck programs
+          ansible.builtin.copy:
+            src: "{{ playbook_dir }}/../roles/object_store_mirror/files/{{ item.src }}"
+            dest: "{{ item.dest }}"
+            owner: root
+            group: root
+            mode: '0755'
+          loop:
+            - { src: aurora-object-store-verification-gate.py, dest: /usr/local/sbin/aurora-object-store-verification-gate }
+            - { src: aurora-object-store-repair-from-report.py, dest: /usr/local/bin/aurora-object-store-repair-from-report }
+            - { src: aurora-object-store-recheck-after-repair.py, dest: /usr/local/bin/aurora-object-store-recheck-after-repair }
+            - { src: aurora-object-store-trigger-retention.py, dest: /usr/local/sbin/aurora-object-store-trigger-retention }
+
+        - name: Install only verifier and recovery units
+          ansible.builtin.template:
+            src: "{{ playbook_dir }}/../roles/object_store_mirror/templates/{{ item }}.j2"
+            dest: "/etc/systemd/system/{{ item }}"
+            owner: root
+            group: root
+            mode: '0644'
+          loop:
+            - aurora-object-store-inventory.service
+            - aurora-object-store-inventory-incremental@.service
+            - aurora-object-store-repair.service
+            - aurora-object-store-recheck-after-repair.service
+            - aurora-object-store-recovery.service
+            - aurora-object-store-recovery.timer
+            - aurora-object-store-recovery-worker@.service
+            - aurora-object-store-recovery-upload.service
+            - aurora-object-store-recovery-upload.timer
+
+        - name: Enable recovery settings without replacing any deployed archive mappings
+          ansible.builtin.copy:
+            content: "{{ archive_recovery_live_catalog | combine(archive_recovery_settings) | combine({'recovery_enabled': true}) | to_nice_json }}\n"
+            dest: /etc/aurora-object-store/catalog.json
+            owner: root
+            group: "{{ aurora_service_group }}"
+            mode: '0640'
+          no_log: true
+
+        - name: Migrate the canonical generation and seed conservative family evidence
+          ansible.builtin.command:
+            argv: [/usr/local/sbin/aurora-object-store-verification-gate]
+
+        - name: Verify that canonical evidence is an immutable generation pointer
+          ansible.builtin.stat:
+            path: "{{ object_store_manifest_root }}/latest"
+            follow: false
+          register: archive_recovery_latest
+
+        - name: Require successful atomic migration before allowing any worker or repair
+          ansible.builtin.assert:
+            that: archive_recovery_latest.stat.islnk | default(false)
+
+        - name: Enable recovery status in the existing health reader
+          ansible.builtin.template:
+            src: "{{ playbook_dir }}/../roles/operations_monitor/templates/aurora-archive-health.py.j2"
+            dest: /usr/local/bin/aurora-archive-health
+            owner: root
+            group: root
+            mode: '0755'
+
+        - name: Reload units after migration
+          ansible.builtin.systemd:
+            daemon_reload: true
+
+        - name: Remove only the temporary condition drop-ins installed by this activation
+          ansible.builtin.file:
+            path: "/run/systemd/system/{{ item }}.d/90-archive-recovery-activation.conf"
+            state: absent
+          loop: "{{ archive_recovery_guarded_services }}"
+
+        - name: Remove the activation inhibition marker
+          ansible.builtin.file:
+            path: /run/aurora-archive-recovery/inhibit
+            state: absent
+
+        - name: Reload after removing only our guards
+          ansible.builtin.systemd:
+            daemon_reload: true
+
+        - name: Retire the legacy raw-only timer
+          ansible.builtin.systemd:
+            name: aurora-object-store-inventory-incremental@raw.timer
+            enabled: false
+            state: stopped
+
+        - name: Restore the prior daily audit and independent watcher retention policies
+          ansible.builtin.systemd:
+            name: "{{ item }}"
+            enabled: "{{ archive_recovery_prior_units[item].UnitFileState | default('') in ['enabled', 'enabled-runtime'] }}"
+            state: "{{ 'started' if archive_recovery_prior_units[item].ActiveState | default('') == 'active' else 'stopped' }}"
+          loop:
+            - aurora-object-store-inventory.timer
+            - aurora-object-store-verification-gate.path
+            - aurora-object-store-repair.path
+            - aurora-ass-retention.timer
+          when: archive_recovery_prior_units[item].UnitFileState | default('') not in ['masked', 'masked-runtime']
+
+        - name: Start automatic recovery and canonical upload retries
+          ansible.builtin.systemd:
+            name: "{{ item }}"
+            enabled: true
+            state: started
+          loop:
+            - aurora-object-store-recovery.timer
+            - aurora-object-store-recovery-upload.timer
+
+        - name: Request the first coordinator tick
+          ansible.builtin.systemd:
+            name: aurora-object-store-recovery.service
+            state: started
+
+      rescue:
+        - name: Report the guarded deployment state
+          ansible.builtin.fail:
+            msg: >-
+              Activation did not complete. Do not call this deployed or healthy.
+              Inspect the runtime guards and verifier triggers before proceeding;
+              guards can remain installed after a deferred idle boundary. Original states are in
+              {{ object_store_recovery_runtime }}/activation-before.json; use the
+              verified rollback bundle and the rollback sequence in this playbook.

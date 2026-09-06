@@ -3,7 +3,9 @@ Description=Refresh one Aurora GWS/object-store inventory family (%i)
 After=network-online.target aurora-object-store-repair.service
 Wants=network-online.target
 ConditionPathExists={{ object_store_rclone_config }}
+{% if not object_store_recovery_enabled | bool %}
 ConditionPathExists={{ object_store_manifest_root }}/latest/comparison.json
+{% endif %}
 
 [Service]
 Type=oneshot
@@ -12,15 +14,20 @@ Group={{ aurora_service_group }}
 Environment=XDG_CACHE_HOME={{ object_store_cache_root }}
 LoadCredential=gws-key:{{ gws_ssh_private_key }}
 LoadCredential=gws-known-hosts:/home/{{ aurora_service_user }}/.ssh/known_hosts
+{% if object_store_recovery_enabled | bool %}
+ExecStart=/usr/local/bin/aurora-object-store-recovery --catalog /etc/aurora-object-store/catalog.json enqueue --job %i
+TimeoutStartSec=2min
+{% else %}
 ExecStart=/usr/local/bin/aurora-object-store-inventory --reuse-latest --job %i
 ExecStartPost=+/usr/local/sbin/aurora-object-store-verification-gate
 ExecStartPost=+/usr/local/sbin/aurora-object-store-trigger-retention
 # Incremental jobs still inventory a complete family. Large raw/product trees
 # can legitimately take longer than four hours, so use the full-audit budget.
 TimeoutStartSec=12h
+{% endif %}
 Nice=10
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths={{ object_store_manifest_root }} {{ object_store_cache_root }} {{ aurora_state_root }}/object-store-verification-gate
+ReadWritePaths={{ object_store_manifest_root }} {{ object_store_cache_root }} {{ aurora_state_root }}/object-store-verification-gate {{ object_store_recovery_root }}
