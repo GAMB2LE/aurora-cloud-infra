@@ -16,6 +16,19 @@ def _iso(value):
     return dt.datetime.fromtimestamp(value,dt.timezone.utc).isoformat().replace('+00:00','Z')
 
 
+def evaluate_current_gate(config, report, gate, gws, *, report_sha256, now):
+    """Recheck expiry and independent GWS proof without publishing a gate.
+
+    The coordinator samples acceptance before its privileged gate refresh.
+    A cached stable flag therefore cannot stand in for current eligibility.
+    The report hash is supplied by the pinned, already hash-bound snapshot.
+    """
+    from aurora_object_store_evidence import _gate_module
+    inputs=dict(config,_gws_summary=gws)
+    return _gate_module().evaluate(inputs,report,gate,report_sha256=report_sha256,
+                                  now=dt.datetime.fromtimestamp(now,dt.timezone.utc))
+
+
 def assess(config, report, gate, gws, public, *, now, previous, observations, batches,
            coordinator=None, resources=None):
     expected={job['name'] for job in config['jobs']}
@@ -178,6 +191,7 @@ def observe(config):
         coordinator=json.loads((root/'status.json').read_text())
         with read_snapshot(config) as snapshot:
             report,gate=snapshot.report,snapshot.gate
+            report_sha256=snapshot.report_sha256
         gws=json.loads((Path(config['gws_manifest_root'])/'latest/summary.json').read_text())
         url=config.get('recovery_acceptance_api','https://data.gamb2le.co.uk/mobile/v1/operations')
         with urllib.request.urlopen(url,timeout=15) as response:
@@ -189,7 +203,9 @@ def observe(config):
             for batch in batches:
                 batch['jobs']={row['job']:row['verification_id'] for row in
                                db.execute('SELECT job,verification_id FROM daily_jobs WHERE batch=?',(batch['id'],))}
-        state=assess(config,report,gate,gws,public,now=time.time(),previous=previous,observations=observations,batches=batches,coordinator=coordinator,resources=resources)
+        now=time.time()
+        current_gate=evaluate_current_gate(config,report,gate,gws,report_sha256=report_sha256,now=now)
+        state=assess(config,report,current_gate,gws,public,now=now,previous=previous,observations=observations,batches=batches,coordinator=coordinator,resources=resources)
     except Exception as error:
         state={**previous,'status':'under_validation','clean_window_started_at':None,'updated_at':_iso(time.time()),'failures':['acceptance evidence unavailable: '+type(error).__name__]}
         state.pop('accepted_at',None)
