@@ -10,6 +10,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 import ctypes
 import datetime as dt
+import errno
 import fcntl
 import hashlib
 import importlib.util
@@ -223,7 +224,18 @@ def _merge_artifacts(path, stage, replaced):
         if target.exists():
             continue
         if path.parent.name == "generations":
-            os.link(source, target)
+            try:
+                os.link(source, target)
+            except OSError as error:
+                # A root-created migration can leave immutable 0644 files
+                # owned by root. Linux protected_hardlinks correctly prevents
+                # the unprivileged worker from linking those inodes. Copying
+                # readable bytes into the worker's own stage preserves that
+                # protection and all original inode ownership/permissions.
+                if error.errno not in {errno.EPERM, errno.EACCES, errno.EXDEV,
+                                       errno.EMLINK, errno.ENOTSUP}:
+                    raise
+                shutil.copy2(source, target)
         else:
             # Mutable legacy evidence must not share writable inodes with a
             # canonical immutable generation.
@@ -311,9 +323,15 @@ def _publication_storage(config, *, values=None, artifacts_dir=None, job_name=No
         if artifacts_dir is not None:
             extra += sum((Path(artifacts_dir) / name).stat().st_size for name in _artifact_names(job_name)
                          if (Path(artifacts_dir) / name).is_file())
-        if latest.is_dir() and not latest.is_symlink():
-            # Migration copies the old mutable artifacts instead of linking.
-            extra += sum(path.stat().st_size for path in latest.iterdir() if path.is_file())
+        if latest.is_dir():
+            # Reserve space for every carried artifact: even immutable files
+            # may need isolated copies under protected_hardlinks/cross-UID or
+            # filesystem restrictions. Successful links simply use less space.
+            excluded={"comparison.json", "comparison.md", "catalog.json", GATE_NAME}
+            if job_name is not None:
+                excluded.update(_artifact_names(job_name))
+            extra += sum(path.stat().st_size for path in latest.iterdir()
+                         if path.is_file() and not path.name.startswith('.') and path.name not in excluded)
         disk = root
         while not disk.exists():
             disk = disk.parent

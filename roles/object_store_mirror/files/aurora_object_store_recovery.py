@@ -265,11 +265,23 @@ class Queue:
         with self.transaction():
             self.db.execute("UPDATE jobs SET state='retry_wait',next_retry_at=?,owner_pid=NULL WHERE name=? AND generation=? AND verification_id=? AND state='running'",(self.clock()+delay,epoch['name'],epoch['generation'],epoch['verification_id']))
 
-    def retry(self,name):
+    def retry(self,name,*,resume_checkpoint=False):
         with self.transaction():
             row=self.row(name)
             if row['state'] in ACTIVE:
                 raise ValueError('family is active; retry request cannot interrupt it')
+            if resume_checkpoint:
+                # A corrected local publication/configuration block need not
+                # discard a valid frozen observation. Never revive an expired,
+                # reconfigured, repairing or otherwise active epoch.
+                if row['state'] != 'blocked' or not row['verification_id']:
+                    raise ValueError('checkpoint resume requires a blocked observation')
+                if (row['expires_at'] or 0) <= self.clock():
+                    raise ValueError('checkpoint expired; request a fresh retry')
+                if row['fingerprint'] != fingerprint(self.config,self.jobs[name]):
+                    raise ValueError('checkpoint configuration changed; request a fresh retry')
+                self.db.execute("UPDATE jobs SET state='queued',next_retry_at=0,remaining=MAX(remaining,1),attempt_count=0,first_failure_at=NULL,error_class=NULL,last_error=NULL,owner_pid=NULL,queued_at=? WHERE name=?",(self.clock(),name))
+                return
             self.db.execute("UPDATE jobs SET state='queued',generation=generation+1,verification_id=NULL,next_retry_at=0,remaining=MAX(remaining,1),attempt_count=0,first_failure_at=NULL,error_class=NULL,last_error=NULL,queued_at=? WHERE name=?",(self.clock(),name))
 
     def complete(self, epoch, report, gate):
@@ -606,7 +618,10 @@ def run_worker(config,name,*,shadow=False):
             return 0
         except Exception as error:
             if isinstance(error,PermissionError):
-                error=InventoryError('Archive source or recovery storage is not accessible','config')
+                # Keep credential/source paths out of public errors, but retain
+                # the failing phase and errno so a local publication problem
+                # cannot masquerade as an authentication or source-scan issue.
+                error=InventoryError(f"Archive {phase.get('phase','operation')} was denied by local filesystem permissions (errno {error.errno})",'config')
             # Short attempts can fail before the 30-second heartbeat. Preserve
             # their last committed page progress before changing queue state.
             try:
@@ -709,6 +724,8 @@ def main():
     commands.add_parser('upload')
     for name in ('worker','shadow','invalidate','retry'):
         command=commands.add_parser(name);command.add_argument('--job',required=True)
+        if name=='retry':
+            command.add_argument('--resume-checkpoint',action='store_true',help='Resume an unexpired blocked observation after correcting its cause; preserve its frozen source and validated pages')
     args=parser.parse_args()
     config=load_json(args.catalog)
     config['_catalog_path']=str(args.catalog)
@@ -739,8 +756,10 @@ def main():
                 with commit_lock(config):
                     queue.invalidate(args.job,'manual-'+str(uuid.uuid4()))
             elif args.command=='retry':
+                if args.resume_checkpoint and systemd_active(args.job):
+                    parser.error('checkpoint resume cannot interrupt an active worker unit')
                 with commit_lock(config):
-                    queue.retry(args.job)
+                    queue.retry(args.job,resume_checkpoint=args.resume_checkpoint)
             if args.command in ('invalidate','retry'):
                 queue.record_manual_intervention()
             status=queue.status()

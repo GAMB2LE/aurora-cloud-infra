@@ -2,10 +2,15 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 import datetime as dt
+import errno
 import hashlib
 import importlib.util
 import json
 import os
+import pwd
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 import tempfile
 import time
@@ -91,6 +96,120 @@ class EvidencePublicationTests(unittest.TestCase):
         with evidence.read_snapshot(self.cfg) as snapshot:
             self.assertIn("products-wxcam-1", (snapshot.path / "products-wxcam-local.tsv").read_text())
             self.assertEqual(snapshot.report["jobs"]["products-wxcam"]["verification_id"], "products-wxcam-1")
+
+    def test_protected_hardlink_fallback_preserves_original_artifact_inode(self):
+        self.publish("raw", 1)
+        self.publish("products", 1)
+        root=Path(self.cfg['manifest_root'])
+        original=(root/'latest').resolve()/'products-local.tsv'
+        before=original.stat()
+        original_bytes=original.read_bytes()
+        with mock.patch.object(evidence.os,'link',side_effect=PermissionError(errno.EPERM,'protected_hardlinks')):
+            self.publish('raw',2)
+        with evidence.read_snapshot(self.cfg) as snapshot:
+            copied=snapshot.path/'products-local.tsv'
+            self.assertEqual(copied.read_bytes(),original_bytes)
+            self.assertNotEqual(copied.stat().st_ino,before.st_ino)
+        after=original.stat()
+        self.assertEqual((after.st_ino,after.st_uid,after.st_gid,after.st_mode,after.st_nlink),
+                         (before.st_ino,before.st_uid,before.st_gid,before.st_mode,before.st_nlink))
+        self.assertEqual(original.read_bytes(),original_bytes)
+
+    def test_nonrecoverable_hardlink_error_preserves_previous_generation(self):
+        self.publish('raw',1)
+        self.publish('products',1)
+        root=Path(self.cfg['manifest_root'])
+        original=(root/'latest').resolve()
+        with mock.patch.object(evidence.os,'link',side_effect=OSError(errno.EIO,'disk I/O failure')):
+            with self.assertRaises(OSError) as caught:
+                self.publish('raw',2)
+        self.assertEqual(caught.exception.errno,errno.EIO)
+        self.assertEqual((root/'latest').resolve(),original)
+
+    def test_reservation_includes_possible_carried_artifact_copies(self):
+        self.publish('raw',1)
+        artifacts=self.artifacts('products',1)
+        (artifacts/'products-local.tsv').write_bytes(b'x'*(2*1024**2))
+        evidence.publish_family(self.cfg,'products',self.values('products',1),artifacts)
+        root=Path(self.cfg['manifest_root'])
+        original=(root/'latest').resolve()
+        self.cfg['recovery_free_reserve_bytes']=50*1024**3
+        # More than the report/new-raw allocation, less than the additional
+        # carried product artifact: fail before attempting any inode linking.
+        free=self.cfg['recovery_free_reserve_bytes']+2*1024**2
+        with mock.patch.object(evidence.shutil,'disk_usage',return_value=SimpleNamespace(free=free)):
+            with mock.patch.object(evidence.os,'link') as link:
+                with self.assertRaisesRegex(RuntimeError,'Canonical evidence publication'):
+                    self.publish('raw',2)
+                link.assert_not_called()
+        self.assertEqual((root/'latest').resolve(),original)
+
+    @unittest.skipUnless(sys.platform=='linux' and os.geteuid()==0,
+                         'real protected-hardlinks regression requires Linux root to drop UID')
+    def test_real_cross_uid_publication_preserves_root_owned_canonical_artifacts(self):
+        if Path('/proc/sys/fs/protected_hardlinks').read_text().strip()!='1':
+            self.skipTest('kernel protected_hardlinks is not enabled')
+        try:
+            user=pwd.getpwnam('aurora')
+        except KeyError:
+            user=pwd.getpwnam('nobody')
+        self.root.chmod(0o755)
+        root=Path(self.cfg['manifest_root'])
+        root.mkdir(mode=0o755)
+        os.chown(root,user.pw_uid,user.pw_gid)
+        recovery=root/'recovery'
+        recovery.mkdir(mode=0o755)
+        os.chown(recovery,user.pw_uid,user.pw_gid)
+        self.publish('raw',1)
+        self.publish('products',1)
+        original=(root/'latest').resolve()/'products-local.tsv'
+        before=original.stat()
+        original_bytes=original.read_bytes()
+        self.assertEqual(before.st_uid,0)
+        runtime=self.root/'runtime'
+        runtime.mkdir(mode=0o755)
+        for name in ('aurora_object_store_evidence.py','aurora-object-store-verification-gate.py','aurora_object_store_s3.py'):
+            shutil.copy2(SCRIPT.parent/name,runtime/name)
+            (runtime/name).chmod(0o644)
+        artifacts=self.artifacts('raw',2)
+        payload=self.root/'publication.json'
+        payload.write_text(json.dumps({'config':self.cfg,'values':self.values('raw',2),'artifacts':str(artifacts),
+                                       'runtime':str(runtime),'original':str(original),'recovery':str(recovery)}))
+        payload.chmod(0o644)
+        command='''import errno,json,os,sys
+from pathlib import Path
+p=json.loads(Path(sys.argv[1]).read_text())
+sys.path.insert(0,p['runtime'])
+from aurora_object_store_evidence import publish_family,read_snapshot
+try:
+    os.link(p['original'],str(Path(p['recovery'])/'protected-link-probe'))
+except OSError as error:
+    assert error.errno==errno.EPERM,error
+else:
+    raise AssertionError('cross-UID hardlink was not protected')
+report,gate=publish_family(p['config'],'raw',p['values'],p['artifacts'])
+with read_snapshot(p['config']) as snapshot:
+    assert snapshot.report['jobs']['raw']['verification_id']=='raw-2'
+    assert snapshot.gate['report_sha256']==snapshot.report_sha256
+print(json.dumps({'published':True,'euid':os.geteuid(),'raw_confirmation_count':gate['families']['raw']['clean_streak']}))
+'''
+        def drop_identity():
+            os.setgroups([])
+            os.setgid(user.pw_gid)
+            os.setuid(user.pw_uid)
+        result=subprocess.run([sys.executable,'-c',command,str(payload)],capture_output=True,text=True,
+                              preexec_fn=drop_identity,timeout=30)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertTrue(json.loads(result.stdout)['published'])
+        after=original.stat()
+        self.assertEqual((after.st_ino,after.st_uid,after.st_gid,after.st_mode,after.st_nlink),
+                         (before.st_ino,before.st_uid,before.st_gid,before.st_mode,before.st_nlink))
+        self.assertEqual(original.read_bytes(),original_bytes)
+        with evidence.read_snapshot(self.cfg) as snapshot:
+            copy=snapshot.path/'products-local.tsv'
+            self.assertEqual(copy.stat().st_uid,user.pw_uid)
+            self.assertNotEqual(copy.stat().st_ino,before.st_ino)
+            self.assertEqual(copy.read_bytes(),original_bytes)
 
     def test_restrictive_umask_does_not_hide_canonical_generations(self):
         mask = os.umask(0o077)

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from contextlib import redirect_stderr, redirect_stdout
 import datetime as dt
+import errno
 import io
 import json
 import os
@@ -211,6 +212,33 @@ class RecoveryIntegrationTests(unittest.TestCase):
         queue.close()
         self.assertFalse(self.client.calls)
         self.assertFalse((self.root/'manifests/latest/comparison.json').exists())
+
+    def test_corrected_publication_permissions_resume_all_pages_without_relisting(self):
+        queue=self.queue()
+        queue.enqueue(['raw'])
+        queue.close()
+        with mock.patch.object(evidence,'publish_family',side_effect=PermissionError(errno.EPERM,'protected hardlinks')):
+            self.run_family('raw')
+        queue=self.queue()
+        row=queue.row('raw')
+        identifier=row['verification_id']
+        self.assertEqual(row['state'],'blocked')
+        self.assertEqual(json.loads(row['progress'])['phase'],'publishing')
+        self.assertIn('publishing',row['last_error'])
+        self.assertIn('errno 1',row['last_error'])
+        self.assertEqual(queue.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0],0)
+        queue.retry('raw',resume_checkpoint=True)
+        queue.close()
+        requests=len(self.client.calls)
+        self.run_family('raw')
+        self.assertEqual(len(self.client.calls),requests)
+        report,gate=self.snapshot()
+        self.assertEqual(report['jobs']['raw']['verification_id'],identifier)
+        self.assertEqual(gate['families']['raw']['clean_streak'],1)
+        self.assertFalse(gate['raw_retention_ready'])
+        queue=self.queue()
+        self.assertEqual(queue.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0],1)
+        queue.close()
 
     def test_source_disappearance_during_s3_listing_cannot_publish(self):
         source=Path(next(job for job in self.config['jobs'] if job['name']=='products')['source'])
