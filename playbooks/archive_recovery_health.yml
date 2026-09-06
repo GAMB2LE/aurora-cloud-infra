@@ -1,0 +1,33 @@
+---
+# Update only the presentation reader after recovery is already active.
+# Existing archive configuration and worker state remain authoritative.
+- name: Update archive recovery health presentation without touching workers
+  hosts: aurora-cloud
+  become: true
+  vars:
+    object_store_recovery_enabled: true
+    archive_recovery_health_refresh: false
+  tasks:
+    - name: Preserve the deployed archive configuration for rendering
+      ansible.builtin.import_tasks: tasks/archive_recovery_context.yml
+
+    - name: Require active recovery before updating its health presentation
+      ansible.builtin.assert:
+        that: archive_recovery_live_catalog.recovery_enabled | default(false) | bool
+        fail_msg: This focused presentation update requires recovery to be active.
+
+    - name: Install only the archive health reader
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../roles/operations_monitor/templates/aurora-archive-health.py.j2"
+        dest: /usr/local/bin/aurora-archive-health
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Optionally refresh the existing health service
+      ansible.builtin.systemd:
+        name: aurora-archive-health.service
+        state: started
+      when:
+        - archive_recovery_health_refresh | bool
+        - not ansible_check_mode

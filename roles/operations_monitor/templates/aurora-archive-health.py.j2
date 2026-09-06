@@ -253,7 +253,9 @@ def recovery_status(status: dict, report: dict, enabled: bool, current=None) -> 
         value = value if isinstance(value, dict) else {}
         evidence = evidence_jobs.get(name)
         evidence = evidence if isinstance(evidence, dict) else {}
-        observed = timestamp(evidence.get("evidence_started_at") or evidence.get("verified_at"))
+        # Legacy verified_at recorded listing completion, not observation start.
+        # It cannot supply a trusted age or expiry after policy-7 migration.
+        observed = timestamp(evidence.get("evidence_started_at"))
         max_age = RAW_EVIDENCE_MAX_AGE_HOURS if name == "raw" else OBJECT_REPORT_MAX_AGE_HOURS
         first_failure = timestamp(value.get("first_failure_at"))
         failure_hours = (current - first_failure).total_seconds() / 3600 if first_failure else None
@@ -509,6 +511,43 @@ def operator_status(
             "title": "Archive verification is overdue",
             "detail": "Independent GWS verification is overdue. A fresh check is required before edge pruning can resume.",
             "pruning_paused": True,
+        }
+    proof_failures = [
+        str(value)
+        for domain in (raw_gate, product_gate)
+        for value in domain.get("failures", [])
+    ]
+    needs_fresh_observation = any(
+        value.endswith(":observation_start_untrusted")
+        or value.endswith(":configured_family_missing")
+        for value in proof_failures
+    )
+    only_proof_failures = all(
+        value in {"object_store_stable_parity=false", "object_store_evidence_missing"}
+        or value.startswith("object_store_evidence_stale_hours=")
+        for value in failures
+    )
+    if (
+        recovery and recovery.get("enabled")
+        and needs_fresh_observation and only_proof_failures
+    ):
+        # Migration deliberately withholds certificates for legacy completion
+        # timestamps. Fresh GWS/report timestamps must not make those absent
+        # certificates look current, or route normal bootstrap into service red.
+        retention_detail = (
+            "Pruning remains paused until raw archives have two independent clean checks."
+            if pruning_paused
+            else "Raw retention evidence remains independently current."
+        )
+        return {
+            "level": "amber",
+            "title": "Archive verification is overdue",
+            "detail": (
+                "Fresh complete archive observations are required to establish trusted evidence. "
+                + str(recovery.get("detail") or "Automatic archive verification is scheduled.")
+                + " " + retention_detail
+            ),
+            "pruning_paused": pruning_paused,
         }
     if (
         raw_clean

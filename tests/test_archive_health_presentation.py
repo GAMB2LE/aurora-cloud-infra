@@ -118,6 +118,60 @@ class ArchiveHealthPresentationTests(unittest.TestCase):
         self.assertEqual(recovery["affected_jobs"], ["products"])
         self.assertFalse(result["pruning_paused"])
 
+    def migration_gate(self, current):
+        gate = self.clean_gate(current)
+        gate.update(clean=False, stable_parity=False, raw_retention_ready=False)
+        for name, domain in gate["domains"].items():
+            family = "raw" if name == "raw_retention" else "products"
+            domain.update(clean=False, stable_parity=False, clean_streak=0,
+                          failures=[f"{family}:observation_start_untrusted", f"{family}:verification_timestamp_invalid"])
+        return gate
+
+    def test_untrusted_legacy_starts_are_overdue_while_automatic_observations_run(self):
+        current = dt.datetime.now(dt.timezone.utc)
+        recovery = {"enabled": True, "state": "running", "active_alert": False,
+                    "detail": "Automatic archive verification is running for products, raw."}
+        result = operator_status(["object_store_stable_parity=false"], self.base_metrics(),
+                                 self.migration_gate(current), {"state": "running"}, recovery=recovery)
+        self.assertEqual(result["level"], "amber")
+        self.assertEqual(result["title"], "Archive verification is overdue")
+        self.assertIn("trusted evidence", result["detail"])
+        self.assertIn("running for products, raw", result["detail"])
+        self.assertTrue(result["pruning_paused"])
+        self.assertNotIn("service health", result["detail"])
+
+    def test_bootstrap_missing_family_proof_is_amber_without_weakening_raw_gate(self):
+        current = dt.datetime.now(dt.timezone.utc)
+        gate = self.clean_gate(current)
+        gate["domains"]["products"].update(clean=False, stable_parity=False,
+                                          failures=["products:configured_family_missing"])
+        result = operator_status(["object_store_stable_parity=false"], self.base_metrics(), gate, {},
+                                 recovery={"enabled": True, "state": "queued", "active_alert": False})
+        self.assertEqual(result["level"], "amber")
+        self.assertFalse(result["pruning_paused"])
+        self.assertIn("Raw retention evidence remains independently current", result["detail"])
+
+    def test_migration_presentation_does_not_hide_service_failures_or_measured_gaps(self):
+        current = dt.datetime.now(dt.timezone.utc)
+        recovery = {"enabled": True, "state": "running", "active_alert": False}
+        for service in ("aurora-object-store-inventory.service", "aurora-object-store-copy-raw.service"):
+            with self.subTest(service=service):
+                result = operator_status([f"archive_service_unhealthy={service}", "object_store_stable_parity=false"],
+                                         self.base_metrics(), self.migration_gate(current), {}, recovery=recovery)
+                self.assertEqual(result["level"], "red")
+        metrics = self.base_metrics()
+        metrics["object_store_all_missing_count"] = 2
+        result = operator_status(["object_store_stable_parity=false"], metrics, self.migration_gate(current), {}, recovery=recovery)
+        self.assertEqual(result["level"], "red")
+        self.assertEqual(result["title"], "Archive copies are incomplete")
+
+    def test_legacy_completion_time_cannot_be_shown_as_trusted_observation_expiry(self):
+        current = dt.datetime.now(dt.timezone.utc)
+        legacy = {"jobs": {"products": {"verified_at": current.isoformat()}}}
+        state = recovery_status(self.recovery_fixture(current), legacy, True, current)
+        self.assertIsNone(state["jobs"]["products"]["observation_age_hours"])
+        self.assertIsNone(state["jobs"]["products"]["evidence_expires_at"])
+
     def test_blocked_or_six_hour_failure_escalates_even_with_clean_evidence(self):
         current = dt.datetime.now(dt.timezone.utc)
         for overrides, expected_level in (
