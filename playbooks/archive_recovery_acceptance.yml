@@ -1,0 +1,130 @@
+---
+# Update acceptance policy only; collector identity and checkpoints are unchanged.
+# Supply a unique archive_recovery_acceptance_release for the verified rollback.
+# The next natural coordinator tick imports this module; never restart workers.
+- name: Update archive acceptance without touching collection or retention
+  hosts: aurora-cloud
+  become: true
+  vars:
+    archive_recovery_acceptance_target: /usr/local/lib/aurora-object-store/aurora_object_store_acceptance.py
+  tasks:
+    - name: Read the authoritative configuration without changing it
+      ansible.builtin.import_tasks: tasks/archive_recovery_context.yml
+
+    - name: Require active recovery and a safe unique patch label
+      ansible.builtin.assert:
+        that:
+          - archive_recovery_live_catalog.recovery_enabled | default(false) | bool
+          - archive_recovery_acceptance_release | default('') is match('^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
+
+    - name: Select a restricted release-specific rollback path
+      ansible.builtin.set_fact:
+        archive_recovery_acceptance_backup: "/var/lib/aurora-cloud/recovery-rollbacks/acceptance-{{ archive_recovery_acceptance_release }}"
+
+    - name: Inspect the module and its parent without following links
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        checksum_algorithm: sha256
+        follow: false
+      loop:
+        - "{{ archive_recovery_acceptance_target }}"
+        - /usr/local/lib/aurora-object-store
+      register: archive_recovery_acceptance_before
+
+    - name: Require a root-owned regular module and real parent directory
+      ansible.builtin.assert:
+        that:
+          - archive_recovery_acceptance_before.results[0].stat.isreg | default(false)
+          - archive_recovery_acceptance_before.results[1].stat.isdir | default(false)
+          - not archive_recovery_acceptance_before.results[0].stat.islnk | default(false)
+          - not archive_recovery_acceptance_before.results[1].stat.islnk | default(false)
+          - archive_recovery_acceptance_before.results[0].stat.uid == 0
+          - archive_recovery_acceptance_before.results[1].stat.uid == 0
+
+    - name: Inspect the rollback destination without following links
+      ansible.builtin.stat:
+        path: "{{ archive_recovery_acceptance_backup }}"
+        follow: false
+      register: archive_recovery_acceptance_existing
+
+    - name: Refuse to overwrite any previous rollback evidence
+      ansible.builtin.assert:
+        that: not archive_recovery_acceptance_existing.stat.exists
+
+    - name: Save and verify the exact previous module before changing code
+      when: not ansible_check_mode
+      block:
+        - name: Ensure the restricted rollback parent exists
+          ansible.builtin.file:
+            path: /var/lib/aurora-cloud/recovery-rollbacks
+            state: directory
+            owner: root
+            group: root
+            mode: '0700'
+
+        - name: Exclusively create the release rollback directory
+          ansible.builtin.command:
+            argv: [/usr/bin/mkdir, -m, '0700', "{{ archive_recovery_acceptance_backup }}"]
+
+        - name: Preserve the previous acceptance module
+          ansible.builtin.copy:
+            src: "{{ archive_recovery_acceptance_target }}"
+            dest: "{{ archive_recovery_acceptance_backup }}/aurora_object_store_acceptance.py.before"
+            remote_src: true
+            owner: root
+            group: root
+            mode: '0600'
+            force: false
+            unsafe_writes: false
+
+        - name: Hash the rollback copy
+          ansible.builtin.stat:
+            path: "{{ archive_recovery_acceptance_backup }}/aurora_object_store_acceptance.py.before"
+            checksum_algorithm: sha256
+          register: archive_recovery_acceptance_saved
+
+        - name: Verify the saved bytes and permissions before publication
+          ansible.builtin.assert:
+            that:
+              - archive_recovery_acceptance_saved.stat.checksum == archive_recovery_acceptance_before.results[0].stat.checksum
+              - archive_recovery_acceptance_saved.stat.mode == '0600'
+              - archive_recovery_acceptance_saved.stat.uid == 0
+              - archive_recovery_acceptance_saved.stat.gid == 0
+
+        - name: Record the original checksum and restoration metadata
+          ansible.builtin.copy:
+            content: "{{ archive_recovery_acceptance_before.results[0].stat | to_nice_json }}\n"
+            dest: "{{ archive_recovery_acceptance_backup }}/before.json"
+            owner: root
+            group: root
+            mode: '0600'
+            force: false
+            unsafe_writes: false
+
+    - name: Recheck the live module and catalogue before publication
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        checksum_algorithm: sha256
+        follow: false
+      loop:
+        - "{{ archive_recovery_acceptance_target }}"
+        - /etc/aurora-object-store/catalog.json
+      register: archive_recovery_acceptance_unchanged
+
+    - name: Reject a concurrent module or catalogue update
+      ansible.builtin.assert:
+        that:
+          - archive_recovery_acceptance_unchanged.results[0].stat.isreg | default(false)
+          - archive_recovery_acceptance_unchanged.results[0].stat.checksum == archive_recovery_acceptance_before.results[0].stat.checksum
+          - archive_recovery_acceptance_unchanged.results[1].stat.checksum == (archive_recovery_catalog_bytes.content | b64decode | hash('sha256'))
+      no_log: true
+
+    - name: Atomically install only the validated acceptance module
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../roles/object_store_mirror/files/aurora_object_store_acceptance.py"
+        dest: "{{ archive_recovery_acceptance_target }}"
+        owner: root
+        group: root
+        mode: '0644'
+        unsafe_writes: false
+        validate: /usr/bin/python3 -m py_compile %s

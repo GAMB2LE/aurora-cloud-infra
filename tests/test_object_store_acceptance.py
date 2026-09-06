@@ -61,7 +61,8 @@ class AcceptanceTests(unittest.TestCase):
                 'resources':{'used_bytes':1024,'max_bytes':10*1024**3,'free_bytes':100*1024**3,'reserve_bytes':50*1024**3}}
 
     def prior_and_observations(self,start,now):
-        previous={'deployment_id':'test','clean_window_started_at':a._iso(start),'updated_at':a._iso(now-300),'manual_intervention_count':0}
+        previous={'deployment_id':'test','acceptance_policy_version':a.ACCEPTANCE_POLICY_VERSION,
+                  'clean_window_started_at':a._iso(start),'updated_at':a._iso(now-300),'manual_intervention_count':0}
         observations=[{'verification_id':f'raw-{n}','job':'raw','clean':1,'started_at':start+n*3*3600,'completed_at':start+n*3*3600+600} for n in range(16)]
         batches=[]
         for day in ('2026-09-07','2026-09-08'):
@@ -77,7 +78,9 @@ class AcceptanceTests(unittest.TestCase):
         cfg={'jobs':[{'name':'raw'},{'name':'products'}],'streams':[{'name':'x'}],'recovery_deployment_id':'test'}
         report={'jobs':{n:{'verified_at':a._iso(now),'source_vs_s3':comparison,'source_vs_gws':comparison} for n in ['raw','products']}}
         gate={'raw_retention_ready':True,'families':{n:{'stable_parity':True} for n in ['raw','products']}}
-        gws={'generated_at':a._iso(now),'streams':{'x':{f:0 for f in ['retention_local_missing_count','retention_local_mismatch_count','retention_gws_missing_count','retention_gws_mismatch_count']}}}
+        gws={'generated_at':a._iso(now),'streams':{'x':{f:0 for f in [
+            'local_missing_count','local_mismatch_count','gws_missing_count','gws_mismatch_count',
+            'retention_local_missing_count','retention_local_mismatch_count','retention_gws_missing_count','retention_gws_mismatch_count']}}}
         public={'overallLevel':'green','alerts':[],'updatedAt':a._iso(now)}
         return cfg,report,gate,gws,public
 
@@ -98,6 +101,98 @@ class AcceptanceTests(unittest.TestCase):
         self.assertEqual(rejected['status'],'under_validation')
         self.assertIsNone(rejected['clean_window_started_at'])
         self.assertNotIn('accepted_at',rejected)
+
+    def test_settled_stream_counters_are_required_even_when_retention_is_clean(self):
+        start=a._time('2026-09-06T12:00:00Z');now=start+49*3600
+        previous,obs,batches=self.prior_and_observations(start,now)
+        accepted=a.assess(*self.fixture(now),now=now,previous=previous,observations=obs,batches=batches,**self.runtime(now))
+        self.assertEqual(accepted['status'],'complete')
+        missing=object()
+        for field in ('local_missing_count','local_mismatch_count','gws_missing_count','gws_mismatch_count'):
+            for invalid in (38,-1,missing,None,False,True,'0','38',0.0,[],{}):
+                with self.subTest(field=field,invalid='missing' if invalid is missing else invalid):
+                    cfg,report,gate,gws,public=self.fixture(now)
+                    original_gate=copy.deepcopy(gate)
+                    if invalid is missing:
+                        gws['streams']['x'].pop(field)
+                    else:
+                        gws['streams']['x'][field]=invalid
+                    rejected=a.assess(cfg,report,gate,gws,public,now=now,previous=accepted,
+                                      observations=obs,batches=batches,**self.runtime(now))
+                    self.assertEqual(rejected['status'],'under_validation')
+                    self.assertIn('x: independent settled source-to-cloud/GWS counters not clean',rejected['failures'])
+                    self.assertIsNone(rejected['clean_window_started_at'])
+                    self.assertEqual(rejected['clean_window_hours'],0)
+                    self.assertNotIn('accepted_at',rejected)
+                    self.assertEqual(gate,original_gate)
+                    self.assertTrue(gate['raw_retention_ready'])
+                    self.assertTrue(all(value==0 for name,value in gws['streams']['x'].items() if name.startswith('retention_')))
+
+    def test_settled_gap_recovery_starts_a_new_clean_window(self):
+        start=a._time('2026-09-06T12:00:00Z');now=start+49*3600
+        previous,obs,batches=self.prior_and_observations(start,now)
+        cfg,report,gate,gws,public=self.fixture(now)
+        gws['streams']['x']['local_missing_count']=38
+        rejected=a.assess(cfg,report,gate,gws,public,now=now,previous=previous,
+                          observations=obs,batches=batches,**self.runtime(now))
+        self.assertIsNone(rejected['clean_window_started_at'])
+        recovered_at=now+300
+        recovered=a.assess(*self.fixture(recovered_at),now=recovered_at,previous=rejected,
+                           observations=obs,batches=batches,**self.runtime(recovered_at))
+        self.assertEqual(recovered['failures'],[])
+        self.assertEqual(recovered['status'],'under_validation')
+        self.assertEqual(recovered['clean_window_started_at'],a._iso(recovered_at))
+        self.assertEqual(recovered['clean_window_hours'],0)
+        self.assertEqual(recovered['completed_daily_audits'],[])
+
+    def test_old_acceptance_policy_credit_resets_once_even_if_counters_are_clean(self):
+        start=a._time('2026-09-06T12:00:00Z');now=start+49*3600
+        for old_version in (None,a.ACCEPTANCE_POLICY_VERSION-1):
+            with self.subTest(old_version=old_version):
+                previous,obs,batches=self.prior_and_observations(start,now)
+                previous.update(deployed_at=a._iso(start),accepted_at=a._iso(now-300),status='complete')
+                if old_version is None:
+                    previous.pop('acceptance_policy_version')
+                else:
+                    previous['acceptance_policy_version']=old_version
+                original=copy.deepcopy(previous)
+                reset=a.assess(*self.fixture(now),now=now,previous=previous,
+                               observations=obs,batches=batches,**self.runtime(now))
+                self.assertEqual(reset['status'],'under_validation')
+                self.assertEqual(reset['acceptance_policy_version'],a.ACCEPTANCE_POLICY_VERSION)
+                self.assertIn('acceptance policy changed; fresh unattended window required',reset['failures'])
+                self.assertIsNone(reset['clean_window_started_at'])
+                self.assertNotIn('accepted_at',reset)
+                self.assertEqual(reset['deployed_at'],a._iso(start))
+                self.assertEqual(previous,original)
+                next_sample=now+300
+                fresh=a.assess(*self.fixture(next_sample),now=next_sample,previous=reset,
+                               observations=obs,batches=batches,**self.runtime(next_sample))
+                self.assertEqual(fresh['failures'],[])
+                self.assertEqual(fresh['clean_window_started_at'],a._iso(next_sample))
+                self.assertEqual(fresh['clean_window_hours'],0)
+                self.assertEqual(fresh['status'],'under_validation')
+                later=next_sample+300
+                continuing=a.assess(*self.fixture(later),now=later,previous=fresh,
+                                    observations=obs,batches=batches,**self.runtime(later))
+                self.assertEqual(continuing['failures'],[])
+                self.assertEqual(continuing['clean_window_started_at'],a._iso(next_sample))
+
+    def test_fresh_unfiltered_raw_pending_does_not_reset_settled_clean_acceptance(self):
+        start=a._time('2026-09-06T12:00:00Z');now=start+49*3600
+        previous,obs,batches=self.prior_and_observations(start,now)
+        cfg,report,gate,gws,public=self.fixture(now)
+        # Raw report source_vs_gws includes fresh edge files before the
+        # independent verifier's settle cutoff. Its settled counters govern
+        # acceptance, while retention retains its separate age-bounded proof.
+        pending={'missing_from_right':['raw/new-in-flight-file.dat'],'size_mismatch':[],'checksum_mismatch':[]}
+        report['jobs']['raw']['source_vs_gws']=copy.deepcopy(pending)
+        report['jobs']['raw']['pending_upload']=copy.deepcopy(pending)
+        state=a.assess(cfg,report,gate,gws,public,now=now,previous=previous,
+                       observations=obs,batches=batches,**self.runtime(now))
+        self.assertEqual(state['status'],'complete')
+        self.assertEqual(state['failures'],[])
+        self.assertEqual(state['clean_window_started_at'],a._iso(start))
 
     def test_unsampled_coordinator_gap_resets_window(self):
         start=a._time('2026-09-06T12:00:00Z');now=start+49*3600

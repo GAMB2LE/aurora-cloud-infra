@@ -8,6 +8,9 @@ import sqlite3
 import urllib.request
 
 
+ACCEPTANCE_POLICY_VERSION = 2
+
+
 def _time(value):
     return dt.datetime.fromisoformat(value.replace('Z','+00:00')).timestamp()
 
@@ -64,12 +67,24 @@ def assess(config, report, gate, gws, public, *, now, previous, observations, ba
         fields=('retention_local_missing_count','retention_local_mismatch_count','retention_gws_missing_count','retention_gws_mismatch_count')
         if value.get('error') or any(type(value.get(f)) is not int or value[f] != 0 for f in fields):
             failures.append(stream['name']+': independent GWS retention counters not clean')
+        # These counters already exclude fresh in-flight source files using
+        # the verifier's settle windows. Clean seven-day retention evidence
+        # alone cannot certify a gap-free unattended acceptance window.
+        settled_fields=('local_missing_count','local_mismatch_count','gws_missing_count','gws_mismatch_count')
+        if any(type(value.get(f)) is not int or value[f] != 0 for f in settled_fields):
+            failures.append(stream['name']+': independent settled source-to-cloud/GWS counters not clean')
     if public.get('overallLevel') != 'green' or public.get('alerts') != []:
         failures.append('public operations API is not green with no alerts')
     if not public.get('updatedAt') or not -300<=now-_time(public['updatedAt'])<=900:
         failures.append('public operations API is stale')
     deployment=config.get('recovery_deployment_id','unversioned')
     state=dict(previous) if previous.get('deployment_id')==deployment else {}
+    if state and state.get('acceptance_policy_version') != ACCEPTANCE_POLICY_VERSION:
+        # Previous samples did not necessarily check settled canonical-path
+        # coverage. Never carry their elapsed-time credit into this policy.
+        failures.append('acceptance policy changed; fresh unattended window required')
+        state['clean_window_started_at']=None
+    state['acceptance_policy_version']=ACCEPTANCE_POLICY_VERSION
     coordinator=coordinator or {}
     heartbeat=coordinator.get('heartbeat_at')
     if not heartbeat or not -300<=now-_time(heartbeat)<=900:

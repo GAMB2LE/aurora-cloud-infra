@@ -35,7 +35,7 @@ as the new recovery tests.
 | Repair and publication | Repair invalidates the collecting generation before copies; competing queue writers cannot overwrite that invalidation; publication merges the latest family state and keeps readers pinned through cleanup. |
 | Resource and credential boundaries | Checkpoints, queue journals and source/artifact files respect recovery storage limits; credentials come from the nominated restricted remote; the SDK cannot perform nested request retries. |
 | End-to-end failure/recovery | Four families finish while raw and products fail on a late page; recreated workers resume their checkpoints, then collect separate clean confirmations without repeating successful families. |
-| Health and acceptance | Automatic retry remains explanatory while valid evidence exists; expiry, permanent failure and missing coordinator heartbeats alert; acceptance requires the configured duration and subsequent completed daily audits. |
+| Health and acceptance | Automatic retry remains explanatory while valid evidence exists; expiry, permanent failure and missing coordinator heartbeats alert; acceptance rejects settled cloud/GWS discrepancies, invalid counter evidence and legacy policy credit, and requires the configured duration and subsequent completed daily audits. |
 
 ## Live compatibility and acceptance are separate
 

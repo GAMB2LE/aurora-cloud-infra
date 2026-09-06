@@ -76,6 +76,11 @@ active alert. Expired evidence, confirmed settled gaps, permanent failures, a
 15-minute coordinator heartbeat gap or six hours of continuing family failure
 raise alerts. A delayed listing is reported as verification overdue, not proof
 that archive copies are missing. Escalation does not cancel transient retries.
+Fresh independent settled source-to-cloud/GWS path discrepancies also raise an
+alert, distinct from an S3 copy discrepancy. Missing, malformed or expired path
+evidence is verification overdue, never a clean zero or proof of missing files.
+These presentation checks do not alter the separate retention-age counters or
+claim pruning is paused when independent raw retention evidence remains valid.
 
 Ops evidence age and expiry use the oldest required trusted confirmation from
 the pinned family gate, not the newest check or an in-progress worker timestamp.
@@ -105,6 +110,20 @@ The coordinator samples acceptance every five minutes. Missing samples/heartbeat
 stale evidence, nonzero independent GWS retention counters, settled discrepancies,
 storage violations, manual recovery interventions or incorrect public status reset
 the clean observation window. Elapsed time and a green dashboard alone never pass.
+Acceptance requires all four independent settled source-to-cloud/GWS missing and
+mismatch counters to be present as integer zero, in addition to the separate
+retention counters. Those settled counters preserve the verifier's existing
+in-flight grace periods; unfiltered fresh raw-report discrepancies do not reset
+acceptance. This stricter completion test does not change retention eligibility.
+An acceptance-policy upgrade discards earlier clean-window credit once; the next
+clean sample starts a new window without changing collector or checkpoint identity.
+For an acceptance-only policy correction, use
+`playbooks/archive_recovery_acceptance.yml` with a unique
+`archive_recovery_acceptance_release`. It verifies a restricted rollback copy
+before atomically replacing only the acceptance module. Leave the collector
+deployment identity and catalogue unchanged; the next scheduled coordinator tick
+loads the correction without restarting workers. Verify the installed hash and
+the next acceptance sample before recording deployment success.
 A task heartbeat should deliver the final evidence report automatically after the
 runtime acceptance record passes; remain quiet while state is unchanged.
 
