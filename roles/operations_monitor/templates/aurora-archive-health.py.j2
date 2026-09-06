@@ -221,7 +221,7 @@ def evidence_age_hours(value: object) -> float | None:
     ).total_seconds() / 3600
 
 
-def recovery_status(status: dict, report: dict, enabled: bool, current=None) -> dict:
+def recovery_status(status: dict, report: dict, enabled: bool, current=None, *, gate: dict | None = None) -> dict:
     """Expose queue progress while independently checking recovery liveness."""
     import datetime as _dt
 
@@ -244,10 +244,13 @@ def recovery_status(status: dict, report: dict, enabled: bool, current=None) -> 
     jobs = {}
     raw_jobs = status.get("jobs")
     evidence_jobs = report.get("jobs")
+    evidence_families = gate.get("families") if isinstance(gate, dict) else None
     if not isinstance(raw_jobs, dict):
         raw_jobs = {}
     if not isinstance(evidence_jobs, dict):
         evidence_jobs = {}
+    if not isinstance(evidence_families, dict):
+        evidence_families = {}
     for name in sorted(set(raw_jobs) | set(evidence_jobs)):
         value = raw_jobs.get(name)
         value = value if isinstance(value, dict) else {}
@@ -256,6 +259,19 @@ def recovery_status(status: dict, report: dict, enabled: bool, current=None) -> 
         # Legacy verified_at recorded listing completion, not observation start.
         # It cannot supply a trusted age or expiry after policy-7 migration.
         observed = timestamp(evidence.get("evidence_started_at"))
+        family = evidence_families.get(name)
+        family = family if isinstance(family, dict) else {}
+        confirmation_floor = timestamp(family.get("confirmation_evidence_started_at"))
+        if (
+            observed and confirmation_floor
+            and family.get("evidence_start_trusted") is True
+            and evidence.get("verification_id")
+            and family.get("verification_id") == evidence["verification_id"]
+        ):
+            # The pinned gate's oldest required confirmation limits evidence
+            # validity. A newer observation or in-flight queue start must not
+            # advertise a later expiry than that certificate.
+            observed = min(observed, confirmation_floor)
         max_age = RAW_EVIDENCE_MAX_AGE_HOURS if name == "raw" else OBJECT_REPORT_MAX_AGE_HOURS
         first_failure = timestamp(value.get("first_failure_at"))
         failure_hours = (current - first_failure).total_seconds() / 3600 if first_failure else None
@@ -710,7 +726,7 @@ def main() -> int:
     gws = read(GWS)
     object_report, gate = archive_snapshot()
     inventory_progress = read(INVENTORY_PROGRESS)
-    recovery = recovery_status(read(RECOVERY_STATUS), object_report, RECOVERY_ENABLED)
+    recovery = recovery_status(read(RECOVERY_STATUS), object_report, RECOVERY_ENABLED, gate=gate)
     if RECOVERY_ENABLED:
         inventory_progress = recovery_progress(recovery)
     dispatch = read(DISPATCH)
