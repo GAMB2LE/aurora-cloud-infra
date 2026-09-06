@@ -1,9 +1,8 @@
 [Unit]
 Description=Exact-intersection production/development Power forecast evaluation
 After=aurora-power-v12-candidate.service
-ConditionPathExists={{ aurora_product_root }}/power/power_soc_forecast_archive.zarr
-ConditionPathExists={{ aurora_zarr.power_soc_forecast_archive }}
-ConditionPathExists={{ aurora_zarr.power }}
+# Input validation belongs to the evaluator so missing sources produce a
+# durable, fail-closed status and history event instead of a silent unit skip.
 
 [Service]
 Type=oneshot

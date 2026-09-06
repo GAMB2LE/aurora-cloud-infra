@@ -808,6 +808,7 @@ def test_paired_evaluation_is_bounded_and_not_an_operational_dependency() -> Non
     assert "--prod-archive-zarr {{ aurora_product_root }}" in evaluator
     assert "--dev-archive-zarr {{ aurora_zarr.power_soc_forecast_archive }}" in evaluator
     assert "MemoryMax=1.5G" in evaluator
+    assert "ConditionPathExists=" not in evaluator
     assert "aurora-power-prod-dev-evaluation" not in publisher
     assert "Remove a disabled development paired Power evaluator unit" in tasks
 
