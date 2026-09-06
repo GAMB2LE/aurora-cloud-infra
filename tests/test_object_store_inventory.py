@@ -27,6 +27,15 @@ SPEC.loader.exec_module(inventory)
 
 
 class ObjectStoreInventoryTests(unittest.TestCase):
+    def test_frozen_observation_cutoff_excludes_newly_settled_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'newly-settled.dat'
+            path.write_bytes(b'archive')
+            inventory.os.utime(path,(101,101))
+            with mock.patch.object(inventory.time,'time',return_value=1120):
+                self.assertEqual(inventory.local_inventory(tmp,[],"15m",observed_at=1000),{})
+                self.assertIn(path.name,inventory.local_inventory(tmp,[],"15m"))
+
     def test_strict_source_walk_rejects_nested_permission_errors(self):
         def unreadable(base, onerror=None):
             onerror(PermissionError('nested source unavailable'))

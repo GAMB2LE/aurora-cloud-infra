@@ -55,6 +55,11 @@ def atomic_json(path, data):
             handle.flush()
             os.fsync(handle.fileno())
         temporary.replace(path)
+        descriptor=os.open(path.parent,os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -506,6 +511,11 @@ def run_worker(config,name,*,shadow=False):
             return 0
         directory=queue.root/'epochs'/epoch['verification_id']
         directory.mkdir(parents=True,exist_ok=True)
+        descriptor=os.open(directory.parent,os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
         if previous['verification_id'] and previous['verification_id'] != epoch['verification_id']:
             retire_epoch(queue.root,previous['verification_id'])
         stopped=threading.Event()
@@ -538,10 +548,12 @@ def run_worker(config,name,*,shadow=False):
                 except (ValueError,KeyError,TypeError) as error:
                     raise RestartEpochError('frozen source checkpoint invalid') from error
             else:
+                if (directory/'epoch.json').exists() or (directory/'s3.sqlite').exists():
+                    raise RestartEpochError('frozen source snapshot is missing from an existing checkpoint')
                 check_resources(config)
                 patterns=inv.COMMON_EXCLUDES+job.get('exclude',[])
-                live=inv.local_inventory(job['source'],patterns,'0s',bool(job.get('copy_links')),strict_errors=True)
-                settled=inv.local_inventory(job['source'],patterns,inv.verification_settle_age(job),bool(job.get('copy_links')),strict_errors=True)
+                live=inv.local_inventory(job['source'],patterns,'0s',bool(job.get('copy_links')),strict_errors=True,observed_at=epoch['evidence_started_at'])
+                settled=inv.local_inventory(job['source'],patterns,inv.verification_settle_age(job),bool(job.get('copy_links')),strict_errors=True,observed_at=epoch['evidence_started_at'])
                 validate_source_root(job,source_identity)
                 snapshot={'local':settled,'pending':{k:v for k,v in live.items() if k not in settled}}
                 # The manifest can be large; account for its encoded bytes too.

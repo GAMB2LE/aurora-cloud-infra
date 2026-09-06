@@ -106,13 +106,13 @@ def local_inventory(
     patterns: list[str],
     settle_age: str,
     copy_links: bool = False,
-    *, strict_errors: bool = False,
+    *, strict_errors: bool = False, observed_at: float | None = None,
 ) -> dict[str, dict]:
     result: dict[str, dict] = {}
     base = Path(root)
     if not base.exists():
         return result
-    settled_before = time.time() - duration_seconds(settle_age)
+    settled_before = (time.time() if observed_at is None else observed_at) - duration_seconds(settle_age)
     def walk_error(error):
         if strict_errors:
             raise error
