@@ -184,6 +184,10 @@ dependency of the operational Power bundle. CL61 output remains diagnostic
 shadow intent with `cl61ActuationEnabled=false`; intent and current status live
 only inside each validated bundle. The separate CL61 history remains an
 append-only diagnostic evidence stream and cannot actuate or update a PDU.
+The additive development mobile endpoint reads the status from the validated
+`current` bundle even while public forecast-bundle activation remains off; the
+standalone scenario writer keeps a separate mutable output path and can never
+write into that immutable bundle.
 Production remains on `AURORA_ECMWF_PROVIDER=legacy` until the parity and
 resource gates pass.
 
