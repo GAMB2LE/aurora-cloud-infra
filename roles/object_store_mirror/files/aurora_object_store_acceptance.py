@@ -165,7 +165,14 @@ def observe(config):
     import time
     root=recovery_root(config)
     path=root/'acceptance.json'
-    previous=json.loads(path.read_text()) if path.exists() else {}
+    try:
+        previous=json.loads(path.read_text()) if path.exists() else {}
+        if not isinstance(previous,dict):
+            previous={}
+    except (OSError,ValueError):
+        # A corrupt observation record loses elapsed-time credit, never the
+        # canonical archive evidence or the coordinator's ability to recover.
+        previous={}
     try:
         resources=check_resources(config)
         coordinator=json.loads((root/'status.json').read_text())

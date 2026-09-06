@@ -1,13 +1,27 @@
 import importlib.util
 from pathlib import Path
 import unittest
+import sys
+import tempfile
+import json
 
 path=Path(__file__).parents[1]/'roles/object_store_mirror/files/aurora_object_store_acceptance.py'
+sys.path.insert(0,str(path.parent))
 spec=importlib.util.spec_from_file_location('acceptance_test',path)
 a=importlib.util.module_from_spec(spec);spec.loader.exec_module(a)
 
 
 class AcceptanceTests(unittest.TestCase):
+    def test_corrupt_observation_record_resets_credit_without_stopping_recovery(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)/'recovery'
+            root.mkdir()
+            (root/'acceptance.json').write_text('not json')
+            state=a.observe({'manifest_root':temporary,'recovery_free_reserve_bytes':0})
+            self.assertEqual(state['status'],'under_validation')
+            self.assertIsNone(state['clean_window_started_at'])
+            self.assertEqual(json.loads((root/'acceptance.json').read_text()),state)
+
     def runtime(self,now):
         return {'coordinator':{'heartbeat_at':a._iso(now),'state':'idle','manual_intervention_count':0},
                 'resources':{'used_bytes':1024,'max_bytes':10*1024**3,'free_bytes':100*1024**3,'reserve_bytes':50*1024**3}}
