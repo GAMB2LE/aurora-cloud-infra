@@ -83,6 +83,14 @@ manual intervention and starts a fresh observation; it does not certify parity.
 Do not hand-edit queue records, timestamps, confirmation counts or gate state.
 Do not run a second coordinator/worker against the production catalogue manually.
 
+After correcting a local deployment/permission defect, `retry --job <exact-family>
+--resume-checkpoint` may resume a blocked observation without discarding validated
+pages. It refuses active workers, expired observations and changed configuration;
+normal source/checkpoint checks still run. This is recorded as manual corrective
+intervention and resets unattended acceptance credit. Never use it to interrupt
+healthy automatic retries or to bypass an unresolved block. The default `retry`
+still requests an entirely fresh observation.
+
 `aurora-object-store-recovery-upload.timer` retries publishing pinned manifest
 generations to the existing object-store manifest destination. Checkpoint storage
 and credential files are never uploaded.

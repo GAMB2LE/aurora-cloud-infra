@@ -1,0 +1,165 @@
+---
+# Patch only the running recovery reader/coordinator and its deployment identity.
+# Supply a NEW -e object_store_recovery_deployment_id=<released-revision>.
+# Existing processes keep their imported code; this never restarts or resumes
+# workers. Any blocked work must be reviewed and resumed separately.
+# Rollback: verify the three saved SHA-256 values against before.json, then
+# atomically restore ONLY those files with their recorded uid/gid/mode. Do not
+# restore queue/checkpoint/canonical evidence or restart any running service.
+- name: Patch active archive recovery without interrupting workers
+  hosts: aurora-cloud
+  become: true
+  vars:
+    archive_recovery_patch_files:
+      - /usr/local/lib/aurora-object-store/aurora_object_store_evidence.py
+      - /usr/local/lib/aurora-object-store/aurora_object_store_recovery.py
+      - /etc/aurora-object-store/catalog.json
+  tasks:
+    - name: Read and preserve the authoritative deployed configuration
+      ansible.builtin.import_tasks: tasks/archive_recovery_context.yml
+
+    - name: Require active recovery and an explicit new safe deployment identity
+      ansible.builtin.assert:
+        that:
+          - archive_recovery_live_catalog.recovery_enabled | default(false) | bool
+          - object_store_recovery_deployment_id | default('') is match('^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
+          - object_store_recovery_deployment_id != archive_recovery_live_catalog.recovery_deployment_id | default('')
+        fail_msg: This patch requires active recovery and a new release identity containing only letters, numbers, dots, underscores or hyphens.
+
+    - name: Select a release-specific rollback directory
+      ansible.builtin.set_fact:
+        archive_recovery_patch_backup: "/var/lib/aurora-cloud/recovery-rollbacks/patch-{{ object_store_recovery_deployment_id }}"
+
+    - name: Inspect the exact three pre-patch files with SHA-256
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        checksum_algorithm: sha256
+        get_checksum: true
+        follow: false
+      loop: "{{ archive_recovery_patch_files }}"
+      register: archive_recovery_patch_before
+
+    - name: Require existing regular files rather than following links
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+          - item.stat.isreg | default(false)
+          - not item.stat.islnk | default(false)
+      loop: "{{ archive_recovery_patch_before.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Ensure the catalogue still matches the configuration we read
+      ansible.builtin.assert:
+        that: archive_recovery_patch_before.results[2].stat.checksum == (archive_recovery_catalog_bytes.content | b64decode | hash('sha256'))
+        fail_msg: The live catalogue changed during preparation; rerun from a fresh configuration snapshot.
+      no_log: true
+
+    - name: Refuse to reuse or overwrite a previous release backup
+      ansible.builtin.stat:
+        path: "{{ archive_recovery_patch_backup }}"
+        follow: false
+      register: archive_recovery_patch_existing_backup
+
+    - name: Require a unique rollback destination
+      ansible.builtin.assert:
+        that: not archive_recovery_patch_existing_backup.stat.exists
+        fail_msg: A backup already exists for this release; inspect it and use a new deployment identity rather than overwriting recovery evidence.
+
+    - name: Save and verify restricted rollback files before any runtime changes
+      when: not ansible_check_mode
+      block:
+        - name: Ensure the restricted rollback parent exists
+          ansible.builtin.file:
+            path: /var/lib/aurora-cloud/recovery-rollbacks
+            state: directory
+            owner: root
+            group: root
+            mode: '0700'
+
+        - name: Exclusively create this release backup directory
+          ansible.builtin.command:
+            argv: [/usr/bin/mkdir, -m, '0700', "{{ archive_recovery_patch_backup }}"]
+
+        - name: Preserve exactly the two previous modules and catalogue
+          ansible.builtin.copy:
+            src: "{{ item }}"
+            dest: "{{ archive_recovery_patch_backup }}/{{ item | basename }}"
+            remote_src: true
+            owner: root
+            group: root
+            mode: '0600'
+            force: false
+            unsafe_writes: false
+          loop: "{{ archive_recovery_patch_files }}"
+          no_log: true
+
+        - name: Calculate the saved files' SHA-256 values
+          ansible.builtin.stat:
+            path: "{{ archive_recovery_patch_backup }}/{{ item | basename }}"
+            checksum_algorithm: sha256
+            get_checksum: true
+          loop: "{{ archive_recovery_patch_files }}"
+          register: archive_recovery_patch_saved
+
+        - name: Verify every saved file against its original before updating code
+          ansible.builtin.assert:
+            that:
+              - item.stat.checksum == archive_recovery_patch_before.results[archive_recovery_patch_index].stat.checksum
+              - item.stat.mode == '0600'
+              - item.stat.uid == 0
+              - item.stat.gid == 0
+          loop: "{{ archive_recovery_patch_saved.results }}"
+          loop_control:
+            index_var: archive_recovery_patch_index
+            label: "{{ item.item }}"
+
+        - name: Record verified checksums and original restoration metadata
+          ansible.builtin.copy:
+            content: "{{ {'deployment_id': object_store_recovery_deployment_id, 'files': archive_recovery_patch_before.results | map(attribute='stat') | list} | to_nice_json }}\n"
+            dest: "{{ archive_recovery_patch_backup }}/before.json"
+            owner: root
+            group: root
+            mode: '0600'
+            force: false
+            unsafe_writes: false
+
+        - name: Recheck the live inputs after making the verified backup
+          ansible.builtin.stat:
+            path: "{{ item }}"
+            checksum_algorithm: sha256
+            get_checksum: true
+            follow: false
+          loop: "{{ archive_recovery_patch_files }}"
+          register: archive_recovery_patch_unchanged
+
+        - name: Reject concurrent catalogue or runtime changes
+          ansible.builtin.assert:
+            that:
+              - item.stat.isreg | default(false)
+              - not item.stat.islnk | default(false)
+              - item.stat.checksum == archive_recovery_patch_before.results[archive_recovery_patch_index].stat.checksum
+          loop: "{{ archive_recovery_patch_unchanged.results }}"
+          loop_control:
+            index_var: archive_recovery_patch_index
+            label: "{{ item.item }}"
+
+    - name: Atomically install only the two patched runtime modules
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../roles/object_store_mirror/files/{{ item | basename }}"
+        dest: "{{ item }}"
+        owner: root
+        group: root
+        mode: '0644'
+        unsafe_writes: false
+      loop: "{{ archive_recovery_patch_files[:2] }}"
+
+    - name: Atomically update only deployment identity while preserving all live settings
+      ansible.builtin.copy:
+        content: "{{ archive_recovery_live_catalog | combine({'recovery_deployment_id': object_store_recovery_deployment_id}) | to_nice_json }}\n"
+        dest: /etc/aurora-object-store/catalog.json
+        owner: "{{ archive_recovery_patch_before.results[2].stat.uid }}"
+        group: "{{ archive_recovery_patch_before.results[2].stat.gid }}"
+        mode: "{{ archive_recovery_patch_before.results[2].stat.mode }}"
+        unsafe_writes: false
+      no_log: true

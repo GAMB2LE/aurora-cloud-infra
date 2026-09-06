@@ -328,6 +328,65 @@ class QueueTests(unittest.TestCase):
         self.assertNotEqual(old['verification_id'],new['verification_id'])
         self.assertGreater(new['generation'],old['generation'])
 
+    def test_corrected_block_can_resume_same_unexpired_checkpoint(self):
+        class ConfigError(Exception):error_class='config'
+        self.q.enqueue(['raw'])
+        old=self.q.claim('raw')
+        directory=self.q.root/'epochs'/old['verification_id']
+        directory.mkdir(parents=True)
+        (directory/'saved-page').write_bytes(b'validated page and cursor')
+        self.q.fail(old,ConfigError('publication denied'))
+        self.now+=120
+        self.q.retry('raw',resume_checkpoint=True)
+        queued=self.q.row('raw')
+        self.assertEqual(queued['state'],'queued')
+        self.assertIsNone(queued['last_error'])
+        resumed=self.q.claim('raw')
+        for key in ('verification_id','generation','evidence_started_at','expires_at','fingerprint'):
+            self.assertEqual(resumed[key],old[key])
+        self.assertEqual((directory/'saved-page').read_bytes(),b'validated page and cursor')
+        self.assertEqual(self.q.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0],0)
+
+    def test_checkpoint_resume_refuses_expired_or_changed_configuration(self):
+        class ConfigError(Exception):error_class='config'
+        self.q.enqueue(['raw'])
+        old=self.q.claim('raw')
+        self.q.fail(old,ConfigError('publication denied'))
+        self.now=old['expires_at']
+        with self.assertRaisesRegex(ValueError,'expired'):
+            self.q.retry('raw',resume_checkpoint=True)
+        self.now=old['evidence_started_at']+30
+        self.config['bucket']='changed'
+        with self.assertRaisesRegex(ValueError,'configuration changed'):
+            self.q.retry('raw',resume_checkpoint=True)
+        self.assertEqual(self.q.row('raw')['state'],'blocked')
+        self.assertEqual(self.q.row('raw')['verification_id'],old['verification_id'])
+
+    def test_checkpoint_resume_never_interrupts_active_or_transient_work(self):
+        with self.assertRaisesRegex(ValueError,'blocked observation'):
+            self.q.retry('raw',resume_checkpoint=True)
+        self.q.enqueue(['raw'])
+        epoch=self.q.claim('raw')
+        with self.assertRaisesRegex(ValueError,'active'):
+            self.q.retry('raw',resume_checkpoint=True)
+        self.q.fail(epoch,RuntimeError('504'))
+        with self.assertRaisesRegex(ValueError,'blocked observation'):
+            self.q.retry('raw',resume_checkpoint=True)
+        self.assertEqual(self.q.row('raw')['state'],'retry_wait')
+
+    def test_checkpoint_resume_cli_records_manual_intervention_without_new_evidence(self):
+        class ConfigError(Exception):error_class='config'
+        self.q.enqueue(['raw'])
+        epoch=self.q.claim('raw')
+        self.q.fail(epoch,ConfigError('publication denied'))
+        config_path=Path(self.tmp.name)/'catalog.json'
+        config_path.write_text(json.dumps(self.config))
+        with mock.patch.object(sys,'argv',['recovery','--catalog',str(config_path),'retry','--job','raw','--resume-checkpoint']), mock.patch.object(recovery,'Queue',return_value=self.q), mock.patch.object(self.q,'close'), mock.patch.object(recovery,'systemd_active',return_value=False), mock.patch('builtins.print'):
+            recovery.main()
+        self.assertEqual(self.q.row('raw')['verification_id'],epoch['verification_id'])
+        self.assertEqual(self.q.status()['manual_intervention_count'],1)
+        self.assertEqual(self.q.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0],0)
+
     def test_completion_locks_generation_before_validation_and_repair_cannot_overtake(self):
         self.q.enqueue(['products'])
         epoch=self.q.claim('products')

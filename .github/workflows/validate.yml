@@ -57,6 +57,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
+        id: archive-python
         with:
           python-version: "3.10"
           cache: pip
@@ -70,3 +71,18 @@ jobs:
         run: python -m compileall -q roles/object_store_mirror/files
       - name: Test archive recovery and existing operational contracts
         run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Test protected hardlinks across the root and worker UID boundary
+        run: |
+          sudo -- "${{ steps.archive-python.outputs.python-path }}" - <<'PY'
+          import sys
+          import unittest
+
+          sys.path.insert(0, "tests")
+          suite = unittest.defaultTestLoader.loadTestsFromName(
+              "test_object_store_evidence.EvidencePublicationTests."
+              "test_real_cross_uid_publication_preserves_root_owned_canonical_artifacts"
+          )
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          # This privileged regression must execute, not silently skip.
+          raise SystemExit(0 if result.wasSuccessful() and not result.skipped else 1)
+          PY
