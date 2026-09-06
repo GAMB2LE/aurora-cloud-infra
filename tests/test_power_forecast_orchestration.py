@@ -64,6 +64,7 @@ def _template_context() -> dict[str, object]:
         "aurora_power_forecast_source_max_cycle_delta_hours": 18,
         "aurora_power_forecast_generator_lock_path": "/data/aurora/dev-products/power/.deterministic-generator.lock",
         "aurora_power_forecast_publication_active": False,
+        "aurora_power_v12_candidate_enabled": True,
         "aurora_paths": {
             "products_power_ecmwf_solar_forecast": "/data/aurora/dev-products/power/ecmwf_solar_forecast",
             "products_power_ecmwf_solar_ensemble": "/data/aurora/dev-products/power/ecmwf_solar_ensemble",
@@ -179,6 +180,46 @@ def test_interrupted_issue_snapshot_is_quarantined_not_deleted(tmp_path: Path) -
     assert recovered[0].read_bytes() == b"recover-me"
 
 
+def test_interrupted_bundle_staging_is_quarantined_read_only(tmp_path: Path) -> None:
+    namespace = {"__name__": "rendered_power_publisher"}
+    exec(compile(_render_publisher(), str(PUBLISHER), "exec"), namespace)
+    bundle_root = tmp_path / "forecast-bundle"
+    generations = bundle_root / "generations"
+    staging = generations / ".staging-20260906T011153Z-a3a8d307"
+    staging.mkdir(parents=True)
+    payload = staging / "partial-product.zarr/payload"
+    payload.parent.mkdir()
+    payload.write_bytes(b"recover-this-failed-generation")
+    namespace["BUNDLE_ROOT"] = bundle_root
+    namespace["GENERATIONS_ROOT"] = generations
+
+    recovered = namespace["quarantine_interrupted_staging"]()
+
+    assert not staging.exists()
+    assert len(recovered) == 1
+    assert recovered[0].parent == bundle_root / "quarantine"
+    assert (recovered[0] / "partial-product.zarr/payload").read_bytes() == (
+        b"recover-this-failed-generation"
+    )
+    marker = json.loads((recovered[0] / "interruption.json").read_text())
+    assert marker["status"] == "failed_interrupted_staging"
+    assert marker["originalName"] == staging.name
+    assert all(
+        not (item.stat().st_mode & 0o222)
+        for item in (recovered[0], *recovered[0].rglob("*"))
+    )
+
+
+def test_bundle_publish_recovers_interrupted_staging_before_new_generation() -> None:
+    publisher = PUBLISHER.read_text()
+
+    call = "quarantine_interrupted_staging()"
+    create = 'staging = GENERATIONS_ROOT / f".staging-{generation_id}"'
+    publish_start = publisher.index("def publish_bundle(")
+    publish_block = publisher[publish_start:]
+    assert publish_block.index(call) < publish_block.index(create)
+
+
 def test_issue_capture_verifies_marker_binds_manifest_and_removes_write_bits(
     tmp_path: Path,
 ) -> None:
@@ -277,6 +318,22 @@ def test_success_chain_orders_inputs_and_keeps_reanchors_non_independent() -> No
     assert "--baseline-forecast-zarr" not in candidate
     assert "aurora_power_forecast_bundle_independent_root" in launcher
     assert "aurora_power_forecast_bundle_independent_root" in candidate
+
+
+def test_development_orchestrator_has_a_host_protecting_memory_ceiling() -> None:
+    template = TEMPLATES / "aurora-power-soc-forecast.service.j2"
+    environment = Environment(undefined=StrictUndefined)
+    environment.filters["bool"] = bool
+    context = _template_context()
+    rendered_development = environment.from_string(template.read_text()).render(**context)
+    rendered_production = environment.from_string(template.read_text()).render(
+        **{**context, "aurora_power_forecast_orchestration_enabled": False}
+    )
+
+    assert "MemoryHigh=3G" in rendered_development
+    assert "MemoryMax=3500M" in rendered_development
+    assert "OOMPolicy=stop" in rendered_development
+    assert "MemoryMax=3500M" not in rendered_production
 
 
 def test_deterministic_writers_share_lock_and_contention_skips_publication() -> None:

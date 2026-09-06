@@ -777,6 +777,48 @@ def quarantine_incoming(source: Path) -> None:
     source.rename(destination / "forecast.zarr")
 
 
+def quarantine_interrupted_staging() -> list[Path]:
+    """Preserve private bundle staging left by an interrupted publisher.
+
+    The publisher lock proves that no other publication is active.  Moving an
+    incomplete staging tree out of ``generations`` prevents it from being
+    mistaken for reusable work while retaining the exact failed artifacts for
+    diagnosis.
+    """
+    GENERATIONS_ROOT.mkdir(parents=True, exist_ok=True)
+    root = GENERATIONS_ROOT.resolve(strict=True)
+    interrupted = sorted(root.glob(".staging-*"), key=lambda item: item.name)
+    if not interrupted:
+        return []
+    quarantine = BUNDLE_ROOT / "quarantine"
+    quarantine.mkdir(parents=True, exist_ok=True)
+    recovered: list[Path] = []
+    for source in interrupted:
+        if source.is_symlink() or not source.is_dir() or source.parent.resolve() != root:
+            raise RuntimeError(f"unsafe interrupted bundle staging path: {source}")
+        destination = quarantine / (
+            "interrupted-"
+            + source.name.removeprefix(".staging-")
+            + "-"
+            + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+            + "-"
+            + uuid.uuid4().hex[:8]
+        )
+        source.rename(destination)
+        atomic_json(
+            destination / "interruption.json",
+            {
+                "schemaVersion": 1,
+                "status": "failed_interrupted_staging",
+                "originalName": source.name,
+                "quarantinedAt": utc_now(),
+            },
+        )
+        make_tree_read_only(destination)
+        recovered.append(destination)
+    return recovered
+
+
 def retain_recent_generations() -> None:
     """Bound agent-created generations while never resolving outside the root."""
     root = GENERATIONS_ROOT.resolve(strict=True)
@@ -927,6 +969,7 @@ def publish_bundle(forecast_source: Path, *, allow_cached_reanchor: bool) -> Non
             + uuid.uuid4().hex[:8]
         )
         GENERATIONS_ROOT.mkdir(parents=True, exist_ok=True)
+        quarantine_interrupted_staging()
         staging = GENERATIONS_ROOT / f".staging-{generation_id}"
         final = GENERATIONS_ROOT / generation_id
         staging.mkdir(parents=False, exist_ok=False)

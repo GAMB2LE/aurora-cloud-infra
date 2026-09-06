@@ -22,4 +22,11 @@ ExecStart={{ aurora_venv }}/bin/python generate_power_soc_forecast.py --power-za
 {% endif %}
 
 Nice=10
+{% if aurora_power_forecast_orchestration_enabled | bool %}
+# Leave enough headroom for the immutable ENS stage while preventing a
+# regressed display build from exhausting the host beside model evaluation.
+MemoryHigh=3G
+MemoryMax=3500M
+OOMPolicy=stop
+{% endif %}
 TimeoutStartSec={{ '4h' if aurora_power_forecast_orchestration_enabled | bool else '900' }}
