@@ -68,6 +68,9 @@ def _compatibility_gate(config, state):
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=".gate-", dir=path.parent)
     try:
+        # Compatibility readers remain unprivileged. This is the same
+        # non-secret evidence already published in readable generations.
+        os.fchmod(fd, 0o644)
         with os.fdopen(fd, "wb") as handle:
             handle.write(_json_bytes(state))
             handle.flush()

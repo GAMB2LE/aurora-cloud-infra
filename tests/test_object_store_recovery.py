@@ -22,7 +22,7 @@ class QueueTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory()
         self.now=100000.0
-        self.config={'manifest_root':self.tmp.name,'jobs':[{'name':n,'source':'/source/'+n,'destination':n} for n in ['raw','products','manifests']], 'recovery_retry_delays_seconds':[15,30,60]}
+        self.config={'manifest_root':self.tmp.name,'jobs':[{'name':n,'source':'/source/'+n,'destination':n} for n in ['raw','products','manifests']], 'recovery_retry_delays_seconds':[15,30,60], 'gws_hosts':['gws-a','gws-b','gws-c']}
         self.q=recovery.Queue(self.config,clock=lambda:self.now)
 
     def tearDown(self):
@@ -148,6 +148,85 @@ class QueueTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             recovery.collect_gws(self.config,self.q.jobs['products'],epoch,directory,inventory,self.q)
         self.assertFalse((directory/'gws.json').exists())
+
+    def test_gws_attempt_uses_one_rotating_host_without_nested_retries(self):
+        self.q.enqueue(['products'])
+        epoch=self.q.claim('products')
+        directory=self.q.root/'epochs'/epoch['verification_id']
+        directory.mkdir(parents=True)
+        inventory=mock.Mock()
+        inventory.gws_inventory.side_effect=RuntimeError('Connection timed out with private detail')
+        self.config.update(gws_inventory_attempts=3,gws_inventory_retry_delay_seconds=15)
+        for count,host in enumerate(['gws-a','gws-b','gws-c','gws-a']):
+            with self.subTest(attempt=count):
+                with self.assertRaisesRegex(RuntimeError,'coordinator will retry another host') as caught:
+                    recovery.collect_gws(self.config,self.q.jobs['products'],dict(epoch,attempt_count=count),directory,inventory,self.q)
+                cfg=inventory.gws_inventory.call_args.args[0]
+                self.assertEqual(cfg['gws_hosts'],[host])
+                self.assertEqual(cfg['gws_inventory_attempts'],1)
+                self.assertEqual(cfg['gws_inventory_retry_delay_seconds'],0)
+                self.assertEqual(caught.exception.error_class,'transient')
+                self.assertNotIn('private detail',str(caught.exception))
+        self.assertEqual(self.config['gws_inventory_attempts'],3)
+        self.assertEqual(self.config['gws_hosts'],['gws-a','gws-b','gws-c'])
+
+    def test_gws_authentication_and_configuration_failures_are_sanitized(self):
+        self.q.enqueue(['products'])
+        epoch=self.q.claim('products')
+        directory=self.q.root/'epochs'/epoch['verification_id']
+        directory.mkdir(parents=True)
+        cases=[('someuser@secret-host: Permission denied (publickey).','auth'),
+               ('Host key verification failed. secret-host','config'),
+               ('REMOTE HOST IDENTIFICATION HAS CHANGED! secret-host','config'),
+               ('Load key /private/path: invalid format','config')]
+        for message,category in cases:
+            with self.subTest(category=category,message=message):
+                inventory=mock.Mock()
+                inventory.gws_inventory.side_effect=RuntimeError(message)
+                with self.assertRaises(RuntimeError) as caught:
+                    recovery.collect_gws(self.config,self.q.jobs['products'],epoch,directory,inventory,self.q)
+                self.assertEqual(caught.exception.error_class,category)
+                self.assertNotIn('secret-host',str(caught.exception))
+                self.assertNotIn('/private/path',str(caught.exception))
+
+    def test_nonraw_gws_requires_hosts_but_raw_uses_independent_manifest(self):
+        self.q.enqueue()
+        for name in ['products','raw']:
+            epoch=self.q.claim(name)
+            directory=self.q.root/'epochs'/epoch['verification_id']
+            directory.mkdir(parents=True)
+            inventory=mock.Mock()
+            inventory.gws_inventory.return_value={}
+            cfg=dict(self.config,gws_hosts=[])
+            if name=='products':
+                with self.assertRaisesRegex(RuntimeError,'host configuration') as caught:
+                    recovery.collect_gws(cfg,self.q.jobs[name],epoch,directory,inventory,self.q)
+                self.assertEqual(caught.exception.error_class,'config')
+                inventory.gws_inventory.assert_not_called()
+            else:
+                self.assertEqual(recovery.collect_gws(cfg,self.q.jobs[name],epoch,directory,inventory,self.q),{})
+                inventory.gws_inventory.assert_called_once()
+
+    def test_source_root_must_be_a_readable_directory(self):
+        root=Path(self.tmp.name)/'source'
+        with self.assertRaises(RuntimeError) as missing:
+            recovery.validate_source_root({'source':str(root)})
+        self.assertEqual(missing.exception.error_class,'transient')
+        root.write_text('not a directory')
+        with self.assertRaises(RuntimeError) as not_directory:
+            recovery.validate_source_root({'source':str(root)})
+        self.assertEqual(not_directory.exception.error_class,'config')
+        root.unlink()
+        root.mkdir()
+        with mock.patch.object(recovery.os,'access',return_value=False):
+            with self.assertRaises(RuntimeError) as inaccessible:
+                recovery.validate_source_root({'source':str(root)})
+        self.assertEqual(inaccessible.exception.error_class,'config')
+        before=recovery.validate_source_root({'source':str(root)})
+        root.rename(root.with_name('old-source'))
+        root.mkdir()
+        with self.assertRaises(recovery.RestartEpochError):
+            recovery.validate_source_root({'source':str(root)},before)
 
     def test_two_lanes_and_cooldown_does_not_block_other_products(self):
         self.q.enqueue()

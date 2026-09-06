@@ -4,6 +4,9 @@ import copy
 import datetime as dt
 import importlib.util
 import json
+import io
+import sys
+from contextlib import redirect_stdout
 from pathlib import Path
 import tempfile
 import unittest
@@ -16,6 +19,19 @@ SPEC.loader.exec_module(gate)
 PRODUCT_JOBS = ("products", "products-wxcam", "model-evaluation", "menapia-flight-manifests", "manifests")
 ALL_JOBS = ("raw", *PRODUCT_JOBS)
 NOW = dt.datetime(2026, 9, 6, 12, tzinfo=dt.timezone.utc)
+
+
+class GateCommandTests(unittest.TestCase):
+    def test_busy_publication_defers_without_a_failed_audit(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            catalog=Path(temporary)/'catalog.json'
+            catalog.write_text('{}')
+            module=mock.Mock()
+            module.refresh_gate.side_effect=BlockingIOError('busy')
+            output=io.StringIO()
+            with mock.patch.object(gate,'CATALOG',catalog), mock.patch.dict(sys.modules,{'aurora_object_store_evidence':module}), redirect_stdout(output):
+                self.assertEqual(gate.main(),0)
+            self.assertEqual(json.loads(output.getvalue())['state'],'deferred')
 
 
 def config(names=ALL_JOBS):

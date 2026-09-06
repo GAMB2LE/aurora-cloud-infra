@@ -18,6 +18,7 @@ from pathlib import Path
 import random
 import shutil
 import sqlite3
+import stat
 import subprocess
 import sys
 import threading
@@ -395,9 +396,9 @@ class Queue:
 
 
 def load_inventory():
-    path=Path(__file__).with_name('aurora-object-store-inventory.py')
+    path=Path(__file__).with_name('aurora_object_store_inventory.py')
     if not path.exists():
-        path=Path(__file__).with_name('aurora_object_store_inventory.py')
+        path=Path(__file__).with_name('aurora-object-store-inventory.py')
     spec=importlib.util.spec_from_file_location('aurora_inventory_legacy',path)
     module=importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -406,7 +407,7 @@ def load_inventory():
 
 def collect_gws(config,job,epoch,directory,inventory,queue):
     """Keep a completed non-raw GWS scan across S3 retries in the same epoch."""
-    from aurora_object_store_s3 import resource_lock
+    from aurora_object_store_s3 import resource_lock, InventoryError
     path=directory/'gws.json'
     identity=dict(verification_id=epoch['verification_id'],generation=epoch['generation'],fingerprint=epoch['fingerprint'],source_sha256=load_json(directory/'epoch.json').get('source_sha256'))
     if job['name']!='raw' and path.exists():
@@ -425,7 +426,30 @@ def collect_gws(config,job,epoch,directory,inventory,queue):
         queue.validate(epoch)
         return rows
     started=queue.clock()
-    rows=inventory.gws_inventory(config,job)
+    attempt_config=dict(config,gws_inventory_attempts=1,gws_inventory_retry_delay_seconds=0)
+    if job['name']!='raw':
+        hosts=config.get('gws_hosts')
+        if (not isinstance(hosts,list) or not hosts or
+                any(not isinstance(host,str) or not host.strip() for host in hosts)):
+            raise InventoryError('GWS transfer host configuration is missing or invalid','config')
+        attempt_config['gws_hosts']=[hosts[int(epoch.get('attempt_count',0))%len(hosts)]]
+    try:
+        # One remote invocation per queue attempt. A failed host releases this
+        # worker; the coordinator owns delay, failover, and outage escalation.
+        rows=inventory.gws_inventory(attempt_config,job)
+    except (KeyError,TypeError):
+        raise InventoryError('GWS inventory configuration is missing or invalid','config') from None
+    except (OSError,RuntimeError,ValueError,subprocess.SubprocessError) as error:
+        detail=(str(error)+' '+str(getattr(error,'stderr','') or '')).lower()
+        if 'permission denied' in detail and 'publickey' in detail:
+            raise InventoryError('GWS SSH authentication failed','auth') from None
+        config_errors=('host key verification failed','remote host identification has changed',
+                       'offending ','bad configuration option','no such identity',
+                       'invalid format','bad permissions','unprotected private key file',
+                       'known_hosts: permission denied')
+        if any(pattern in detail for pattern in config_errors):
+            raise InventoryError('GWS SSH host-key or connection configuration is invalid','config') from None
+        raise InventoryError('GWS inventory unavailable; coordinator will retry another host','transient') from None
     queue.validate(epoch)
     if job['name']!='raw':
         with resource_lock(config,extra_bytes=len(json.dumps(rows).encode())+4096):
@@ -435,8 +459,37 @@ def collect_gws(config,job,epoch,directory,inventory,queue):
     return rows
 
 
+def validate_source_root(job, expected=None):
+    """Never interpret an absent or unreadable configured source as empty."""
+    from aurora_object_store_s3 import InventoryError
+    source=job.get('source')
+    if not isinstance(source,str) or not source:
+        raise InventoryError('Archive source root configuration is invalid','config')
+    root=Path(source)
+    try:
+        info=root.stat()
+        if not stat.S_ISDIR(info.st_mode):
+            raise InventoryError('Archive source root is not a directory','config')
+        if not os.access(root,os.R_OK|os.X_OK):
+            raise InventoryError('Archive source root is not accessible','config')
+        # access() is advisory; opening the directory verifies the actual
+        # worker's read access and catches a removal between stat and scan.
+        with os.scandir(root):
+            pass
+    except FileNotFoundError:
+        raise InventoryError('Archive source root is unavailable; observation deferred','transient') from None
+    except PermissionError:
+        raise InventoryError('Archive source root is not accessible','config') from None
+    except OSError:
+        raise InventoryError('Archive source root could not be inspected; observation deferred','transient') from None
+    identity=(info.st_dev,info.st_ino)
+    if expected is not None and identity!=expected:
+        raise RestartEpochError('Archive source root changed during observation')
+    return identity
+
+
 def run_worker(config,name,*,shadow=False):
-    from aurora_object_store_s3 import PagedS3Lister, check_resources, resource_lock
+    from aurora_object_store_s3 import PagedS3Lister, check_resources, resource_lock, InventoryError
     from aurora_object_store_evidence import publish_family
     queue=Queue(config)
     lane='raw' if name=='raw' else 'products'
@@ -472,25 +525,29 @@ def run_worker(config,name,*,shadow=False):
             job=queue.jobs[name]
             frozen=directory/'source.json'
             phase['phase']='local_inventory'
+            source_identity=validate_source_root(job)
             if frozen.exists():
                 try:
                     metadata=load_json(directory/'epoch.json')
                     raw=frozen.read_bytes()
                     if hashlib.sha256(raw).hexdigest() != metadata.get('source_sha256'):
                         raise ValueError('frozen source snapshot digest mismatch')
+                    if metadata.get('source_root_identity')!=list(source_identity):
+                        raise ValueError('frozen source root changed or is not bound')
                     snapshot=json.loads(raw)
                 except (ValueError,KeyError,TypeError) as error:
                     raise RestartEpochError('frozen source checkpoint invalid') from error
             else:
                 check_resources(config)
                 patterns=inv.COMMON_EXCLUDES+job.get('exclude',[])
-                live=inv.local_inventory(job['source'],patterns,'0s',bool(job.get('copy_links')))
-                settled=inv.local_inventory(job['source'],patterns,inv.verification_settle_age(job),bool(job.get('copy_links')))
+                live=inv.local_inventory(job['source'],patterns,'0s',bool(job.get('copy_links')),strict_errors=True)
+                settled=inv.local_inventory(job['source'],patterns,inv.verification_settle_age(job),bool(job.get('copy_links')),strict_errors=True)
+                validate_source_root(job,source_identity)
                 snapshot={'local':settled,'pending':{k:v for k,v in live.items() if k not in settled}}
                 # The manifest can be large; account for its encoded bytes too.
                 with resource_lock(config,extra_bytes=len(json.dumps(snapshot).encode())+4096):
                     atomic_json(frozen,snapshot)
-                    atomic_json(directory/'epoch.json',dict(job=name,verification_id=epoch['verification_id'],evidence_started_at=iso(epoch['evidence_started_at']),source_sha256=hashlib.sha256(frozen.read_bytes()).hexdigest()))
+                    atomic_json(directory/'epoch.json',dict(job=name,verification_id=epoch['verification_id'],evidence_started_at=iso(epoch['evidence_started_at']),source_root_identity=list(source_identity),source_sha256=hashlib.sha256(frozen.read_bytes()).hexdigest()))
             phase['phase']='gws_inventory'
             # Completed direct product scans survive S3 retries. Raw still
             # reads current independent canonical GWS stream evidence.
@@ -503,7 +560,9 @@ def run_worker(config,name,*,shadow=False):
             s3=lister.inventory(job,snapshot['local'])
             queue.validate(epoch)
             phase['phase']='stability_check'
+            validate_source_root(job,source_identity)
             local=inv.retain_unchanged_local_snapshot(job['source'],snapshot['local'],bool(job.get('copy_links')))
+            validate_source_root(job,source_identity)
             gws_source=inv.mirror_manifest_inventory(config,job,'source') if name=='raw' else local
             artifacts=directory/'artifacts'
             artifacts.mkdir(exist_ok=True)
@@ -534,6 +593,8 @@ def run_worker(config,name,*,shadow=False):
             queue.defer(epoch)
             return 0
         except Exception as error:
+            if isinstance(error,PermissionError):
+                error=InventoryError('Archive source or recovery storage is not accessible','config')
             # Short attempts can fail before the 30-second heartbeat. Preserve
             # their last committed page progress before changing queue state.
             try:

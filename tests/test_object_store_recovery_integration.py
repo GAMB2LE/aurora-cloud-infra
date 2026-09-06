@@ -88,6 +88,7 @@ class RecoveryIntegrationTests(unittest.TestCase):
                          "verification_settle_age": "15m"})
         self.config = {"jobs": jobs, "streams": [{"name": "cl61"}], "bucket": "test-archive", "remote": "test",
                        "manifest_root": str(self.root / "manifests"),
+                       "gws_hosts": ["gws-a", "gws-b"],
                        "recovery_root": str(self.root / "recovery"),
                        "gws_manifest_root": str(self.root / "gws"),
                        "gate_state_path": str(self.root / "gate.json"),
@@ -194,6 +195,73 @@ class RecoveryIntegrationTests(unittest.TestCase):
             self.assertEqual(len({row["verification_id"] for row in family["observations"]}), 2)
         for name, identifier in first_ids.items():
             self.assertNotEqual(report["jobs"][name]["verification_id"], identifier)
+
+    def test_missing_source_cannot_publish_an_empty_clean_observation(self):
+        source=Path(next(job for job in self.config['jobs'] if job['name']=='products')['source'])
+        source.rename(source.with_name('products-unavailable'))
+        queue=self.queue()
+        queue.enqueue(['products'])
+        queue.close()
+        self.run_family('products')
+        queue=self.queue()
+        self.assertEqual(queue.row('products')['state'],'retry_wait')
+        self.assertEqual(queue.row('products')['error_class'],'transient')
+        self.assertIn('source root is unavailable',queue.row('products')['last_error'])
+        self.assertEqual(queue.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0],0)
+        queue.close()
+        self.assertFalse(self.client.calls)
+        self.assertFalse((self.root/'manifests/latest/comparison.json').exists())
+
+    def test_source_disappearance_during_s3_listing_cannot_publish(self):
+        source=Path(next(job for job in self.config['jobs'] if job['name']=='products')['source'])
+        hidden=source.with_name('products-unavailable')
+        moved=threading.Event()
+        def remove_source(request):
+            if not moved.is_set():
+                moved.set()
+                source.rename(hidden)
+        self.client.before_request=remove_source
+        queue=self.queue()
+        queue.enqueue(['products'])
+        queue.close()
+        self.run_family('products')
+        queue=self.queue()
+        row=queue.row('products')
+        self.assertEqual(row['state'],'retry_wait')
+        self.assertIn('source root is unavailable',row['last_error'])
+        self.assertEqual(queue.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0],0)
+        original_id=row['verification_id']
+        queue.close()
+        self.assertFalse((self.root/'manifests/latest/comparison.json').exists())
+        # A transient unavailable mount/source can recover without discarding
+        # valid completed listing pages or manufacturing an empty certificate.
+        hidden.rename(source)
+        self.client.before_request=None
+        self.make_due('products')
+        self.run_family('products')
+        report,gate=self.snapshot()
+        self.assertEqual(report['jobs']['products']['verification_id'],original_id)
+        self.assertEqual(report['jobs']['products']['source_vs_s3']['left_count'],7)
+        self.assertEqual(gate['families']['products']['clean_streak'],1)
+
+    def test_replaced_source_root_invalidates_a_resumed_snapshot(self):
+        queue=self.queue()
+        queue.enqueue(['products'])
+        queue.close()
+        self.client.failures={('products/cl61/','4')}
+        self.run_family('products')
+        source=Path(next(job for job in self.config['jobs'] if job['name']=='products')['source'])
+        source.rename(source.with_name('products-old'))
+        source.mkdir()
+        self.client.failures=set()
+        self.make_due('products')
+        self.run_family('products')
+        queue=self.queue()
+        self.assertIsNone(queue.row('products')['verification_id'])
+        self.assertIn('frozen source checkpoint invalid',queue.row('products')['last_error'])
+        self.assertEqual(queue.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0],0)
+        queue.close()
+        self.assertFalse((self.root/'manifests/latest/comparison.json').exists())
 
     def test_products_collection_releases_shared_commit_lock_and_reserves_raw_lane(self):
         entered, release = threading.Event(), threading.Event()

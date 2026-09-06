@@ -286,7 +286,12 @@ def main() -> int:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     sys.path.insert(0, "/usr/local/lib/aurora-object-store")
     from aurora_object_store_evidence import refresh_gate
-    refresh_gate(config)
+    try:
+        refresh_gate(config)
+    except BlockingIOError:
+        # Another short publication owns the commit lock. The coordinator
+        # will reevaluate on its next tick; contention is not an audit error.
+        print(json.dumps({"state": "deferred", "reason": "publication_lock_busy"}))
     return 0
 
 

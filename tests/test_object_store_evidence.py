@@ -53,6 +53,7 @@ class EvidencePublicationTests(unittest.TestCase):
 
     def test_family_merge_publishes_consistent_report_gate_and_artifacts(self):
         self.publish("raw", 1)
+        self.assertEqual(Path(self.cfg['gate_state_path']).stat().st_mode & 0o777, 0o644)
         first, state = self.publish("products", 1)
         self.assertTrue(state["clean"])
         self.assertFalse(state["stable_parity"])

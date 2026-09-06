@@ -20,6 +20,7 @@ def digest(handle):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--destination', required=True)
+    parser.add_argument('--dashboard-only', action='store_true')
     args = parser.parse_args()
     root = Path(args.destination).resolve()
     allowed = Path('/var/lib/aurora-cloud/recovery-rollbacks')
@@ -46,6 +47,9 @@ def main():
                                ('/usr/local/bin', 'aurora-object-store-*'),
                                ('/usr/local/sbin', 'aurora-object-store-*')]:
         paths.extend(sorted(Path(directory).glob(pattern)))
+    if args.dashboard_only:
+        paths=[Path('/opt/aurora-cloud-dashboard/mobile_catalog.py'),Path('/opt/aurora-cloud-dashboard/test_mobile_catalog.py')]
+    dashboard_revision=subprocess.run(['git','-C','/opt/aurora-cloud-dashboard','rev-parse','HEAD'],check=True,capture_output=True,text=True).stdout.strip()
     archive = root / 'before.tar.gz'
     records = {}
     with tarfile.open(archive, 'w:gz', compresslevel=1) as tar:
@@ -68,7 +72,7 @@ def main():
         sha = digest(handle)
     states = subprocess.run(['systemctl', 'list-timers', '--all', '--no-pager', 'aurora-object-store*'],
                             check=True, capture_output=True, text=True).stdout
-    state = {'created_at': time.time(), 'archive_sha256': sha, 'verified_files': records,
+    state = {'created_at': time.time(), 'archive_sha256': sha, 'verified_files': records,'dashboard_revision':dashboard_revision,
              'requested_paths': [str(p) for p in paths], 'timer_state': states,
              'latest_was_symlink': (Path(catalog['manifest_root']) / 'latest').is_symlink()}
     (root / 'manifest.json').write_text(json.dumps(state, indent=2) + '\n')

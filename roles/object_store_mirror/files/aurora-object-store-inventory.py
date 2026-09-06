@@ -106,13 +106,18 @@ def local_inventory(
     patterns: list[str],
     settle_age: str,
     copy_links: bool = False,
+    *, strict_errors: bool = False,
 ) -> dict[str, dict]:
     result: dict[str, dict] = {}
     base = Path(root)
     if not base.exists():
         return result
     settled_before = time.time() - duration_seconds(settle_age)
-    for directory, dirnames, filenames in os.walk(base):
+    def walk_error(error):
+        if strict_errors:
+            raise error
+
+    for directory, dirnames, filenames in os.walk(base, onerror=walk_error):
         directory_path = Path(directory)
         try:
             directory_relative = directory_path.relative_to(base).as_posix()
