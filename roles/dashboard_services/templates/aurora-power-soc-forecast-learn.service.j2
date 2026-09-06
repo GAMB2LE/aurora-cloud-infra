@@ -1,6 +1,9 @@
 [Unit]
 Description=Aurora fast SOC and operating-mode forecast re-anchor from cached ECMWF data
 After=aurora-power-append.service aurora-pdu-append.service aurora-power-soc-forecast.service
+{% if aurora_power_forecast_orchestration_enabled | bool %}
+OnFailure=aurora-power-forecast-bundle-failure@%n.service
+{% endif %}
 
 [Service]
 Type=oneshot
@@ -8,6 +11,14 @@ User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
 WorkingDirectory={{ aurora_app_dir }}
 EnvironmentFile=/etc/aurora-dashboard.env
+{% if aurora_power_forecast_orchestration_enabled | bool %}
+# The runner performs generation and atomic publication while holding the
+# shared writer lock. Exit 1 means expected lock contention, so this unit is
+# skipped and no OnSuccess publisher can run against an old mutable forecast.
+ExecCondition=/usr/local/bin/aurora-power-forecast-runner cached-reanchor-condition
+ExecStart=/usr/bin/true
+{% else %}
 ExecStart={{ aurora_venv }}/bin/python generate_power_soc_forecast.py --power-zarr {{ aurora_zarr.power }} --pdu-zarr {{ aurora_zarr.pdu }} --output-zarr {{ aurora_zarr.power_soc_forecast }} --cache-dir {{ aurora_paths.products_power_ecmwf_solar_forecast }} --state {{ aurora_power_forecast_root }}/power_soc_forecast_state.json --archive-zarr {{ aurora_zarr.power_soc_forecast_archive }} --skill-zarr {{ aurora_zarr.power_soc_forecast_skill }} --hindcast-zarr {{ aurora_zarr.power_soc_hindcast }} --horizon-hours 96 --refresh-from-cache --no-archive-forecast --max-power-age-minutes 20
+{% endif %}
 Nice=10
-TimeoutStartSec=300
+TimeoutStartSec={{ '45min' if aurora_power_forecast_orchestration_enabled | bool else '300' }}

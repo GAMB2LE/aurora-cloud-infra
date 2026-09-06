@@ -73,6 +73,177 @@
     fail_msg: The v12 hybrid candidate is permitted only on the development host.
   when: aurora_power_v12_candidate_enabled | bool
 
+- name: Assert issue-driven Power orchestration is development-only
+  ansible.builtin.assert:
+    that:
+      - aurora_site_env == 'development'
+      - aurora_failover_role != 'primary'
+    fail_msg: >-
+      Issue-driven Power publication is permitted only on the isolated
+      development host; production must retain its existing writers.
+  when: aurora_power_forecast_orchestration_enabled | bool
+
+- name: Assert public Power bundle activation is development-only
+  ansible.builtin.assert:
+    that:
+      - aurora_power_forecast_orchestration_enabled | bool
+      - aurora_site_env == 'development'
+      - aurora_failover_role != 'primary'
+    fail_msg: >-
+      The public/API Power bundle switch requires the isolated development
+      orchestrator and can never be enabled on the authoritative site.
+  when: aurora_power_forecast_publication_active | bool
+
+- name: Assert paired Power evaluation is development-only
+  ansible.builtin.assert:
+    that:
+      - aurora_site_env == 'development'
+      - aurora_failover_role != 'primary'
+    fail_msg: Production/development paired Power evaluation may run only on development.
+  when: aurora_power_paired_evaluation_enabled | bool
+
+- name: Ensure development Power bundle and immutable-issue directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "02775"
+  loop:
+    - "{{ aurora_power_forecast_bundle_root }}"
+    - "{{ aurora_power_forecast_bundle_generations_root }}"
+    - "{{ aurora_power_forecast_issue_root }}"
+    - "{{ aurora_power_forecast_issue_staging_path | dirname }}"
+  when: aurora_power_forecast_orchestration_enabled | bool
+
+- name: Ensure paired Power evaluation output directory exists
+  ansible.builtin.file:
+    path: "{{ aurora_power_paired_evaluation_root }}"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "02775"
+  when: aurora_power_paired_evaluation_enabled | bool
+
+- name: Install development Power forecast orchestration helpers
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - src: aurora-power-forecast-publish.py.j2
+      dest: /usr/local/bin/aurora-power-forecast-publish
+    - src: aurora-power-forecast-runner.sh.j2
+      dest: /usr/local/bin/aurora-power-forecast-runner
+  when:
+    - aurora_power_forecast_orchestration_enabled | bool
+
+- name: Resolve the candidate development Power generation for activation
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/readlink
+      - -f
+      - --
+      - "{{ aurora_power_forecast_bundle_current_root }}"
+  register: aurora_power_forecast_activation_generation
+  changed_when: false
+  failed_when: false
+  when: aurora_power_forecast_publication_active | bool
+
+- name: Inspect the resolved candidate development Power bundle manifest
+  ansible.builtin.stat:
+    path: "{{ aurora_power_forecast_activation_generation.stdout }}/generation.json"
+    follow: false
+  register: aurora_power_forecast_bundle_manifest
+  when: aurora_power_forecast_publication_active | bool
+
+- name: Refuse public Power bundle activation before a real generation exists
+  ansible.builtin.assert:
+    that:
+      - aurora_power_forecast_bundle_manifest.stat.exists | default(false)
+      - aurora_power_forecast_bundle_manifest.stat.isreg | default(false)
+      - aurora_power_forecast_activation_generation.rc == 0
+      - >-
+        aurora_power_forecast_activation_generation.stdout is match(
+          '^' ~ aurora_power_forecast_bundle_generations_root ~ '/[^/]+$'
+        )
+    fail_msg: >-
+      No real development Power generation is ready. Deploy once with
+      aurora_power_forecast_publication_active=false, wait for a successful
+      issue-driven bundle, then explicitly enable the public switch.
+  when: aurora_power_forecast_publication_active | bool
+
+- name: Read the candidate development Power bundle manifest
+  ansible.builtin.slurp:
+    src: "{{ aurora_power_forecast_activation_generation.stdout }}/generation.json"
+  register: aurora_power_forecast_bundle_manifest_content
+  when: aurora_power_forecast_publication_active | bool
+
+- name: Inspect the development Power public activation pointer
+  ansible.builtin.stat:
+    path: "{{ aurora_power_forecast_bundle_active_root }}"
+    follow: false
+  register: aurora_power_forecast_bundle_active
+  when: aurora_power_forecast_orchestration_enabled | bool
+
+- name: Refuse to remove a non-symlink Power activation path
+  ansible.builtin.assert:
+    that:
+      - >-
+        not (aurora_power_forecast_bundle_active.stat.exists | default(false))
+        or (aurora_power_forecast_bundle_active.stat.islnk | default(false))
+    fail_msg: >-
+      The development Power activation path exists but is not a symlink;
+      refusing an unsafe removal or replacement.
+  when: aurora_power_forecast_orchestration_enabled | bool
+
+- name: Keep public Power bundle activation disabled during machinery-only release
+  ansible.builtin.file:
+    path: "{{ aurora_power_forecast_bundle_active_root }}"
+    state: absent
+  when:
+    - aurora_power_forecast_orchestration_enabled | bool
+    - not aurora_power_forecast_publication_active | bool
+    - aurora_power_forecast_bundle_active.stat.islnk | default(false)
+
+- name: Validate the public Power bundle activation marker
+  vars:
+    aurora_power_forecast_activation_manifest: >-
+      {{ aurora_power_forecast_bundle_manifest_content.content | b64decode | from_json }}
+  ansible.builtin.assert:
+    that:
+      - aurora_power_forecast_activation_manifest.status == 'complete'
+      - aurora_power_forecast_activation_manifest.controlAuthority == 'advisory_only'
+      - aurora_power_forecast_activation_manifest.cl61ActuationEnabled == false
+      - aurora_power_forecast_activation_manifest.products is mapping
+      - aurora_power_forecast_activation_manifest.products.forecastDisplay is mapping
+    fail_msg: >-
+      The requested development Power bundle is not a complete advisory-only
+      generation; consumer paths and API validation will not be activated.
+  when: aurora_power_forecast_publication_active | bool
+
+- name: Verify every artifact and identity in the candidate activation bundle
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/aurora-power-forecast-publish
+      - --verify-bundle
+      - "{{ aurora_power_forecast_activation_generation.stdout }}"
+  become_user: "{{ aurora_service_user }}"
+  changed_when: false
+  when: aurora_power_forecast_publication_active | bool
+
+- name: Activate the first validated development Power generation
+  ansible.builtin.file:
+    src: "{{ aurora_power_forecast_activation_generation.stdout }}"
+    dest: "{{ aurora_power_forecast_bundle_active_root }}"
+    state: link
+    force: true
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+  when: aurora_power_forecast_publication_active | bool
+
 - name: Ensure isolated v12 hybrid candidate root exists
   ansible.builtin.file:
     path: "{{ aurora_power_v12_candidate_root }}"
@@ -89,6 +260,15 @@
     owner: "{{ aurora_service_user }}"
     group: "{{ aurora_service_group }}"
     mode: "02775"
+  when: aurora_power_v12_candidate_enabled | bool
+
+- name: Install immutable-bundle v12 candidate launcher
+  ansible.builtin.template:
+    src: aurora-power-v12-candidate-launch.py.j2
+    dest: /usr/local/bin/aurora-power-v12-candidate-launch
+    owner: root
+    group: root
+    mode: "0755"
   when: aurora_power_v12_candidate_enabled | bool
 
 - name: Install dashboard environment file
@@ -272,6 +452,59 @@
   notify:
     - Reload systemd
 
+- name: Install issue-driven development Power publication units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - aurora-power-forecast-publish.service
+    - aurora-power-forecast-bundle-failure@.service
+  when: aurora_power_forecast_orchestration_enabled | bool
+  notify:
+    - Reload systemd
+
+- name: Remove superseded unlocked cached-reanchor publisher unit
+  ansible.builtin.file:
+    path: /etc/systemd/system/aurora-power-forecast-reanchor-publish.service
+    state: absent
+  when: aurora_power_forecast_orchestration_enabled | bool
+  notify:
+    - Reload systemd
+
+- name: Install development paired Power evaluation unit
+  ansible.builtin.template:
+    src: aurora-power-prod-dev-evaluation.service.j2
+    dest: /etc/systemd/system/aurora-power-prod-dev-evaluation.service
+    owner: root
+    group: root
+    mode: "0644"
+  when: aurora_power_paired_evaluation_enabled | bool
+  notify:
+    - Reload systemd
+
+- name: Stop a disabled development paired Power evaluator
+  ansible.builtin.systemd:
+    name: aurora-power-prod-dev-evaluation.service
+    state: stopped
+  failed_when: false
+  when:
+    - aurora_site_env == 'development'
+    - not aurora_power_paired_evaluation_enabled | bool
+    - not ansible_check_mode
+
+- name: Remove a disabled development paired Power evaluator unit
+  ansible.builtin.file:
+    path: /etc/systemd/system/aurora-power-prod-dev-evaluation.service
+    state: absent
+  when:
+    - aurora_site_env == 'development'
+    - not aurora_power_paired_evaluation_enabled | bool
+  notify:
+    - Reload systemd
+
 - name: Manage isolated v12 hybrid candidate timer
   ansible.builtin.systemd:
     name: aurora-power-v12-candidate.timer
@@ -363,8 +596,8 @@
 - name: Manage development Power display refresh timer
   ansible.builtin.systemd:
     name: aurora-dev-power-display-refresh.timer
-    enabled: true
-    state: started
+    enabled: "{{ not aurora_power_forecast_orchestration_enabled | bool }}"
+    state: "{{ 'stopped' if aurora_power_forecast_orchestration_enabled | bool else 'started' }}"
     daemon_reload: true
   when:
     - aurora_site_env == 'development'
@@ -373,24 +606,42 @@
 - name: Manage long-range planning forecast timer
   ansible.builtin.systemd:
     name: aurora-power-soc-planning-forecast.timer
-    enabled: "{{ aurora_power_operating_enabled | bool }}"
-    state: "{{ 'started' if aurora_power_operating_enabled | bool else 'stopped' }}"
+    enabled: >-
+      {{ aurora_power_operating_enabled | bool
+         and not aurora_power_forecast_orchestration_enabled | bool }}
+    state: >-
+      {{ 'started'
+         if aurora_power_operating_enabled | bool
+            and not aurora_power_forecast_orchestration_enabled | bool
+         else 'stopped' }}
     daemon_reload: true
   when: not ansible_check_mode
 
 - name: Manage operating-state scenario timer
   ansible.builtin.systemd:
     name: aurora-power-operating-scenarios.timer
-    enabled: "{{ aurora_power_operating_enabled | bool }}"
-    state: "{{ 'started' if aurora_power_operating_enabled | bool else 'stopped' }}"
+    enabled: >-
+      {{ aurora_power_operating_enabled | bool
+         and not aurora_power_forecast_orchestration_enabled | bool }}
+    state: >-
+      {{ 'started'
+         if aurora_power_operating_enabled | bool
+            and not aurora_power_forecast_orchestration_enabled | bool
+         else 'stopped' }}
     daemon_reload: true
   when: not ansible_check_mode
 
 - name: Manage data processing timers
   ansible.builtin.systemd:
     name: "{{ item.unit }}"
-    enabled: "{{ aurora_processing_timers[item.key] | default(aurora_enable_processing_timers) | bool }}"
-    state: "{{ 'started' if aurora_processing_timers[item.key] | default(aurora_enable_processing_timers) | bool else 'stopped' }}"
+    enabled: >-
+      {{ aurora_processing_timers[item.key] | default(aurora_enable_processing_timers) | bool
+         and not (aurora_power_forecast_orchestration_enabled | bool and item.key == 'power_soc_ensemble') }}
+    state: >-
+      {{ 'started'
+         if aurora_processing_timers[item.key] | default(aurora_enable_processing_timers) | bool
+            and not (aurora_power_forecast_orchestration_enabled | bool and item.key == 'power_soc_ensemble')
+         else 'stopped' }}
     daemon_reload: true
   loop:
     - { unit: aurora-ceilometer-append.timer, key: ceilometer_append }

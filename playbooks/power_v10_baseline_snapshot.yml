@@ -1,0 +1,42 @@
+---
+- name: Freeze one checksum-bound development v10 Power evidence set
+  hosts: aurora-cloud-droplet
+  become: true
+  gather_facts: false
+  vars:
+    # This playbook installs/uses the product snapshot helper without creating
+    # a second routine code/config release snapshot as a side effect.
+    aurora_release_snapshot_capture_on_run: false
+  tasks:
+    - name: Validate explicit unpublished development snapshot target
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname == 'aurora-cloud-droplet'
+          - aurora_site_env == 'development'
+          - aurora_failover_role != 'primary'
+          - aurora_power_forecast_publication_active | bool == false
+          - aurora_power_baseline_snapshot_enabled | bool
+          - aurora_power_baseline_snapshot_name is defined
+          - aurora_power_baseline_snapshot_name is match('^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$')
+        fail_msg: >-
+          Supply one explicit snapshot name on the unpublished development
+          droplet. This playbook refuses production, primary, active
+          publication, and implicit targets.
+
+    - name: Install development snapshot machinery without taking a release snapshot
+      ansible.builtin.include_role:
+        name: release_snapshot
+
+    - name: Freeze the explicit v10 derived-product allowlist
+      ansible.builtin.command:
+        argv:
+          - /usr/local/sbin/aurora-power-baseline-snapshot
+          - "{{ aurora_power_baseline_snapshot_name }}"
+      register: aurora_power_baseline_snapshot
+      changed_when: true
+      when: not ansible_check_mode
+
+    - name: Report immutable v10 evidence snapshot
+      ansible.builtin.debug:
+        var: aurora_power_baseline_snapshot.stdout
+      when: not ansible_check_mode

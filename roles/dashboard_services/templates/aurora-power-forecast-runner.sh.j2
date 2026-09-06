@@ -1,0 +1,251 @@
+#!/usr/bin/env bash
+set -u -o pipefail
+
+# Serialize the full-cycle writer and the fast cached re-anchor across their
+# mutable forecast/state/archive surfaces.  The re-anchor is executed as an
+# ExecCondition: lock contention returns 1 (deferred/skipped), so systemd does
+# not run the publication step or treat the expected contention as a failure.
+
+if [[ $# -ne 1 ]]; then
+  echo "usage: $0 <full-cycle|immutable-ensemble|cached-reanchor-condition>" >&2
+  exit 64
+fi
+
+action=$1
+lock_path={{ aurora_power_forecast_generator_lock_path | quote }}
+publisher=/usr/local/bin/aurora-power-forecast-publish
+python={{ (aurora_venv ~ '/bin/python') | quote }}
+app_dir={{ aurora_app_dir | quote }}
+
+record_failure() {
+  "${python}" "${publisher}" --record-failure "$1" || true
+}
+
+begin_attempt() {
+  "${python}" "${publisher}" --begin-attempt "$1"
+}
+
+run_full_cycle() {
+  exec 9>"${lock_path}" || {
+    begin_attempt ecmwf_cycle || true
+    record_failure deterministic_generator_lock_open
+    return 255
+  }
+  /usr/bin/flock --exclusive --wait 1500 9 || {
+    begin_attempt ecmwf_cycle || true
+    record_failure deterministic_generator_lock_timeout
+    return 255
+  }
+  begin_attempt ecmwf_cycle || return 255
+
+  "${python}" "${publisher}" \
+    --quarantine-incoming {{ aurora_power_forecast_issue_staging_path | quote }} || return 255
+
+  cd "${app_dir}" || return 255
+  "${python}" generate_power_soc_forecast.py \
+    --power-zarr {{ aurora_zarr.power | quote }} \
+    --output-zarr {{ aurora_zarr.power_soc_forecast | quote }} \
+    --cache-dir {{ aurora_paths.products_power_ecmwf_solar_forecast | quote }} \
+    --state {{ (aurora_power_forecast_root ~ '/power_soc_forecast_state.json') | quote }} \
+    --archive-zarr {{ aurora_zarr.power_soc_forecast_archive | quote }} \
+    --skill-zarr {{ aurora_zarr.power_soc_forecast_skill | quote }} \
+    --hindcast-zarr {{ aurora_zarr.power_soc_hindcast | quote }} \
+    --horizon-hours 96 \
+    --issue-snapshot-zarr {{ aurora_power_forecast_issue_staging_path | quote }}
+  generator_status=$?
+  if [[ ${generator_status} -ne 0 ]]; then
+    record_failure "deterministic_generator_exit_${generator_status}"
+    return 255
+  fi
+
+  "${python}" "${publisher}" \
+    --capture-issue {{ aurora_power_forecast_issue_staging_path | quote }} || return 255
+
+  issue_anchor=$("${python}" "${publisher}" \
+    --print-issue-anchor {{ aurora_power_forecast_issue_current_path | quote }}) || return 255
+  if [[ -z "${issue_anchor}" ]]; then
+    record_failure immutable_issue_anchor_missing
+    return 255
+  fi
+
+  # Keep the same lock and immutable issue through every full-cycle stage.
+  # The 3-hour timer therefore cannot replace the issue while ENS, planning,
+  # or publication still belongs to this attempt.
+  /usr/bin/timeout --signal=TERM --kill-after=30s 2h \
+    "${python}" generate_power_soc_ensemble.py \
+    --power-zarr {{ aurora_zarr.power | quote }} \
+    --deterministic-zarr {{ aurora_power_forecast_issue_current_path | quote }} \
+    --output-zarr {{ aurora_zarr.power_soc_ensemble | quote }} \
+    --archive-zarr {{ aurora_zarr.power_soc_ensemble_archive | quote }} \
+    --skill-zarr {{ aurora_zarr.power_soc_ensemble_skill | quote }} \
+    --cache-dir {{ aurora_paths.products_power_ecmwf_solar_ensemble | quote }} \
+    --horizon-hours 96 \
+    --power-cutoff-time "${issue_anchor}"
+  ensemble_status=$?
+  if [[ ${ensemble_status} -ne 0 ]]; then
+    record_failure "ensemble_generator_exit_${ensemble_status}"
+    return 255
+  fi
+
+  /usr/bin/timeout --signal=TERM --kill-after=30s 15m \
+    "${python}" generate_power_soc_forecast.py \
+    --power-zarr {{ aurora_zarr.power | quote }} \
+    --pdu-zarr {{ aurora_zarr.pdu | quote }} \
+    --output-zarr {{ aurora_power_planning_forecast_path | quote }} \
+    --cache-dir {{ aurora_power_planning_forecast_cache | quote }} \
+    --state {{ aurora_power_planning_forecast_state | quote }} \
+    --archive-zarr {{ aurora_power_planning_forecast_archive | quote }} \
+    --skill-zarr {{ aurora_power_planning_forecast_skill | quote }} \
+    --hindcast-zarr {{ aurora_power_planning_hindcast | quote }} \
+    --horizon-hours 240 \
+    --ecmwf-cycle-hour auto \
+    --provider {{ aurora_ecmwf_provider | quote }} \
+    --max-power-age-minutes 20
+  planning_status=$?
+  if [[ ${planning_status} -ne 0 ]]; then
+    record_failure "planning_generator_exit_${planning_status}"
+    return 255
+  fi
+
+  /usr/bin/timeout --signal=TERM --kill-after=30s 20m \
+    "${python}" "${publisher}" --publish
+  publisher_status=$?
+  if [[ ${publisher_status} -ne 0 ]]; then
+    # The publisher records its detailed exception first. This marker is an
+    # overlay for abnormal timeout/termination paths and preserves that detail.
+    record_failure "bundle_publisher_exit_${publisher_status}"
+    return 255
+  fi
+}
+
+run_immutable_ensemble() {
+  # This path exists only to make a direct/manual start of the otherwise
+  # disabled standalone ensemble unit safe. The normal orchestrated paths are
+  # full-cycle and cached-reanchor-condition, which generate ENS before their
+  # complete staged publication.
+  exec 9>"${lock_path}" || {
+    record_failure manual_ensemble_lock_open
+    return 255
+  }
+  /usr/bin/flock --exclusive --wait 1500 9 || {
+    record_failure manual_ensemble_lock_timeout
+    return 255
+  }
+
+  # print-issue-anchor verifies the checksum-bound immutable issue, its
+  # manifest/pointer binding, and its non-writable tree before returning the
+  # exact deterministic initial_soc_time. Holding the producer lock prevents
+  # the current issue pointer changing between verification and generation.
+  issue_anchor=$("${python}" "${publisher}" \
+    --print-issue-anchor {{ aurora_power_forecast_issue_current_path | quote }}) || return 255
+  if [[ -z "${issue_anchor}" ]]; then
+    record_failure manual_ensemble_anchor_missing
+    return 255
+  fi
+
+  cd "${app_dir}" || return 255
+  /usr/bin/timeout --signal=TERM --kill-after=30s 2h \
+    "${python}" generate_power_soc_ensemble.py \
+    --power-zarr {{ aurora_zarr.power | quote }} \
+    --deterministic-zarr {{ aurora_power_forecast_issue_current_path | quote }} \
+    --output-zarr {{ aurora_zarr.power_soc_ensemble | quote }} \
+    --archive-zarr {{ aurora_zarr.power_soc_ensemble_archive | quote }} \
+    --skill-zarr {{ aurora_zarr.power_soc_ensemble_skill | quote }} \
+    --cache-dir {{ aurora_paths.products_power_ecmwf_solar_ensemble | quote }} \
+    --horizon-hours 96 \
+    --power-cutoff-time "${issue_anchor}"
+  ensemble_status=$?
+  if [[ ${ensemble_status} -ne 0 ]]; then
+    record_failure "manual_ensemble_generator_exit_${ensemble_status}"
+    return 255
+  fi
+}
+
+run_cached_reanchor_condition() {
+  exec 9>"${lock_path}" || {
+    begin_attempt cached_reanchor || true
+    record_failure cached_reanchor_lock_open
+    return 255
+  }
+  /usr/bin/flock --exclusive --nonblock --conflict-exit-code 75 9
+  lock_status=$?
+  if [[ ${lock_status} -eq 75 ]]; then
+    echo "cached Power re-anchor deferred: deterministic generator lock is busy" >&2
+    return 1
+  fi
+  if [[ ${lock_status} -ne 0 ]]; then
+    begin_attempt cached_reanchor || true
+    record_failure "cached_reanchor_lock_error_${lock_status}"
+    return 255
+  fi
+  begin_attempt cached_reanchor || return 255
+
+  cd "${app_dir}" || return 255
+  "${python}" generate_power_soc_forecast.py \
+    --power-zarr {{ aurora_zarr.power | quote }} \
+    --pdu-zarr {{ aurora_zarr.pdu | quote }} \
+    --output-zarr {{ aurora_zarr.power_soc_forecast | quote }} \
+    --cache-dir {{ aurora_paths.products_power_ecmwf_solar_forecast | quote }} \
+    --state {{ (aurora_power_forecast_root ~ '/power_soc_forecast_state.json') | quote }} \
+    --archive-zarr {{ aurora_zarr.power_soc_forecast_archive | quote }} \
+    --skill-zarr {{ aurora_zarr.power_soc_forecast_skill | quote }} \
+    --hindcast-zarr {{ aurora_zarr.power_soc_hindcast | quote }} \
+    --horizon-hours 96 \
+    --refresh-from-cache \
+    --max-power-age-minutes 20
+  generator_status=$?
+  if [[ ${generator_status} -ne 0 ]]; then
+    record_failure "cached_reanchor_generator_exit_${generator_status}"
+    return 255
+  fi
+
+  cached_anchor=$("${python}" "${publisher}" \
+    --print-forecast-anchor {{ aurora_zarr.power_soc_forecast | quote }}) || return 255
+  if [[ -z ${cached_anchor} ]]; then
+    record_failure cached_reanchor_anchor_missing
+    return 255
+  fi
+
+  # Re-anchor ENS to the same newly observed SOC before copying either mutable
+  # product. The generator reuses the site/cycle cache and marks this archive
+  # row non-independent and verification-ineligible.
+  /usr/bin/timeout --signal=TERM --kill-after=30s 15m \
+    "${python}" generate_power_soc_ensemble.py \
+    --power-zarr {{ aurora_zarr.power | quote }} \
+    --deterministic-zarr {{ aurora_zarr.power_soc_forecast | quote }} \
+    --output-zarr {{ aurora_zarr.power_soc_ensemble | quote }} \
+    --archive-zarr {{ aurora_zarr.power_soc_ensemble_archive | quote }} \
+    --skill-zarr {{ aurora_zarr.power_soc_ensemble_skill | quote }} \
+    --cache-dir {{ aurora_paths.products_power_ecmwf_solar_ensemble | quote }} \
+    --horizon-hours 96 \
+    --power-cutoff-time "${cached_anchor}"
+  ensemble_status=$?
+  if [[ ${ensemble_status} -ne 0 ]]; then
+    record_failure "cached_reanchor_ensemble_exit_${ensemble_status}"
+    return 255
+  fi
+
+  # Keep the lock until the mutable output has been copied into and published
+  # from a complete staging generation. A new full cycle cannot replace the
+  # source between generation and capture.
+  "${python}" "${publisher}" \
+    --publish \
+    --forecast-source {{ aurora_zarr.power_soc_forecast | quote }} \
+    --allow-cached-reanchor || return 255
+}
+
+case "${action}" in
+  full-cycle)
+    run_full_cycle
+    ;;
+  immutable-ensemble)
+    run_immutable_ensemble
+    ;;
+  cached-reanchor-condition)
+    run_cached_reanchor_condition
+    ;;
+  *)
+    echo "unknown Power forecast runner action: ${action}" >&2
+    exit 64
+    ;;
+esac

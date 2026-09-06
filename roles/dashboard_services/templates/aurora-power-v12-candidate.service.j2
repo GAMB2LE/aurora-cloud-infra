@@ -1,10 +1,16 @@
 [Unit]
 Description=Aurora isolated v12 hybrid power-forecast candidate
-After=network-online.target aurora-power-soc-forecast.service
+After=network-online.target aurora-power-soc-forecast.service aurora-power-forecast-publish.service
 Wants=network-online.target
-ConditionPathExists={{ aurora_zarr.power_soc_forecast }}
+ConditionPathExists={{ aurora_power_forecast_bundle_independent_root }}/generation.json
 ConditionPathExists={{ aurora_zarr.power_soc_forecast_archive }}
 ConditionPathExists={{ aurora_zarr.power }}
+{% if aurora_power_paired_evaluation_enabled | bool %}
+# Paired archive scoring is evidence-only. Run it whether the candidate
+# succeeds or fails, without making forecast publication depend on it.
+OnSuccess=aurora-power-prod-dev-evaluation.service
+OnFailure=aurora-power-prod-dev-evaluation.service
+{% endif %}
 
 [Service]
 Type=oneshot
@@ -12,7 +18,7 @@ User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
 WorkingDirectory={{ aurora_app_dir }}
 EnvironmentFile=/etc/aurora-dashboard.env
-ExecStart=/usr/bin/flock --nonblock {{ aurora_power_v12_candidate_root }}/.runner.lock /usr/bin/timeout --signal=TERM --kill-after=30s 22m {{ aurora_venv }}/bin/python generate_power_soc_v12_candidate.py --baseline-forecast-zarr {{ aurora_zarr.power_soc_forecast }} --baseline-archive-zarr {{ aurora_zarr.power_soc_forecast_archive }} --baseline-ensemble-zarr {{ aurora_zarr.power_soc_ensemble }} --candidate-root {{ aurora_power_v12_candidate_root }} --power-zarr {{ aurora_zarr.power }} --pdu-zarr {{ aurora_zarr.pdu }} --asfs-zarr {{ aurora_zarr.asfs_logger }} --menapia-mqtt-log {{ uas_source_destination }} --public-source-manifest-root {{ aurora_power_v12_public_source_manifest_root }} --physical-config {{ aurora_app_dir }}/config/power_solar_physical_candidate_v1.json
+ExecStart=/usr/bin/flock --nonblock {{ aurora_power_v12_candidate_root }}/.runner.lock /usr/bin/timeout --signal=TERM --kill-after=30s 22m {{ aurora_venv }}/bin/python /usr/local/bin/aurora-power-v12-candidate-launch
 Nice=19
 CPUQuota=25%
 CPUWeight=5

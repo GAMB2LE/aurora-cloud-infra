@@ -98,6 +98,15 @@ aurora_app_repo: https://github.com/GAMB2LE/aurora_cloud_dashboard.git
 aurora_app_version: prod-20260726.1
 aurora_release_snapshot_enabled: true
 aurora_release_snapshot_root: /var/lib/aurora-release-snapshots
+# Release playbooks capture code/configuration automatically.  The explicit
+# Power baseline playbook includes the same role only to install its separate
+# one-shot helper, so it disables the automatic release capture for that run.
+aurora_release_snapshot_capture_on_run: true
+# Frozen forecast evidence is deliberately separate from routine release
+# snapshots: it can be large, it is development-only, and it must be requested
+# with an explicit immutable snapshot name.
+aurora_power_baseline_snapshot_enabled: false
+aurora_power_baseline_snapshot_root: /var/lib/aurora-power-baseline-snapshots
 aurora_infra_repo_dir: /tmp/aurora-cloud-infra-codex
 aurora_python: /usr/bin/python3
 aurora_venv: "{{ aurora_app_dir }}/venv"
@@ -162,6 +171,40 @@ aurora_power_operating_root: >-
 # The deterministic/ensemble forecast consumes mirrored power and PDU inputs on
 # development, but every derived artifact must remain in the isolated dev tree.
 aurora_power_forecast_root: "{{ aurora_power_operating_root }}"
+# Development may opt into a single issue-driven publication chain. It is
+# disabled by default so production and newly-added hosts retain their current
+# independent timers until the candidate has accumulated promotion evidence.
+aurora_power_forecast_orchestration_enabled: false
+# Publishing machinery and public/API activation are deliberately separate.
+# A first development deployment installs and runs the issue-driven chain while
+# continuing to serve the established dev products.  Set this second switch
+# only after `current/generation.json` is a real, complete bundle; Ansible then
+# validates the marker before changing any consumer path.
+aurora_power_forecast_publication_active: false
+aurora_power_forecast_bundle_root: "{{ aurora_power_forecast_root }}/forecast-bundle"
+aurora_power_forecast_bundle_generations_root: "{{ aurora_power_forecast_bundle_root }}/generations"
+aurora_power_forecast_bundle_current_root: "{{ aurora_power_forecast_bundle_root }}/current"
+aurora_power_forecast_bundle_active_root: "{{ aurora_power_forecast_bundle_root }}/active"
+aurora_power_forecast_bundle_independent_root: "{{ aurora_power_forecast_bundle_root }}/latest-independent"
+aurora_power_forecast_bundle_status_path: "{{ aurora_power_forecast_root }}/forecast_bundle_status.json"
+aurora_power_forecast_bundle_history_path: "{{ aurora_power_forecast_root }}/forecast_bundle_history.jsonl"
+aurora_power_forecast_issue_root: "{{ aurora_power_forecast_root }}/forecast-issues"
+aurora_power_forecast_issue_staging_path: "{{ aurora_power_forecast_issue_root }}/.incoming/forecast.zarr"
+aurora_power_forecast_issue_current_path: "{{ aurora_power_forecast_issue_root }}/current"
+aurora_power_forecast_generator_lock_path: "{{ aurora_power_forecast_root }}/.deterministic-generator.lock"
+# Planning and ENS cycles may have different native horizons and issue cycles.
+# Record a compatible difference as degraded provenance, but fail closed when
+# either source exceeds these explicit limits.
+aurora_power_forecast_source_max_age_hours: 30
+aurora_power_forecast_source_max_cycle_delta_hours: 18
+# Exact-intersection production/development evaluation is development-only and
+# never participates in the operational forecast success chain.
+aurora_power_paired_evaluation_enabled: false
+aurora_power_paired_evaluation_root: "{{ aurora_dev_product_root }}/power/evaluation/prod-vs-dev"
+aurora_power_paired_evaluation_output: "{{ aurora_power_paired_evaluation_root }}/paired_evidence.zarr"
+aurora_power_paired_evaluation_status: "{{ aurora_power_paired_evaluation_root }}/status.json"
+aurora_power_paired_evaluation_history: "{{ aurora_power_paired_evaluation_root }}/history.jsonl"
+aurora_power_paired_evaluation_bootstrap_samples: 500
 # v12 remains an isolated development candidate.  The default is deliberately
 # false so no production or newly-added host acquires a candidate writer/API.
 aurora_power_v12_candidate_enabled: false
@@ -177,23 +220,53 @@ aurora_power_planning_forecast_state: "{{ aurora_power_operating_root }}/power_s
 aurora_power_planning_forecast_archive: "{{ aurora_power_operating_root }}/power_soc_planning_archive.zarr"
 aurora_power_planning_forecast_skill: "{{ aurora_power_operating_root }}/power_soc_planning_skill.zarr"
 aurora_power_planning_hindcast: "{{ aurora_power_operating_root }}/power_soc_planning_hindcast.zarr"
-aurora_power_operating_state_path: "{{ aurora_power_operating_root }}/power_operating_state.zarr"
-aurora_power_operating_scenarios_path: "{{ aurora_power_operating_root }}/power_operating_scenarios.zarr"
-aurora_power_operating_model_state_path: "{{ aurora_power_operating_root }}/power_operating_model_state.json"
+aurora_power_operating_state_path: >-
+  {{ (aurora_power_forecast_bundle_active_root ~ '/power_operating_state.zarr')
+     if aurora_power_forecast_publication_active | bool
+     else (aurora_power_operating_root ~ '/power_operating_state.zarr') }}
+aurora_power_operating_scenarios_path: >-
+  {{ (aurora_power_forecast_bundle_active_root ~ '/power_operating_scenarios.zarr')
+     if aurora_power_forecast_publication_active | bool
+     else (aurora_power_operating_root ~ '/power_operating_scenarios.zarr') }}
+aurora_power_operating_model_state_path: >-
+  {{ (aurora_power_forecast_bundle_active_root ~ '/power_operating_model_state.json')
+     if aurora_power_forecast_publication_active | bool
+     else (aurora_power_operating_root ~ '/power_operating_model_state.json') }}
 aurora_power_operating_recommendations_path: "{{ aurora_power_operating_root }}/power_operating_recommendations.json"
 # The cloud can publish a diagnostic intent only.  This is intentionally not a
 # PDU-control setting: the status is read-only and the edge controller rejects
 # diagnostic authority.  Keep it development-only while evidence accumulates.
 aurora_cl61_automation_shadow_enabled: "{{ aurora_is_development }}"
 aurora_cl61_automation_environment: "{{ aurora_site_env }}"
-aurora_cl61_automation_intent_path: "{{ aurora_power_operating_root }}/cl61_automation_intent.json"
-aurora_cl61_automation_status_path: "{{ aurora_power_operating_root }}/cl61_automation_status.json"
+aurora_cl61_automation_intent_path: >-
+  {{ (aurora_power_forecast_bundle_active_root ~ '/cl61_automation_intent.json')
+     if aurora_power_forecast_publication_active | bool
+     else (aurora_power_operating_root ~ '/cl61_automation_intent.json') }}
+aurora_cl61_automation_status_path: >-
+  {{ (aurora_power_forecast_bundle_active_root ~ '/cl61_automation_status.json')
+     if aurora_power_forecast_publication_active | bool
+     else (aurora_power_operating_root ~ '/cl61_automation_status.json') }}
 aurora_cl61_automation_history_path: "{{ aurora_power_operating_root }}/cl61_automation_history.jsonl"
-aurora_power_display_summary_path: "{{ aurora_product_root }}/power/power_display_summary.zarr"
-aurora_power_display_energy_path: "{{ aurora_product_root }}/power/power_display_energy.zarr"
-aurora_power_current_display_path: "{{ aurora_product_root }}/power/power_current_display.zarr"
-aurora_power_forecast_display_path: "{{ aurora_product_root }}/power/power_forecast_display.zarr"
-aurora_power_display_manifest_path: "{{ aurora_product_root }}/power/power_display_manifest.json"
+aurora_power_display_summary_path: >-
+  {{ (aurora_power_forecast_bundle_active_root ~ '/power_display_summary.zarr')
+     if aurora_power_forecast_publication_active | bool
+     else (aurora_power_operating_root ~ '/power_display_summary.zarr') }}
+aurora_power_display_energy_path: >-
+  {{ (aurora_power_forecast_bundle_active_root ~ '/power_display_energy.zarr')
+     if aurora_power_forecast_publication_active | bool
+     else (aurora_power_operating_root ~ '/power_display_energy.zarr') }}
+aurora_power_current_display_path: >-
+  {{ (aurora_power_forecast_bundle_active_root ~ '/power_current_display.zarr')
+     if aurora_power_forecast_publication_active | bool
+     else (aurora_power_operating_root ~ '/power_current_display.zarr') }}
+aurora_power_forecast_display_path: >-
+  {{ (aurora_power_forecast_bundle_active_root ~ '/power_forecast_display.zarr')
+     if aurora_power_forecast_publication_active | bool
+     else (aurora_power_operating_root ~ '/power_forecast_display.zarr') }}
+aurora_power_display_manifest_path: >-
+  {{ (aurora_power_forecast_bundle_active_root ~ '/power_display_manifest.json')
+     if aurora_power_forecast_publication_active | bool
+     else (aurora_power_operating_root ~ '/power_display_manifest.json') }}
 aurora_log_root: /var/log/aurora-cloud
 aurora_state_root: /var/lib/aurora-cloud
 

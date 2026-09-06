@@ -8,7 +8,7 @@ aurora_public_ip: 167.172.54.82
 aurora_app_repo: https://github.com/GAMB2LE/aurora_cloud_dashboard.git
 # Exact clean dashboard commit currently validated on development. Production
 # remains independently pinned to its immutable release tag.
-aurora_app_version: 178b20385b8fc1cd0f26eeb01ac3d3874589cc3f
+aurora_app_version: f7151a15c0fd7931628823badda3e71c57db04fa
 # Development-only performance experiment. Panel supports reconnecting after a
 # brief disconnect, while this prevents unused phone sessions retaining a full
 # dashboard document. Production currently uses a two-minute lifetime.
@@ -37,18 +37,25 @@ aurora_dashboard_allowed_origins:
 # These compact display products are generated on development. Keep them
 # outside the mirrored production product tree so the five-minute mirror cannot
 # remove a valid development build that production has not published yet.
-aurora_power_display_summary_path: "{{ aurora_dev_product_root }}/power/power_display_summary.zarr"
-aurora_power_display_energy_path: "{{ aurora_dev_product_root }}/power/power_display_energy.zarr"
-aurora_power_current_display_path: "{{ aurora_dev_product_root }}/power/power_current_display.zarr"
-aurora_power_forecast_display_path: "{{ aurora_dev_product_root }}/power/power_forecast_display.zarr"
-aurora_power_display_manifest_path: "{{ aurora_dev_product_root }}/power/power_display_manifest.json"
+aurora_power_forecast_orchestration_enabled: true
+# Two-phase safety gate: leave consumers on the established dev products for
+# the machinery-only deployment.  After a real complete generation exists,
+# change this to true and re-run the focused release; Ansible refuses an early
+# activation and the API then validates every artifact before exposure.
+aurora_power_forecast_publication_active: false
+aurora_power_paired_evaluation_enabled: true
+# Install the explicit one-shot pre-deployment v10 evidence snapshot helper on
+# development. It never runs as part of a normal dashboard release.
+aurora_power_baseline_snapshot_enabled: true
 
 # The v12 hybrid forecast is an unpublished, isolated evaluation lane.  Install
 # its constrained unit on development only.  The manual canary completed with
 # isolated paths and resource checks, so retain the bounded timer as the
 # development evidence collector; it remains an unpublished candidate.
 aurora_power_v12_candidate_enabled: true
-aurora_power_v12_candidate_timer_enabled: true
+# Candidate generation is chained from a successfully published immutable
+# issue. Never let a wall-clock timer pick up a mutable cached re-anchor.
+aurora_power_v12_candidate_timer_enabled: false
 aurora_power_v12_candidate_root: "{{ aurora_dev_product_root }}/power/candidates/v12"
 
 # Development-only CL61 schedule evidence. This publishes an explicitly

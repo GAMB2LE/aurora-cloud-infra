@@ -22,7 +22,7 @@ install -d -m 0700 "${snapshot_dir}"
   printf 'captured_at_utc=%s\n' "$(date -u +%FT%TZ)"
   printf 'target_release=%s\n' "${target_release}"
   printf 'app_dir=%s\n' "${app_dir}"
-if [[ -d "${app_dir}/.git" ]]; then
+if runuser -u "${service_user}" -- git -C "${app_dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     # Run every Git operation as the checkout owner.  `git diff` may refresh
     # the index, so invoking it as root would leave a root-owned index and
     # block the next deliberately non-root deployment clean check.
@@ -36,8 +36,45 @@ if [[ -d "${app_dir}/.git" ]]; then
   systemctl is-enabled aurora-mobile-api.service || true
 } > "${snapshot_dir}/manifest.txt"
 
-if [[ -d "${app_dir}/.git" ]]; then
+for unit in \
+  aurora-dashboard.service \
+  aurora-mobile-api.service \
+  aurora-power-append.service \
+  aurora-power-append.timer \
+  aurora-pdu-append.service \
+  aurora-pdu-append.timer \
+  aurora-dev-live-pull@product-power.service \
+  aurora-dev-live-pull-product-power.timer \
+  aurora-power-soc-forecast.service \
+  aurora-power-soc-forecast.timer \
+  aurora-power-soc-forecast-learn.service \
+  aurora-power-soc-forecast-learn.timer \
+  aurora-power-soc-ensemble.service \
+  aurora-power-soc-ensemble.timer \
+  aurora-power-soc-planning-forecast.service \
+  aurora-power-soc-planning-forecast.timer \
+  aurora-power-operating-scenarios.service \
+  aurora-power-operating-scenarios.timer \
+  aurora-dev-power-display-refresh.service \
+  aurora-dev-power-display-refresh.timer \
+  aurora-power-quicklooks.service \
+  aurora-power-quicklooks.timer \
+  aurora-power-forecast-publish.service \
+  aurora-power-v12-candidate.service \
+  aurora-power-v12-candidate.timer \
+  aurora-power-prod-dev-evaluation.service; do
+  printf '%s\t%s\t%s\n' \
+    "${unit}" \
+    "$(systemctl is-enabled "${unit}" 2>/dev/null || true)" \
+    "$(systemctl is-active "${unit}" 2>/dev/null || true)"
+done > "${snapshot_dir}/service-states.tsv"
+
+: > "${snapshot_dir}/worktree.patch"
+: > "${snapshot_dir}/index.patch"
+: > "${snapshot_dir}/untracked-files.txt"
+if runuser -u "${service_user}" -- git -C "${app_dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   runuser -u "${service_user}" -- git -C "${app_dir}" diff --binary > "${snapshot_dir}/worktree.patch"
+  runuser -u "${service_user}" -- git -C "${app_dir}" diff --cached --binary > "${snapshot_dir}/index.patch"
   runuser -u "${service_user}" -- git -C "${app_dir}" ls-files --others --exclude-standard > "${snapshot_dir}/untracked-files.txt"
 fi
 
@@ -53,18 +90,36 @@ fi
   find /etc/systemd/system -maxdepth 1 -type d -name 'aurora-*.service.d' -print 2>/dev/null | sed 's#^/##'
 } | sort -u > "${file_list}"
 
-tar -C / -czf "${snapshot_dir}/configuration.tar.gz" --ignore-failed-read -T "${file_list}"
+tar -C / -czf "${snapshot_dir}/configuration.tar.gz" -T "${file_list}"
 
-{
-  while IFS= read -r path; do
-    absolute_path="/${path}"
-    if [[ -f "${absolute_path}" ]]; then
-      printf '%s\0' "${absolute_path}"
-    elif [[ -d "${absolute_path}" ]]; then
-      find "${absolute_path}" -type f -print0
-    fi
-  done < "${file_list}"
-} | sort -z | xargs -0 -r sha256sum > "${snapshot_dir}/configuration.sha256"
+# Bind checksums to the bytes actually archived, not to a second read of a
+# potentially changing live file. Any tar read error is fatal above.
+verification_root=$(mktemp -d /var/tmp/aurora-release-snapshot-verify.XXXXXX)
+cleanup() {
+  rm -rf -- "${verification_root}"
+}
+trap cleanup EXIT
+tar -xzf "${snapshot_dir}/configuration.tar.gz" -C "${verification_root}"
+(
+  cd "${verification_root}"
+  find . -type f -print0 | sort -z | xargs -0 -r sha256sum
+) > "${snapshot_dir}/configuration.sha256"
+cleanup
+trap - EXIT
 
 chmod 0600 "${snapshot_dir}"/*
+
+(
+  cd "${snapshot_dir}"
+  sha256sum \
+    configuration.tar.gz \
+    configuration.sha256 \
+    configuration-files.txt \
+    index.patch \
+    manifest.txt \
+    service-states.tsv \
+    untracked-files.txt \
+    worktree.patch > snapshot.sha256
+)
+chmod 0600 "${snapshot_dir}/snapshot.sha256"
 printf '%s\n' "${snapshot_dir}"

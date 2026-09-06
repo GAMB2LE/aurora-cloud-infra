@@ -1,0 +1,1224 @@
+#!{{ aurora_venv }}/bin/python
+"""Fail-closed publisher for one complete development Power forecast bundle."""
+
+from __future__ import annotations
+
+import argparse
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+from datetime import datetime, timezone
+import uuid
+
+import pandas as pd
+import xarray as xr
+
+
+APP_DIR = Path({{ aurora_app_dir | to_json }})
+PYTHON = Path({{ (aurora_venv ~ '/bin/python') | to_json }})
+POWER_ZARR = Path({{ aurora_zarr.power | to_json }})
+PDU_ZARR = Path({{ aurora_zarr.pdu | to_json }})
+ASFS_ZARR = Path({{ aurora_zarr.asfs_logger | to_json }})
+FORECAST_SKILL_ZARR = Path({{ aurora_zarr.power_soc_forecast_skill | to_json }})
+HINDCAST_ZARR = Path({{ aurora_zarr.power_soc_hindcast | to_json }})
+ENSEMBLE_ZARR = Path({{ aurora_zarr.power_soc_ensemble | to_json }})
+ENSEMBLE_SKILL_ZARR = Path({{ aurora_zarr.power_soc_ensemble_skill | to_json }})
+PLANNING_ZARR = Path({{ aurora_power_planning_forecast_path | to_json }})
+MODEL_STATE = Path({{ aurora_power_operating_model_state_path | to_json }})
+BOOTSTRAP_STATE = Path({{ (aurora_power_forecast_root ~ '/power_soc_forecast_state.json') | to_json }})
+RECOMMENDATION_HISTORY = Path({{ aurora_power_operating_recommendations_path | to_json }})
+UAS_LOG = Path({{ uas_source_destination | to_json }})
+CL61_HISTORY = Path({{ aurora_cl61_automation_history_path | to_json }})
+
+BUNDLE_ROOT = Path({{ aurora_power_forecast_bundle_root | to_json }})
+GENERATIONS_ROOT = Path({{ aurora_power_forecast_bundle_generations_root | to_json }})
+CURRENT_BUNDLE = Path({{ aurora_power_forecast_bundle_current_root | to_json }})
+ACTIVE_BUNDLE = Path({{ aurora_power_forecast_bundle_active_root | to_json }})
+INDEPENDENT_BUNDLE = Path({{ aurora_power_forecast_bundle_independent_root | to_json }})
+STATUS_PATH = Path({{ aurora_power_forecast_bundle_status_path | to_json }})
+HISTORY_PATH = Path({{ aurora_power_forecast_bundle_history_path | to_json }})
+ISSUE_ROOT = Path({{ aurora_power_forecast_issue_root | to_json }})
+CURRENT_ISSUE = Path({{ aurora_power_forecast_issue_current_path | to_json }})
+MAX_SOURCE_AGE_HOURS = float({{ aurora_power_forecast_source_max_age_hours }})
+MAX_CYCLE_DELTA_HOURS = float({{ aurora_power_forecast_source_max_cycle_delta_hours }})
+COMPLETE_GENERATIONS_TO_KEEP = 12
+PUBLICATION_ACTIVE = {{ 'True' if aurora_power_forecast_publication_active | bool else 'False' }}
+SNAPSHOT_CONTENT_MARKER = ".aurora-snapshot-content-v1.json"
+SNAPSHOT_DIGEST_ALGORITHM = "sha256-relative-path-nul-content-nul-v1"
+REQUIRED_BUNDLE_PRODUCTS = {
+    "operatingState": "power_operating_state.zarr",
+    "operatingScenarios": "power_operating_scenarios.zarr",
+    "displaySummary": "power_display_summary.zarr",
+    "displayEnergy": "power_display_energy.zarr",
+    "currentDisplay": "power_current_display.zarr",
+    "forecastDisplay": "power_forecast_display.zarr",
+    "displayManifest": "power_display_manifest.json",
+    "deterministicForecast": "operational_forecast.zarr",
+    "planningForecast": "planning_forecast.zarr",
+    "ensembleForecast": "ensemble_forecast.zarr",
+    "operatingModelState": "power_operating_model_state.json",
+    "operatingRecommendationHistory": "power_operating_recommendations.json",
+{% if aurora_cl61_automation_shadow_enabled | bool %}
+    "cl61AutomationIntent": "cl61_automation_intent.json",
+    "cl61AutomationStatus": "cl61_automation_status.json",
+{% endif %}
+}
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def atomic_json(path: Path, payload: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, sort_keys=True, indent=2)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.chmod(temporary, 0o664)
+    os.replace(temporary, path)
+
+
+def append_history(payload: dict[str, object]) -> None:
+    HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with HISTORY_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, sort_keys=True) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def canonical_json_digest(payload: object) -> str:
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def artifact_digest(path: Path) -> str:
+    """Hash one staged artifact deterministically before it can be promoted."""
+    digest = hashlib.sha256()
+    paths = (
+        [path]
+        if path.is_file()
+        else sorted(
+            (item for item in path.rglob("*") if item.is_file()),
+            key=lambda item: item.relative_to(path).as_posix(),
+        )
+    )
+    for item in paths:
+        relative = item.name if path.is_file() else item.relative_to(path).as_posix()
+        digest.update(relative.encode("utf-8") + b"\0")
+        with item.open("rb") as handle:
+            for block in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(block)
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def snapshot_content_stats(path: Path) -> tuple[str, int, int]:
+    """Verify the generator's immutable-snapshot content contract."""
+    files = sorted(
+        (
+            item
+            for item in path.rglob("*")
+            if item.is_file() and item.relative_to(path).as_posix() != SNAPSHOT_CONTENT_MARKER
+        ),
+        key=lambda item: item.relative_to(path).as_posix(),
+    )
+    digest = hashlib.sha256()
+    byte_count = 0
+    for item in files:
+        relative = item.relative_to(path).as_posix()
+        digest.update(relative.encode("utf-8") + b"\0")
+        with item.open("rb") as handle:
+            for block in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(block)
+                byte_count += len(block)
+        digest.update(b"\0")
+    return digest.hexdigest(), len(files), byte_count
+
+
+def snapshot_marker(path: Path) -> dict[str, object]:
+    marker_path = path / SNAPSHOT_CONTENT_MARKER
+    try:
+        marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise RuntimeError(f"immutable issue marker is missing or invalid: {exc}") from exc
+    if not isinstance(marker, dict) or marker.get("schemaVersion") != 1:
+        raise RuntimeError("immutable issue marker has an unsupported schema")
+    if marker.get("digestAlgorithm") != SNAPSHOT_DIGEST_ALGORITHM:
+        raise RuntimeError("immutable issue marker has an unsupported digest algorithm")
+    digest, file_count, byte_count = snapshot_content_stats(path)
+    if marker.get("contentDigest") != f"sha256:{digest}":
+        raise RuntimeError("immutable issue content digest does not match its marker")
+    if marker.get("fileCount") != file_count or marker.get("byteCount") != byte_count:
+        raise RuntimeError("immutable issue file or byte count does not match its marker")
+    if not str(marker.get("publicationSignature") or ""):
+        raise RuntimeError("immutable issue marker lacks a publication signature")
+    return marker
+
+
+def make_tree_read_only(path: Path) -> None:
+    """Remove write bits from a completed issue tree as a practical guard."""
+    for item in sorted(path.rglob("*"), key=lambda value: len(value.parts), reverse=True):
+        if item.is_symlink():
+            raise RuntimeError(f"immutable issue contains an unexpected symlink: {item}")
+        os.chmod(item, 0o555 if item.is_dir() else 0o444)
+    os.chmod(path, 0o555)
+
+
+def make_tree_owner_writable(path: Path) -> None:
+    """Prepare one already-validated retained generation for safe removal."""
+    os.chmod(path, 0o755)
+    for item in path.rglob("*"):
+        if item.is_symlink():
+            raise RuntimeError(f"generation contains an unexpected symlink: {item}")
+        os.chmod(item, 0o755 if item.is_dir() else 0o644)
+
+
+def product_record(path: Path, *, include_attrs: bool = True) -> dict[str, object]:
+    record: dict[str, object] = {
+        "relativePath": path.name,
+        "sha256": artifact_digest(path),
+    }
+    if include_attrs:
+        attrs, _ = read_dataset(path, f"staged product {path.name}")
+        record["dataUpdatedAt"] = attrs.get("generated_at_utc", "")
+        record["forecastIdentityID"] = attrs.get("forecast_identity_id", "")
+        record["sourceCycleSetID"] = attrs.get("source_cycle_set_id", "") or attrs.get(
+            "ecmwf_cycle_time", ""
+        )
+        if attrs.get("publication_signature"):
+            record["publicationSignature"] = attrs["publication_signature"]
+    else:
+        payload = json_object(path, f"staged product {path.name}")
+        record["dataUpdatedAt"] = next(
+            (
+                str(payload[key])
+                for key in (
+                    "dataUpdatedAt",
+                    "generated_at_utc",
+                    "updated_at_utc",
+                    "completed_at_utc",
+                    "recorded_at_utc",
+                )
+                if payload.get(key)
+            ),
+            datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat(),
+        )
+        signature = (
+            payload.get("publication_signature")
+            or payload.get("content_digest")
+            or payload.get("last_intent_digest")
+        )
+        if signature:
+            record["publicationSignature"] = str(signature)
+    return record
+
+
+def prior_status() -> dict[str, object]:
+    try:
+        value = json.loads(STATUS_PATH.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def publish_status(status: str, **updates: object) -> dict[str, object]:
+    now = utc_now()
+    payload = prior_status()
+    payload.update(
+        {
+            "schemaVersion": 1,
+            "status": status,
+            "requestedAt": payload.get("requestedAt") or now,
+            "updatedAt": now,
+            "controlAuthority": "advisory_only",
+            "cl61ActuationEnabled": False,
+        }
+    )
+    payload.update(updates)
+    atomic_json(STATUS_PATH, payload)
+    append_history(payload)
+    return payload
+
+
+def begin_attempt(refresh_kind: str) -> None:
+    """Start a distinct generation attempt so failures never bleed across runs."""
+    now = utc_now()
+    publish_status(
+        "assembling",
+        requestedAt=now,
+        attemptID=f"{refresh_kind}-{uuid.uuid4().hex}",
+        forecastRefreshKind=refresh_kind,
+        independentCycle=refresh_kind == "ecmwf_cycle",
+        staleReason=None,
+        failedStage=None,
+        firstFailureAt=None,
+        lastFailureStage=None,
+        lastFailureDetail=None,
+        failureCount=0,
+        degradedModeCode="none",
+    )
+
+
+def mark_failure(stage: str, detail: str = "") -> None:
+    reason = f"{stage} failed"
+    if detail:
+        reason += f": {detail[:500]}"
+    previous = prior_status()
+    if (
+        previous.get("status") == "failed"
+        and previous.get("staleReason")
+        and previous.get("attemptID")
+        and previous.get("firstFailureAt")
+    ):
+        # An OnFailure unit may run after the publisher already captured the
+        # detailed exception. Preserve that first actionable reason rather
+        # than replacing it with a generic service-name failure.
+        try:
+            failure_count = int(previous.get("failureCount") or 1) + 1
+        except (TypeError, ValueError):
+            failure_count = 2
+        publish_status(
+            "failed",
+            staleReason=previous["staleReason"],
+            failedStage=previous.get("failedStage") or stage,
+            firstFailureAt=previous.get("firstFailureAt") or previous.get("updatedAt"),
+            lastFailureStage=stage,
+            lastFailureDetail=detail[:500],
+            failureCount=failure_count,
+            degradedModeCode="pipeline_failure_last_complete_generation_retained",
+        )
+        return
+    publish_status(
+        "failed",
+        staleReason=reason,
+        failedStage=stage,
+        firstFailureAt=utc_now(),
+        lastFailureStage=stage,
+        lastFailureDetail=detail[:500],
+        failureCount=1,
+        degradedModeCode="pipeline_failure_last_complete_generation_retained",
+    )
+
+
+def read_dataset(path: Path, label: str) -> tuple[dict[str, str], pd.DatetimeIndex]:
+    if not path.exists():
+        raise RuntimeError(f"{label} missing at {path}")
+    dataset = xr.open_zarr(path, chunks=None)
+    try:
+        attrs = {str(key): str(value) for key, value in dataset.attrs.items()}
+        times = (
+            pd.DatetimeIndex(dataset["time"].values)
+            if "time" in dataset and dataset.sizes.get("time", 0)
+            else pd.DatetimeIndex([])
+        )
+    finally:
+        dataset.close()
+    if times.empty:
+        raise RuntimeError(f"{label} has no time coverage")
+    return attrs, times
+
+
+def parse_time(value: object, label: str) -> pd.Timestamp:
+    parsed = pd.to_datetime(value, utc=True, errors="coerce")
+    if pd.isna(parsed):
+        raise RuntimeError(f"{label} has no parseable UTC timestamp")
+    return pd.Timestamp(parsed)
+
+
+def attr_time(attrs: dict[str, str], keys: tuple[str, ...], label: str) -> pd.Timestamp:
+    for key in keys:
+        if attrs.get(key):
+            return parse_time(attrs[key], label)
+    raise RuntimeError(f"{label} is missing {', '.join(keys)}")
+
+
+def utc_timestamp(value: object) -> pd.Timestamp:
+    timestamp = pd.Timestamp(value)
+    return timestamp.tz_localize("UTC") if timestamp.tzinfo is None else timestamp.tz_convert("UTC")
+
+
+def verify_issue_snapshot(path: Path) -> dict[str, object]:
+    """Verify content, pointer binding, provenance, and practical immutability."""
+    resolved = path.resolve(strict=True)
+    issue_root = ISSUE_ROOT.resolve(strict=True)
+    if resolved.name != "forecast.zarr" or resolved.parent.parent != issue_root:
+        raise RuntimeError("immutable issue does not resolve beneath one issue identity directory")
+    issue_manifest_path = resolved.parent / "issue_manifest.json"
+    try:
+        issue_manifest = json.loads(issue_manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise RuntimeError(f"immutable issue manifest is missing or invalid: {exc}") from exc
+    if not isinstance(issue_manifest, dict) or issue_manifest.get("status") != "complete":
+        raise RuntimeError("immutable issue manifest is not complete")
+    marker = snapshot_marker(resolved)
+    marker_digest = artifact_digest(resolved / SNAPSHOT_CONTENT_MARKER)
+    if issue_manifest.get("snapshotMarkerDigest") != f"sha256:{marker_digest}":
+        raise RuntimeError("immutable issue manifest is not checksum-bound to its marker")
+    if issue_manifest.get("contentDigest") != marker.get("contentDigest"):
+        raise RuntimeError("immutable issue manifest content digest differs from its marker")
+    if issue_manifest.get("relativePath") != "forecast.zarr":
+        raise RuntimeError("immutable issue manifest path is invalid")
+    for item in (resolved.parent, issue_manifest_path, resolved, *resolved.rglob("*")):
+        if item.is_symlink():
+            raise RuntimeError(f"immutable issue contains an unexpected symlink: {item}")
+        if item.stat().st_mode & 0o222:
+            raise RuntimeError(f"completed immutable issue remains writable: {item}")
+    attrs, _ = read_dataset(resolved, "immutable deterministic issue")
+    if not issue_manifest.get("forecastIdentityID") or not issue_manifest.get(
+        "sourceCycleSetID"
+    ):
+        raise RuntimeError("immutable issue manifest lacks complete forecast identity")
+    if issue_manifest.get("forecastIdentityID") != attrs.get("forecast_identity_id", ""):
+        raise RuntimeError("immutable issue identity differs from its manifest")
+    if issue_manifest.get("sourceCycleSetID") != attrs.get("source_cycle_set_id", ""):
+        raise RuntimeError("immutable issue source-cycle identity differs from its manifest")
+    pointer_path = ISSUE_ROOT / "current_issue.json"
+    try:
+        pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise RuntimeError(f"immutable issue pointer manifest is missing or invalid: {exc}") from exc
+    issue_manifest_digest = artifact_digest(issue_manifest_path)
+    if pointer.get("issueManifestDigest") != f"sha256:{issue_manifest_digest}":
+        raise RuntimeError("current issue pointer is not checksum-bound to its issue manifest")
+    if Path(str(pointer.get("path") or "")).resolve(strict=True) != resolved:
+        raise RuntimeError("current issue pointer manifest names a different snapshot")
+    return issue_manifest
+
+
+def print_issue_anchor(path: Path) -> None:
+    """Print the exact SOC anchor from one verified immutable issue."""
+    verify_issue_snapshot(path)
+    print_forecast_anchor(path)
+
+
+def print_forecast_anchor(path: Path) -> None:
+    """Print one forecast anchor; the shared writer lock provides stability."""
+    attrs, _ = read_dataset(path.resolve(strict=True), "immutable deterministic issue")
+    anchor = attr_time(attrs, ("initial_soc_time",), "deterministic SOC anchor")
+    print(anchor.isoformat())
+
+
+def input_info(path: Path, label: str) -> dict[str, object]:
+    attrs, times = read_dataset(path, label)
+    generated = attr_time(
+        attrs,
+        ("generated_at_utc", "data_updated_at", "forecast_generated_at_utc"),
+        f"{label} generation time",
+    )
+    cycle_value = attrs.get("ecmwf_cycle_time") or attrs.get("source_cycle_time")
+    if not cycle_value:
+        raise RuntimeError(f"{label} has no explicit source-cycle timestamp")
+    cycle = parse_time(cycle_value, f"{label} ECMWF cycle")
+    coverage_start = utc_timestamp(times.min())
+    coverage_end = utc_timestamp(times.max())
+    return {
+        "path": str(path.resolve()),
+        "attrs": attrs,
+        "generated": generated,
+        "cycle": cycle,
+        "generatedAt": generated.isoformat(),
+        "cycleUTC": cycle.isoformat(),
+        "coverageStart": coverage_start.isoformat(),
+        "coverageEnd": coverage_end.isoformat(),
+        "coverageEndTimestamp": coverage_end,
+        "forecastIdentityID": attrs.get("forecast_identity_id", ""),
+        "sourceCycleSetID": attrs.get("source_cycle_set_id", "") or cycle.isoformat(),
+        "upstreamSourceManifestDigest": attrs.get("source_manifest_digest", ""),
+        "socAnchorUTC": attrs.get("initial_soc_time", ""),
+    }
+
+
+def validate_inputs(
+    operational_forecast: Path,
+    planning_forecast: Path,
+    ensemble_forecast: Path,
+    *,
+    allow_cached_reanchor: bool,
+) -> tuple[dict[str, object], dict[str, object]]:
+    issue = input_info(operational_forecast, "operational deterministic forecast snapshot")
+    immutable_issue_path = CURRENT_ISSUE.resolve(strict=True)
+    verify_issue_snapshot(immutable_issue_path)
+    immutable_issue = input_info(immutable_issue_path, "immutable deterministic issue")
+    planning = input_info(planning_forecast, "planning forecast snapshot")
+    ensemble = input_info(ensemble_forecast, "ensemble forecast snapshot")
+
+    issue_attrs = issue["attrs"]
+    ensemble_attrs = ensemble["attrs"]
+    if not isinstance(issue_attrs, dict):
+        raise RuntimeError("immutable deterministic issue attributes are unavailable")
+    if not isinstance(ensemble_attrs, dict):
+        raise RuntimeError("ensemble forecast attributes are unavailable")
+    refresh_kind = issue_attrs.get("forecast_refresh_kind", "")
+    eligible = issue_attrs.get("forecast_verification_eligible", "").lower() == "true"
+    deterministic_independent = issue_attrs.get("independent_cycle", "").lower() == "true"
+    if allow_cached_reanchor:
+        if refresh_kind != "cached_reanchor" or eligible or deterministic_independent:
+            raise RuntimeError("fast publication requires a non-independent cached re-anchor")
+        if issue["cycle"] != immutable_issue["cycle"]:
+            raise RuntimeError("cached re-anchor does not share the latest immutable ECMWF cycle")
+    elif not eligible or not deterministic_independent or refresh_kind != "ecmwf_cycle":
+        raise RuntimeError("deterministic issue is not an archive-eligible full ECMWF cycle")
+    expected_ensemble_kind = "cached_reanchor" if allow_cached_reanchor else "ecmwf_cycle"
+    expected_ensemble_eligible = not allow_cached_reanchor
+    ensemble_kind = ensemble_attrs.get("forecast_refresh_kind", "")
+    ensemble_eligible = (
+        ensemble_attrs.get("forecast_verification_eligible", "").lower() == "true"
+    )
+    ensemble_independent = ensemble_attrs.get("independent_cycle", "").lower() == "true"
+    if (
+        ensemble_kind != expected_ensemble_kind
+        or ensemble_eligible != expected_ensemble_eligible
+        or ensemble_independent != expected_ensemble_eligible
+    ):
+        raise RuntimeError(
+            "ensemble independence/evidence markers do not match deterministic refresh kind"
+        )
+    if ensemble_attrs.get("ensemble_source_identity_contract") != (
+        "deterministic-plus-ens-site-forcing-v1"
+    ):
+        raise RuntimeError("ensemble lacks the exact site-forcing source identity contract")
+    if not re.fullmatch(
+        r"power-ensemble-source-set-v1-[0-9a-f]{20}",
+        str(ensemble.get("sourceCycleSetID") or ""),
+    ):
+        raise RuntimeError("ensemble source-cycle identity is invalid")
+    if not re.fullmatch(
+        r"sha256:[0-9a-f]{64}", str(ensemble.get("upstreamSourceManifestDigest") or "")
+    ):
+        raise RuntimeError("ensemble source-manifest digest is invalid")
+    if not re.fullmatch(
+        r"sha256:[0-9a-f]{64}", ensemble_attrs.get("ensemble_site_forcing_sha256", "")
+    ):
+        raise RuntimeError("ensemble site-forcing digest is invalid")
+    if (
+        ensemble_attrs.get("deterministic_source_cycle_set_id")
+        != issue.get("sourceCycleSetID")
+        or ensemble_attrs.get("deterministic_source_manifest_digest")
+        != issue.get("upstreamSourceManifestDigest")
+        or ensemble_attrs.get("deterministic_forecast_identity_id")
+        != issue.get("forecastIdentityID")
+        or parse_time(
+            ensemble_attrs.get("ensemble_source_cycle_time_utc"),
+            "ensemble composite source cycle",
+        )
+        != ensemble["cycle"]
+    ):
+        raise RuntimeError("ensemble composite source identity differs from its inputs")
+    if str(planning["attrs"].get("forecast_refresh_kind", "")) != "ecmwf_cycle":
+        raise RuntimeError("planning input is a cached re-anchor, not a full ECMWF cycle")
+
+    now = pd.Timestamp.now(tz="UTC")
+    components = {"deterministic": issue, "planning": planning, "ensemble": ensemble}
+    require_matching_soc_anchors(issue, ensemble)
+    for label, info in components.items():
+        age_hours = float((now - info["generated"]) / pd.Timedelta(hours=1))
+        if age_hours < -0.25 or age_hours > MAX_SOURCE_AGE_HOURS:
+            raise RuntimeError(
+                f"{label} generation age {age_hours:.2f} h exceeds 0..{MAX_SOURCE_AGE_HOURS:g} h"
+            )
+        info["ageHours"] = round(max(age_hours, 0.0), 3)
+        cycle_age_hours = float((now - info["cycle"]) / pd.Timedelta(hours=1))
+        if cycle_age_hours < -0.25 or cycle_age_hours > MAX_SOURCE_AGE_HOURS:
+            raise RuntimeError(
+                f"{label} source-cycle age {cycle_age_hours:.2f} h exceeds "
+                f"0..{MAX_SOURCE_AGE_HOURS:g} h"
+            )
+        info["sourceCycleAgeHours"] = round(max(cycle_age_hours, 0.0), 3)
+
+    required_end = now + pd.Timedelta(hours=90)
+    for label in ("deterministic", "planning", "ensemble"):
+        if components[label]["coverageEndTimestamp"] < required_end:
+            raise RuntimeError(
+                f"{label} coverage ends at {components[label]['coverageEnd']}; at least 90 h is required"
+            )
+
+    cycles = [info["cycle"] for info in components.values()]
+    cycle_delta_hours = float((max(cycles) - min(cycles)) / pd.Timedelta(hours=1))
+    if cycle_delta_hours > MAX_CYCLE_DELTA_HOURS:
+        raise RuntimeError(
+            f"source-cycle spread {cycle_delta_hours:.1f} h exceeds {MAX_CYCLE_DELTA_HOURS:g} h"
+        )
+    cycle_map = {label: str(info["sourceCycleSetID"]) for label, info in components.items()}
+    source_cycle_set_id = "power-cycle-set-v1-" + hashlib.sha256(
+        json.dumps(cycle_map, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:20]
+    degraded_reasons: list[str] = []
+    if cycle_delta_hours != 0:
+        degraded_reasons.append("compatible_nonidentical_source_cycles")
+    degraded = "+".join(degraded_reasons) if degraded_reasons else "none"
+    valid_until = min(info["coverageEndTimestamp"] for info in components.values()).isoformat()
+    provenance = {
+        "sourceCycleSetID": source_cycle_set_id,
+        "sourceCycles": cycle_map,
+        "sourceCycleDeltaHours": round(cycle_delta_hours, 3),
+        "degradedModeCode": degraded,
+        "validUntil": valid_until,
+        "forecastIdentityID": str(issue["forecastIdentityID"]),
+        "forecastSystemVersion": issue_attrs.get("forecast_system_version", ""),
+        "featureSetVersion": issue_attrs.get("feature_set_version", ""),
+        "featureSetDigest": issue_attrs.get("feature_set_digest", ""),
+        "trainingCutoffUTC": issue_attrs.get("training_cutoff_utc", "")
+        or issue_attrs.get("solar_training_cutoff_utc", ""),
+        "observationCutoffUTC": issue_attrs.get("observation_cutoff_utc", "")
+        or issue_attrs.get("training_cutoff_utc", "")
+        or issue_attrs.get("initial_soc_time", ""),
+        "forecastCodeRevision": issue_attrs.get("forecast_code_revision", ""),
+        "calibrationStateID": issue_attrs.get("adaptive_calibration_state_id", "")
+        or issue_attrs.get("calibration_state_id", ""),
+        "forecastRefreshKind": refresh_kind,
+        "independentCycle": not allow_cached_reanchor,
+    }
+    serializable = {
+        label: {
+            key: value
+            for key, value in info.items()
+            if key not in {"attrs", "generated", "cycle", "coverageEndTimestamp"}
+        }
+        for label, info in components.items()
+    }
+    serializable["deterministic"]["path"] = "operational_forecast.zarr"
+    serializable["planning"]["path"] = "planning_forecast.zarr"
+    serializable["ensemble"]["path"] = "ensemble_forecast.zarr"
+    return provenance, serializable
+
+
+def require_matching_soc_anchors(
+    deterministic: dict[str, object], ensemble: dict[str, object]
+) -> None:
+    deterministic_anchor = parse_time(
+        deterministic.get("socAnchorUTC"), "deterministic SOC anchor"
+    )
+    ensemble_anchor = parse_time(ensemble.get("socAnchorUTC"), "ensemble SOC anchor")
+    if deterministic_anchor != ensemble_anchor:
+        raise RuntimeError(
+            "deterministic and ensemble SOC anchors differ: "
+            f"{deterministic_anchor.isoformat()} != {ensemble_anchor.isoformat()}"
+        )
+
+
+def run(command: list[str]) -> None:
+    subprocess.run(command, cwd=APP_DIR, check=True)
+
+
+def json_object(path: Path, label: str) -> dict[str, object]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise RuntimeError(f"{label} is missing or invalid: {exc}") from exc
+    if not isinstance(value, dict):
+        raise RuntimeError(f"{label} is not a JSON object")
+    return value
+
+
+def validate_cl61_observe_only(intent_path: Path, status_path: Path) -> None:
+    intent = json_object(intent_path, "staged CL61 intent")
+    status = json_object(status_path, "staged CL61 status")
+    safety = intent.get("safety")
+    if intent.get("authority") != "diagnostic" or not isinstance(safety, dict):
+        raise RuntimeError("staged CL61 intent is not diagnostic-only")
+    if safety.get("control_eligible") is not False:
+        raise RuntimeError("staged CL61 intent unexpectedly permits control")
+    if (
+        status.get("control_authority") != "observe_only"
+        or status.get("mode") != "observe_only"
+        or status.get("capability") is not False
+    ):
+        raise RuntimeError("staged CL61 status unexpectedly permits control")
+
+
+def verify_bundle(path: Path) -> dict[str, object]:
+    """Fully verify one completed generation before any consumer sees it."""
+    if path.is_symlink():
+        raise RuntimeError("bundle verification requires a direct generation path")
+    generation = path.resolve(strict=True)
+    generations_root = GENERATIONS_ROOT.resolve(strict=True)
+    if generation.parent != generations_root:
+        raise RuntimeError("bundle generation is outside the exact generations root")
+    manifest_path = generation / "generation.json"
+    manifest = json_object(manifest_path, "bundle generation manifest")
+    if manifest.get("status") != "complete":
+        raise RuntimeError("bundle generation is incomplete")
+    if (
+        manifest.get("controlAuthority") != "advisory_only"
+        or manifest.get("cl61ActuationEnabled") is not False
+    ):
+        raise RuntimeError("bundle generation violates advisory-only authority")
+    refresh_kind = manifest.get("forecastRefreshKind")
+    independent = manifest.get("independentCycle")
+    if refresh_kind not in {"ecmwf_cycle", "cached_reanchor"} or independent is not (
+        refresh_kind == "ecmwf_cycle"
+    ):
+        raise RuntimeError("bundle refresh/evidence identity is inconsistent")
+
+    products = manifest.get("products")
+    components = manifest.get("components")
+    source_products = manifest.get("sourceManifestProducts")
+    if not isinstance(products, dict) or set(products) != set(REQUIRED_BUNDLE_PRODUCTS):
+        raise RuntimeError("bundle does not contain the exact required product set")
+    if not isinstance(components, dict) or not isinstance(source_products, dict):
+        raise RuntimeError("bundle lacks component/source-manifest provenance")
+
+    for logical_name, expected_relative in REQUIRED_BUNDLE_PRODUCTS.items():
+        record = products.get(logical_name)
+        if not isinstance(record, dict) or record.get("relativePath") != expected_relative:
+            raise RuntimeError(f"bundle has unsafe {logical_name} product identity")
+        target = generation / expected_relative
+        if target.is_symlink():
+            raise RuntimeError(f"bundle product is a symlink: {logical_name}")
+        resolved_target = target.resolve(strict=True)
+        if resolved_target.parent != generation:
+            raise RuntimeError(f"bundle product escapes generation: {logical_name}")
+        if expected_relative.endswith(".zarr") and not resolved_target.is_dir():
+            raise RuntimeError(f"bundle Zarr product is not a directory: {logical_name}")
+        if expected_relative.endswith(".json") and not resolved_target.is_file():
+            raise RuntimeError(f"bundle JSON product is not a file: {logical_name}")
+        expected_digest = str(record.get("sha256") or "").removeprefix("sha256:")
+        if not re.fullmatch(r"[0-9a-f]{64}", expected_digest):
+            raise RuntimeError(f"bundle product has invalid digest: {logical_name}")
+        if artifact_digest(resolved_target) != expected_digest:
+            raise RuntimeError(f"bundle product checksum mismatch: {logical_name}")
+
+    source_names = {
+        "deterministic": "deterministicForecast",
+        "planning": "planningForecast",
+        "ensemble": "ensembleForecast",
+    }
+    if set(source_products) != set(source_names) or not set(source_names).issubset(components):
+        raise RuntimeError("bundle source-manifest component set is incomplete")
+    cycle_map: dict[str, str] = {}
+    for label, product_name in source_names.items():
+        component = components[label]
+        source_record = source_products[label]
+        product_record = products[product_name]
+        if not isinstance(component, dict) or not isinstance(source_record, dict):
+            raise RuntimeError(f"bundle {label} provenance is invalid")
+        if source_record.get("product") != product_name:
+            raise RuntimeError(f"bundle {label} source product identity mismatch")
+        for key in ("relativePath", "sha256"):
+            if source_record.get(key) != product_record.get(key):
+                raise RuntimeError(f"bundle {label} source product {key} mismatch")
+        product_identity = (
+            product_record.get("forecastIdentityID")
+            or product_record.get("publicationSignature")
+            or product_record.get("sourceCycleSetID")
+            or product_record.get("sha256")
+        )
+        if source_record.get("productIdentityID") != product_identity:
+            raise RuntimeError(f"bundle {label} product identity digest mismatch")
+        for key in (
+            "forecastIdentityID",
+            "sourceCycleSetID",
+            "upstreamSourceManifestDigest",
+            "socAnchorUTC",
+        ):
+            if source_record.get(key) != component.get(key):
+                raise RuntimeError(f"bundle {label} {key} mismatch")
+        cycle_map[label] = str(component.get("sourceCycleSetID") or "")
+        if not cycle_map[label]:
+            raise RuntimeError(f"bundle {label} lacks a source-cycle identity")
+
+    expected_source_digest = f"sha256:{canonical_json_digest(source_products)}"
+    if manifest.get("sourceManifestDigest") != expected_source_digest:
+        raise RuntimeError("bundle combined source-manifest digest mismatch")
+    expected_cycle_set = "power-cycle-set-v1-" + hashlib.sha256(
+        json.dumps(cycle_map, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:20]
+    if manifest.get("sourceCycleSetID") != expected_cycle_set:
+        raise RuntimeError("bundle combined source-cycle identity mismatch")
+    if manifest.get("forecastIdentityID") != components["deterministic"].get(
+        "forecastIdentityID"
+    ):
+        raise RuntimeError("bundle forecast identity differs from deterministic source")
+
+{% if aurora_cl61_automation_shadow_enabled | bool %}
+    validate_cl61_observe_only(
+        generation / REQUIRED_BUNDLE_PRODUCTS["cl61AutomationIntent"],
+        generation / REQUIRED_BUNDLE_PRODUCTS["cl61AutomationStatus"],
+    )
+{% endif %}
+    for item in (generation, *generation.rglob("*")):
+        if item.is_symlink():
+            raise RuntimeError(f"completed bundle contains a symlink: {item}")
+        if item.stat().st_mode & 0o222:
+            raise RuntimeError(f"completed bundle remains writable: {item}")
+    return manifest
+
+
+def atomic_current_symlink(target: Path, link: Path) -> None:
+    link.parent.mkdir(parents=True, exist_ok=True)
+    temporary = link.with_name(f".{link.name}.{uuid.uuid4().hex}.tmp")
+    relative_target = os.path.relpath(target, link.parent)
+    os.symlink(relative_target, temporary)
+    os.replace(temporary, link)
+
+
+def quarantine_incoming(source: Path) -> None:
+    """Recover a prior interrupted snapshot without deleting or reusing it."""
+    if not source.exists():
+        return
+    quarantine = ISSUE_ROOT / ".quarantine"
+    quarantine.mkdir(parents=True, exist_ok=True)
+    destination = quarantine / (
+        datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+        + "-"
+        + uuid.uuid4().hex[:8]
+    )
+    destination.mkdir(parents=False, exist_ok=False)
+    source.rename(destination / "forecast.zarr")
+
+
+def retain_recent_generations() -> None:
+    """Bound agent-created generations while never resolving outside the root."""
+    root = GENERATIONS_ROOT.resolve(strict=True)
+    current = CURRENT_BUNDLE.resolve(strict=True)
+    if current.parent != root:
+        raise RuntimeError("current bundle does not resolve directly under generations root")
+    complete = sorted(
+        (
+            item
+            for item in root.iterdir()
+            if item.is_dir()
+            and not item.name.startswith(".")
+            and (item / "generation.json").is_file()
+        ),
+        key=lambda item: item.name,
+        reverse=True,
+    )
+    keep = {current, *complete[:COMPLETE_GENERATIONS_TO_KEEP]}
+    for pointer in (ACTIVE_BUNDLE, INDEPENDENT_BUNDLE):
+        if not pointer.exists():
+            continue
+        resolved_pointer = pointer.resolve(strict=True)
+        if resolved_pointer.parent != root:
+            raise RuntimeError(f"{pointer.name} does not resolve directly under generations root")
+        keep.add(resolved_pointer)
+    for victim in complete:
+        resolved = victim.resolve(strict=True)
+        if resolved in keep:
+            continue
+        if resolved.parent != root or resolved == current:
+            raise RuntimeError(f"unsafe generation retention target: {resolved}")
+        make_tree_owner_writable(resolved)
+        shutil.rmtree(resolved)
+
+
+def prior_bundle_product(logical_name: str, fallback: Path) -> Path | None:
+    """Resolve one checksum-verified learner seed without mutating it."""
+    if CURRENT_BUNDLE.is_symlink() or CURRENT_BUNDLE.exists():
+        if not CURRENT_BUNDLE.is_symlink():
+            raise RuntimeError("current bundle pointer is not a symlink")
+        generation = CURRENT_BUNDLE.resolve(strict=True)
+        root = GENERATIONS_ROOT.resolve(strict=True)
+        if generation.parent != root:
+            raise RuntimeError("current bundle resolves outside the generations root")
+        manifest = json_object(generation / "generation.json", "current bundle manifest")
+        products = manifest.get("products")
+        record = products.get(logical_name) if isinstance(products, dict) else None
+        if manifest.get("status") != "complete" or not isinstance(record, dict):
+            raise RuntimeError(f"current bundle lacks complete {logical_name} provenance")
+        relative = str(record.get("relativePath") or "")
+        expected = str(record.get("sha256") or "").removeprefix("sha256:").lower()
+        target = (generation / relative).resolve(strict=True)
+        if not relative or generation not in target.parents:
+            raise RuntimeError(f"current bundle has an unsafe {logical_name} path")
+        if len(expected) != 64 or artifact_digest(target) != expected:
+            raise RuntimeError(f"current bundle {logical_name} checksum mismatch")
+        return target
+    return fallback.resolve(strict=True) if fallback.exists() else None
+
+
+def capture_issue(source: Path) -> None:
+    attrs, _ = read_dataset(source, "new deterministic issue snapshot")
+    marker = snapshot_marker(source)
+    if attrs.get("forecast_verification_eligible", "").lower() != "true":
+        raise RuntimeError("refusing to retain a non-archive-eligible issue snapshot")
+    if attrs.get("forecast_refresh_kind", "") != "ecmwf_cycle":
+        raise RuntimeError("refusing to retain a cached-reanchor issue snapshot")
+    if not attrs.get("forecast_identity_id") or not attrs.get("source_cycle_set_id"):
+        raise RuntimeError("refusing an issue snapshot without complete forecast identity")
+    if marker.get("publicationSignature") != attrs.get("publication_signature"):
+        raise RuntimeError("issue snapshot marker publication signature differs from its data")
+    identity = attrs.get("forecast_identity_id", "")
+    if not identity:
+        identity = hashlib.sha256(
+            json.dumps(
+                {
+                    "generated": attrs.get("generated_at_utc", ""),
+                    "cycle": attrs.get("ecmwf_cycle_time", ""),
+                    "anchor": attrs.get("initial_soc_time", ""),
+                },
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()[:24]
+    safe_identity = re.sub(r"[^A-Za-z0-9_.-]+", "-", identity).strip("-.")[:120]
+    if not safe_identity:
+        raise RuntimeError("deterministic issue identity is empty after sanitizing")
+    destination_dir = ISSUE_ROOT / safe_identity
+    if destination_dir.exists():
+        destination_dir = ISSUE_ROOT / f"{safe_identity}-{uuid.uuid4().hex[:8]}"
+    destination_dir.mkdir(parents=True, exist_ok=False)
+    destination = destination_dir / "forecast.zarr"
+    source.rename(destination)
+    marker_digest = artifact_digest(destination / SNAPSHOT_CONTENT_MARKER)
+    issue_manifest = {
+        "schemaVersion": 1,
+        "status": "complete",
+        "completedAt": utc_now(),
+        "dataUpdatedAt": attrs.get("generated_at_utc", ""),
+        "forecastIdentityID": attrs.get("forecast_identity_id", ""),
+        "sourceCycleSetID": attrs.get("source_cycle_set_id", ""),
+        "sourceCycleUTC": attrs.get("ecmwf_cycle_time", ""),
+        "relativePath": "forecast.zarr",
+        "digestAlgorithm": SNAPSHOT_DIGEST_ALGORITHM,
+        "contentDigest": marker["contentDigest"],
+        "snapshotMarkerDigest": f"sha256:{marker_digest}",
+        "publicationSignature": marker["publicationSignature"],
+    }
+    issue_manifest_path = destination_dir / "issue_manifest.json"
+    atomic_json(issue_manifest_path, issue_manifest)
+    issue_manifest_digest = artifact_digest(issue_manifest_path)
+    make_tree_read_only(destination_dir)
+    atomic_current_symlink(destination, CURRENT_ISSUE)
+    pointer_manifest = {
+        "schemaVersion": 1,
+        "status": "immutable_archive_eligible_issue",
+        "dataUpdatedAt": attrs.get("generated_at_utc", ""),
+        "updatedAt": utc_now(),
+        "forecastIdentityID": attrs.get("forecast_identity_id", ""),
+        "sourceCycleSetID": attrs.get("source_cycle_set_id", ""),
+        "contentDigest": marker["contentDigest"],
+        "issueManifestDigest": f"sha256:{issue_manifest_digest}",
+        "path": str(destination),
+    }
+    atomic_json(ISSUE_ROOT / "current_issue.json", pointer_manifest)
+    publish_status(
+        "assembling",
+        staleReason=None,
+        failedStage=None,
+        firstFailureAt=None,
+        lastFailureStage=None,
+        lastFailureDetail=None,
+        failureCount=0,
+        degradedModeCode="none",
+        pendingForecastIdentityID=pointer_manifest["forecastIdentityID"],
+        pendingSourceCycleSetID=pointer_manifest["sourceCycleSetID"],
+    )
+
+
+def publish_bundle(forecast_source: Path, *, allow_cached_reanchor: bool) -> None:
+    requested_at = str(prior_status().get("requestedAt") or utc_now())
+    lock_path = BUNDLE_ROOT / ".publisher.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+", encoding="utf-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        generation_id = (
+            datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            + "-"
+            + uuid.uuid4().hex[:8]
+        )
+        GENERATIONS_ROOT.mkdir(parents=True, exist_ok=True)
+        staging = GENERATIONS_ROOT / f".staging-{generation_id}"
+        final = GENERATIONS_ROOT / generation_id
+        staging.mkdir(parents=False, exist_ok=False)
+        try:
+            # Materialize the operational input once. Cached re-anchors remain
+            # operational samples, but are never presented to the candidate as
+            # independent evidence.
+            operational_snapshot = staging / "operational_forecast.zarr"
+            shutil.copytree(forecast_source.resolve(strict=True), operational_snapshot)
+            planning_snapshot = staging / "planning_forecast.zarr"
+            ensemble_snapshot = staging / "ensemble_forecast.zarr"
+            # Planning and ENS are mutable producer outputs. Materialize each
+            # exactly once before validation, then use only these snapshots for
+            # validation, scenario/display generation, hashing, and promotion.
+            shutil.copytree(PLANNING_ZARR.resolve(strict=True), planning_snapshot)
+            shutil.copytree(ENSEMBLE_ZARR.resolve(strict=True), ensemble_snapshot)
+            staged_model_state = staging / "power_operating_model_state.json"
+            model_state_seed = prior_bundle_product("operatingModelState", MODEL_STATE)
+            if model_state_seed is not None:
+                shutil.copy2(model_state_seed, staged_model_state)
+            staged_recommendation_history = (
+                staging / "power_operating_recommendations.json"
+            )
+            recommendation_seed = prior_bundle_product(
+                "operatingRecommendationHistory", RECOMMENDATION_HISTORY
+            )
+            if recommendation_seed is not None:
+                # The scenario generator appends to this archive. Seed a
+                # generation-local copy so a failed or unpublished bundle can
+                # never mutate the legacy development recommendation history.
+                shutil.copy2(
+                    recommendation_seed,
+                    staged_recommendation_history,
+                )
+            provenance, components = validate_inputs(
+                operational_snapshot,
+                planning_snapshot,
+                ensemble_snapshot,
+                allow_cached_reanchor=allow_cached_reanchor,
+            )
+            scenario_command = [
+                str(PYTHON),
+                "generate_power_operating_scenarios.py",
+                "--power-zarr", str(POWER_ZARR),
+                "--pdu-zarr", str(PDU_ZARR),
+                "--forecast-zarr", str(planning_snapshot),
+                "--ensemble-zarr", str(ensemble_snapshot),
+                "--state-output", str(staging / "power_operating_state.zarr"),
+                "--scenario-output", str(staging / "power_operating_scenarios.zarr"),
+                "--model-state", str(staged_model_state),
+                "--bootstrap-state", str(BOOTSTRAP_STATE),
+                "--recommendation-archive", str(staged_recommendation_history),
+                "--uas-log", str(UAS_LOG),
+                "--planning-hours", "240",
+                "--optimization-hours", "96",
+                "--lookback-days", "30",
+                "--max-power-age-minutes", "20",
+{% if aurora_cl61_automation_shadow_enabled | bool %}
+                "--enable-automation-shadow",
+                "--automation-intent-output", str(staging / "cl61_automation_intent.json"),
+                "--automation-status-output", str(staging / "cl61_automation_status.json"),
+                "--automation-history-output", str(CL61_HISTORY),
+                "--automation-environment", {{ aurora_cl61_automation_environment | to_json }},
+{% endif %}
+            ]
+            run(scenario_command)
+            scenario_attrs, _ = read_dataset(
+                staging / "power_operating_scenarios.zarr", "staged operating scenarios"
+            )
+            if scenario_attrs.get("planning_status", "available") == "unavailable":
+                raise RuntimeError(
+                    "operating scenarios rejected inputs: "
+                    + scenario_attrs.get("planning_status_reason", "unknown reason")
+                )
+
+            run(
+                [
+                    str(PYTHON),
+                    "generate_power_display_summary.py",
+                    "--power-zarr", str(POWER_ZARR),
+                    "--asfs-logger-zarr", str(ASFS_ZARR),
+                    "--pdu-zarr", str(PDU_ZARR),
+                    "--forecast-zarr", str(operational_snapshot),
+                    "--forecast-skill-zarr", str(FORECAST_SKILL_ZARR),
+                    "--hindcast-zarr", str(HINDCAST_ZARR),
+                    "--ensemble-forecast-zarr", str(ensemble_snapshot),
+                    "--ensemble-skill-zarr", str(ENSEMBLE_SKILL_ZARR),
+                    "--operating-scenarios-zarr", str(staging / "power_operating_scenarios.zarr"),
+                    "--output-zarr", str(staging / "power_display_summary.zarr"),
+                    "--energy-output-zarr", str(staging / "power_display_energy.zarr"),
+                    "--current-output-zarr", str(staging / "power_current_display.zarr"),
+                    "--forecast-output-zarr", str(staging / "power_forecast_display.zarr"),
+                    "--manifest-path", str(staging / "power_display_manifest.json"),
+                ]
+            )
+            required = (
+                "power_operating_state.zarr",
+                "power_operating_scenarios.zarr",
+                "power_display_summary.zarr",
+                "power_display_energy.zarr",
+                "power_current_display.zarr",
+                "power_forecast_display.zarr",
+                "power_display_manifest.json",
+                "operational_forecast.zarr",
+                "planning_forecast.zarr",
+                "ensemble_forecast.zarr",
+                "power_operating_model_state.json",
+                "power_operating_recommendations.json",
+{% if aurora_cl61_automation_shadow_enabled | bool %}
+                "cl61_automation_intent.json",
+                "cl61_automation_status.json",
+{% endif %}
+            )
+            missing = [name for name in required if not (staging / name).exists()]
+            if missing:
+                raise RuntimeError("staged bundle is incomplete: " + ", ".join(missing))
+{% if aurora_cl61_automation_shadow_enabled | bool %}
+            validate_cl61_observe_only(
+                staging / "cl61_automation_intent.json",
+                staging / "cl61_automation_status.json",
+            )
+{% endif %}
+
+            completed_at = utc_now()
+            products = {
+                "operatingState": product_record(staging / "power_operating_state.zarr"),
+                "operatingScenarios": product_record(staging / "power_operating_scenarios.zarr"),
+                "displaySummary": product_record(staging / "power_display_summary.zarr"),
+                "displayEnergy": product_record(staging / "power_display_energy.zarr"),
+                "currentDisplay": product_record(staging / "power_current_display.zarr"),
+                "forecastDisplay": product_record(staging / "power_forecast_display.zarr"),
+                "displayManifest": product_record(
+                    staging / "power_display_manifest.json", include_attrs=False
+                ),
+                "deterministicForecast": product_record(staging / "operational_forecast.zarr"),
+                "planningForecast": product_record(staging / "planning_forecast.zarr"),
+                "ensembleForecast": product_record(staging / "ensemble_forecast.zarr"),
+                "operatingModelState": product_record(
+                    staging / "power_operating_model_state.json", include_attrs=False
+                ),
+                "operatingRecommendationHistory": product_record(
+                    staging / "power_operating_recommendations.json", include_attrs=False
+                ),
+            }
+{% if aurora_cl61_automation_shadow_enabled | bool %}
+            products["cl61AutomationIntent"] = product_record(
+                staging / "cl61_automation_intent.json", include_attrs=False
+            )
+            products["cl61AutomationStatus"] = product_record(
+                staging / "cl61_automation_status.json", include_attrs=False
+            )
+{% endif %}
+            source_manifest_products = {
+                label: {
+                    "product": product_name,
+                    "relativePath": products[product_name]["relativePath"],
+                    "sha256": products[product_name]["sha256"],
+                    "productIdentityID": products[product_name].get("forecastIdentityID")
+                    or products[product_name].get("publicationSignature")
+                    or products[product_name].get("sourceCycleSetID")
+                    or products[product_name]["sha256"],
+                    "forecastIdentityID": components[label]["forecastIdentityID"],
+                    "sourceCycleSetID": components[label]["sourceCycleSetID"],
+                    "upstreamSourceManifestDigest": components[label][
+                        "upstreamSourceManifestDigest"
+                    ],
+                    "sourceCycleUTC": components[label]["cycleUTC"],
+                    "socAnchorUTC": components[label]["socAnchorUTC"],
+                }
+                for label, product_name in {
+                    "deterministic": "deterministicForecast",
+                    "planning": "planningForecast",
+                    "ensemble": "ensembleForecast",
+                }.items()
+            }
+            source_manifest_digest = canonical_json_digest(source_manifest_products)
+            generation = {
+                "schemaVersion": 1,
+                "status": "complete",
+                "requestedAt": requested_at,
+                "dataUpdatedAt": completed_at,
+                "updatedAt": completed_at,
+                "controlAuthority": "advisory_only",
+                "cl61ActuationEnabled": False,
+                "components": components,
+                "products": products,
+                "sourceManifestProducts": source_manifest_products,
+                "sourceManifestDigest": f"sha256:{source_manifest_digest}",
+                **provenance,
+            }
+            atomic_json(staging / "generation.json", generation)
+            # Every completed bundle, including its exact ENS snapshot, is
+            # non-writable before any public pointer can reference it.
+            make_tree_read_only(staging)
+            os.replace(staging, final)
+            atomic_current_symlink(final, CURRENT_BUNDLE)
+            if provenance["independentCycle"]:
+                atomic_current_symlink(final, INDEPENDENT_BUNDLE)
+            if PUBLICATION_ACTIVE:
+                atomic_current_symlink(final, ACTIVE_BUNDLE)
+            publish_status(
+                "current",
+                requestedAt=requested_at,
+                dataUpdatedAt=completed_at,
+                staleReason=None,
+                failedStage=None,
+                firstFailureAt=None,
+                lastFailureStage=None,
+                lastFailureDetail=None,
+                failureCount=0,
+                activeGeneration=generation_id,
+                **provenance,
+            )
+            retain_recent_generations()
+        except Exception:
+            if staging.exists():
+                quarantine = BUNDLE_ROOT / "quarantine"
+                quarantine.mkdir(parents=True, exist_ok=True)
+                staging.rename(quarantine / f"failed-{generation_id}")
+            raise
+
+    # Quicklook warming is deliberately outside the atomic publication. A
+    # rendering failure cannot invalidate the already complete API generation.
+    subprocess.run(
+        [str(PYTHON), "generate_power_quicklooks.py", "--prewarm-only", "--skip-display-refresh"],
+        cwd=APP_DIR,
+        check=False,
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    actions = parser.add_mutually_exclusive_group(required=True)
+    actions.add_argument("--quarantine-incoming", type=Path)
+    actions.add_argument("--capture-issue", type=Path)
+    actions.add_argument("--verify-issue", type=Path)
+    actions.add_argument("--print-issue-anchor", type=Path)
+    actions.add_argument("--print-forecast-anchor", type=Path)
+    actions.add_argument("--verify-bundle", type=Path)
+    actions.add_argument("--publish", action="store_true")
+    actions.add_argument(
+        "--begin-attempt", choices=("ecmwf_cycle", "cached_reanchor")
+    )
+    actions.add_argument("--record-failure")
+    parser.add_argument("--forecast-source", type=Path, default=CURRENT_ISSUE)
+    parser.add_argument("--allow-cached-reanchor", action="store_true")
+    args = parser.parse_args()
+    try:
+        if args.quarantine_incoming is not None:
+            quarantine_incoming(args.quarantine_incoming)
+        elif args.capture_issue is not None:
+            capture_issue(args.capture_issue)
+        elif args.verify_issue is not None:
+            verify_issue_snapshot(args.verify_issue)
+        elif args.print_issue_anchor is not None:
+            print_issue_anchor(args.print_issue_anchor)
+        elif args.print_forecast_anchor is not None:
+            print_forecast_anchor(args.print_forecast_anchor)
+        elif args.verify_bundle is not None:
+            verify_bundle(args.verify_bundle)
+        elif args.begin_attempt is not None:
+            begin_attempt(args.begin_attempt)
+        elif args.publish:
+            publish_bundle(
+                args.forecast_source,
+                allow_cached_reanchor=args.allow_cached_reanchor,
+            )
+        else:
+            mark_failure(str(args.record_failure))
+        return 0
+    except Exception as exc:
+        stage = (
+            "issue_snapshot_preflight"
+            if args.quarantine_incoming is not None
+            else "issue_capture"
+            if args.capture_issue is not None
+            else "issue_verification"
+            if args.verify_issue is not None
+            else "issue_verification"
+            if args.print_issue_anchor is not None
+            else "forecast_anchor_verification"
+            if args.print_forecast_anchor is not None
+            else "bundle_activation_verification"
+            if args.verify_bundle is not None
+            else "bundle_publication"
+            if args.begin_attempt is None
+            else "attempt_initialization"
+        )
+        mark_failure(stage, str(exc))
+        print(f"{stage} failed: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

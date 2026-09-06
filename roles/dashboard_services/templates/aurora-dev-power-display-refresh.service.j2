@@ -3,6 +3,11 @@ Description=Refresh compact Power display products from mirrored Power data
 After=network-online.target aurora-dev-live-pull@product-power.service aurora-power-operating-scenarios.service
 Wants=network-online.target aurora-power-operating-scenarios.service
 ConditionPathExists={{ aurora_zarr.power }}
+{% if aurora_power_forecast_orchestration_enabled | bool %}
+# Do not permit a manual legacy refresh to mutate an active generation through
+# the atomic `current` symlink.
+ConditionPathExists=!{{ aurora_power_forecast_bundle_current_root }}/generation.json
+{% endif %}
 
 [Service]
 Type=oneshot
