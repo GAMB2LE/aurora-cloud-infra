@@ -77,6 +77,10 @@ active alert. Expired evidence, confirmed settled gaps, permanent failures, a
 raise alerts. A delayed listing is reported as verification overdue, not proof
 that archive copies are missing. Escalation does not cancel transient retries.
 
+Ops evidence age and expiry use the oldest required trusted confirmation from
+the pinned family gate, not the newest check or an in-progress worker timestamp.
+Refreshing another family cannot extend that published evidence deadline.
+
 After correcting an explicit authentication/configuration block, use
 `sudo aurora-object-store-recovery retry --job <exact-family>`. This records a
 manual intervention and starts a fresh observation; it does not certify parity.

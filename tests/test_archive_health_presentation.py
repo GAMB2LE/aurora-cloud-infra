@@ -118,6 +118,110 @@ class ArchiveHealthPresentationTests(unittest.TestCase):
         self.assertEqual(recovery["affected_jobs"], ["products"])
         self.assertFalse(result["pruning_paused"])
 
+    def confirmation_fixture(self, name, starts):
+        observations = [
+            {"verification_id": f"{name}-{index}", "evidence_started_at": started.isoformat(),
+             "verification_completed_at": (started + dt.timedelta(minutes=2)).isoformat(), "start_trusted": True}
+            for index, started in enumerate(starts)
+        ]
+        latest = observations[-1]
+        return {"jobs": {name: latest}}, {"families": {name: {
+            **latest, "evidence_start_trusted": True, "observations": observations,
+            "confirmation_evidence_started_at": min(starts).isoformat(),
+            "clean_streak": len(observations), "stable_parity": len(observations) >= 2,
+        }}}
+
+    def test_recovery_raw_age_and_expiry_use_oldest_required_confirmation(self):
+        current = dt.datetime(2026, 9, 6, 12, 40, tzinfo=dt.timezone.utc)
+        first = current.replace(hour=11, minute=30, second=38)
+        second = current.replace(hour=12, minute=0, second=40)
+        report, gate = self.confirmation_fixture("raw", [first, second])
+        state = recovery_status(self.recovery_fixture(current), report, True, current, gate=gate)
+        raw = state["jobs"]["raw"]
+        self.assertEqual(raw["observation_age_hours"], (current - first).total_seconds() / 3600)
+        self.assertEqual(raw["evidence_expires_at"], "2026-09-06T19:30:38+00:00")
+
+    def test_recovery_product_families_keep_independent_confirmation_clocks(self):
+        current = dt.datetime(2026, 9, 6, 12, 40, tzinfo=dt.timezone.utc)
+        report, gate = {"jobs": {}}, {"families": {}}
+        for name, age in (("products", 20), ("products-wxcam", 10), ("manifests", 2)):
+            family_report, family_gate = self.confirmation_fixture(
+                name, [current - dt.timedelta(hours=age), current - dt.timedelta(hours=age - 1)])
+            report["jobs"].update(family_report["jobs"])
+            gate["families"].update(family_gate["families"])
+        before = recovery_status(self.recovery_fixture(current), report, True, current, gate=gate)
+        updated_report, updated_gate = self.confirmation_fixture(
+            "manifests", [current - dt.timedelta(hours=1), current])
+        report["jobs"].update(updated_report["jobs"])
+        gate["families"].update(updated_gate["families"])
+        after = recovery_status(self.recovery_fixture(current), report, True, current, gate=gate)
+        for name, age in (("products", 20), ("products-wxcam", 10)):
+            with self.subTest(name=name):
+                self.assertEqual(after["jobs"][name]["observation_age_hours"], age)
+                self.assertEqual(after["jobs"][name]["evidence_expires_at"],
+                                 (current + dt.timedelta(hours=36 - age)).isoformat())
+                self.assertEqual(after["jobs"][name], before["jobs"][name])
+        self.assertEqual(after["jobs"]["manifests"]["observation_age_hours"], 1)
+
+    def test_recovery_confirmation_expiry_does_not_move_without_new_evidence(self):
+        current = dt.datetime(2026, 9, 6, 12, 40, tzinfo=dt.timezone.utc)
+        first, second = current - dt.timedelta(hours=7), current - dt.timedelta(hours=1)
+        report, gate = self.confirmation_fixture("raw", [first, second])
+        before = recovery_status(self.recovery_fixture(current), report, True, current, gate=gate)
+        later = current + dt.timedelta(hours=2)
+        after = recovery_status(self.recovery_fixture(later), report, True, later, gate=gate)
+        self.assertEqual(before["jobs"]["raw"]["observation_age_hours"], 7)
+        self.assertEqual(after["jobs"]["raw"]["observation_age_hours"], 9)
+        self.assertEqual(after["jobs"]["raw"]["evidence_expires_at"], before["jobs"]["raw"]["evidence_expires_at"])
+        self.assertLess(dt.datetime.fromisoformat(after["jobs"]["raw"]["evidence_expires_at"]), later)
+
+    def test_recovery_first_confirmation_uses_its_trusted_observation_start(self):
+        current = dt.datetime(2026, 9, 6, 12, 40, tzinfo=dt.timezone.utc)
+        started = current - dt.timedelta(hours=1)
+        report, gate = self.confirmation_fixture("raw", [started])
+        for supplied_gate in (gate, {}):
+            with self.subTest(gate_present=bool(supplied_gate)):
+                state = recovery_status(self.recovery_fixture(current), report, True, current, gate=supplied_gate)
+                self.assertEqual(state["jobs"]["raw"]["observation_age_hours"], 1)
+                self.assertEqual(state["jobs"]["raw"]["evidence_expires_at"],
+                                 (started + dt.timedelta(hours=8)).isoformat())
+
+    def test_in_flight_queue_diagnostics_do_not_reset_published_evidence_age(self):
+        current = dt.datetime(2026, 9, 6, 12, 40, tzinfo=dt.timezone.utc)
+        report, gate = self.confirmation_fixture(
+            "products", [current - dt.timedelta(hours=20), current - dt.timedelta(hours=10)])
+        queue = self.recovery_fixture(current, state="running", verification_id="products-in-flight",
+                                      evidence_started_at=current.isoformat(),
+                                      expires_at=(current + dt.timedelta(hours=12)).isoformat())
+        job = recovery_status(queue, report, True, current, gate=gate)["jobs"]["products"]
+        self.assertEqual(job["verification_id"], "products-in-flight")
+        self.assertEqual(job["evidence_started_at"], current.isoformat())
+        self.assertEqual(job["expires_at"], (current + dt.timedelta(hours=12)).isoformat())
+        self.assertEqual(job["progress"], {"pages": 400})
+        self.assertEqual(job["observation_age_hours"], 20)
+        self.assertEqual(job["evidence_expires_at"], (current + dt.timedelta(hours=16)).isoformat())
+
+    def test_recovery_does_not_mix_an_unmatched_gate_with_report_evidence(self):
+        current = dt.datetime(2026, 9, 6, 12, 40, tzinfo=dt.timezone.utc)
+        report, gate = self.confirmation_fixture(
+            "raw", [current - dt.timedelta(hours=2), current - dt.timedelta(hours=1)])
+        gate["families"]["raw"]["verification_id"] = "unmatched-observation"
+        state = recovery_status(self.recovery_fixture(current), report, True, current, gate=gate)
+        self.assertEqual(state["jobs"]["raw"]["observation_age_hours"], 1)
+        self.assertEqual(state["jobs"]["raw"]["evidence_expires_at"],
+                         (current + dt.timedelta(hours=7)).isoformat())
+
+    def test_recovery_gate_metadata_cannot_extend_latest_trusted_evidence(self):
+        current = dt.datetime(2026, 9, 6, 12, 40, tzinfo=dt.timezone.utc)
+        report, gate = self.confirmation_fixture("raw", [current - dt.timedelta(hours=1)])
+        for floor in (None, "not-a-timestamp", current.isoformat(), (current + dt.timedelta(hours=10)).isoformat()):
+            with self.subTest(floor=floor):
+                gate["families"]["raw"]["confirmation_evidence_started_at"] = floor
+                state = recovery_status(self.recovery_fixture(current), report, True, current, gate=gate)
+                self.assertEqual(state["jobs"]["raw"]["observation_age_hours"], 1)
+                self.assertEqual(state["jobs"]["raw"]["evidence_expires_at"],
+                                 (current + dt.timedelta(hours=7)).isoformat())
+
     def migration_gate(self, current):
         gate = self.clean_gate(current)
         gate.update(clean=False, stable_parity=False, raw_retention_ready=False)
@@ -168,7 +272,8 @@ class ArchiveHealthPresentationTests(unittest.TestCase):
     def test_legacy_completion_time_cannot_be_shown_as_trusted_observation_expiry(self):
         current = dt.datetime.now(dt.timezone.utc)
         legacy = {"jobs": {"products": {"verified_at": current.isoformat()}}}
-        state = recovery_status(self.recovery_fixture(current), legacy, True, current)
+        _, gate = self.confirmation_fixture("products", [current - dt.timedelta(hours=1)])
+        state = recovery_status(self.recovery_fixture(current), legacy, True, current, gate=gate)
         self.assertIsNone(state["jobs"]["products"]["observation_age_hours"])
         self.assertIsNone(state["jobs"]["products"]["evidence_expires_at"])
 
