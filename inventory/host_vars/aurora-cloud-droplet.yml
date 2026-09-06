@@ -8,7 +8,7 @@ aurora_public_ip: 167.172.54.82
 aurora_app_repo: https://github.com/GAMB2LE/aurora_cloud_dashboard.git
 # Exact clean dashboard commit currently validated on development. Production
 # remains independently pinned to its immutable release tag.
-aurora_app_version: d016a7b12a08a36b6f8901a6bb92febd5e8ce4b8
+aurora_app_version: dfc0bb49f49ae8d9cedc704d3d186ef65c272fa9
 # Development-only performance experiment. Panel supports reconnecting after a
 # brief disconnect, while this prevents unused phone sessions retaining a full
 # dashboard document. Production currently uses a two-minute lifetime.
@@ -38,11 +38,10 @@ aurora_dashboard_allowed_origins:
 # outside the mirrored production product tree so the five-minute mirror cannot
 # remove a valid development build that production has not published yet.
 aurora_power_forecast_orchestration_enabled: true
-# Two-phase safety gate: leave consumers on the established dev products for
-# the machinery-only deployment.  After a real complete generation exists,
-# change this to true and re-run the focused release; Ansible refuses an early
-# activation and the API then validates every artifact before exposure.
-aurora_power_forecast_publication_active: false
+# Phase-two activation is limited to the checksum-verified, complete v10
+# advisory bundle. Candidate v12 remains isolated, and CL61 actuation remains
+# disabled behind its independent capability and authority gates.
+aurora_power_forecast_publication_active: true
 aurora_power_paired_evaluation_enabled: true
 # Install the explicit one-shot pre-deployment v10 evidence snapshot helper on
 # development. It never runs as part of a normal dashboard release.

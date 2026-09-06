@@ -654,14 +654,16 @@ def test_independent_mutating_timers_are_disabled_when_orchestrated() -> None:
     assert guard in scenario_service
 
 
-def test_first_deploy_keeps_legacy_paths_until_explicit_valid_activation() -> None:
+def test_development_activates_only_after_explicit_bundle_validation() -> None:
     defaults = (ROOT / "inventory/group_vars/aurora_cloud.yml").read_text()
     development = (ROOT / "inventory/host_vars/aurora-cloud-droplet.yml").read_text()
     tasks = (ROOT / "roles/dashboard_services/tasks/main.yml").read_text()
     environment = (TEMPLATES / "aurora-dashboard.env.j2").read_text()
 
     assert "aurora_power_forecast_publication_active: false" in defaults
-    assert "aurora_power_forecast_publication_active: false" in development
+    assert "aurora_power_forecast_publication_active: true" in development
+    assert "checksum-verified, complete v10" in development
+    assert "CL61 actuation remains" in development
     assert "Bootstrap development Power bundle pointer" not in tasks
     assert "Refuse public Power bundle activation before a real generation exists" in tasks
     assert "Validate the public Power bundle activation marker" in tasks
