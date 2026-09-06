@@ -127,4 +127,4 @@
         group: root
         mode: '0644'
         unsafe_writes: false
-        validate: /usr/bin/python3 -m py_compile %s
+        validate: /usr/bin/python3 -c "import pathlib, sys; compile(pathlib.Path(sys.argv[1]).read_bytes(), sys.argv[1], 'exec')" "%s"
