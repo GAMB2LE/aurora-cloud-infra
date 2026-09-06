@@ -5,6 +5,9 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 SITE_TEMPLATE = ROOT / "roles/nginx/templates/aurora-dashboard.nginx.j2"
 ZONE_TEMPLATE = ROOT / "roles/nginx/templates/aurora-dashboard-rate-limits.conf.j2"
+SECURITY_HEADERS_TEMPLATE = (
+    ROOT / "roles/nginx/templates/aurora-dashboard-security-headers.conf.j2"
+)
 
 
 class NginxMobileMediaLimitTests(unittest.TestCase):
@@ -41,3 +44,11 @@ class NginxMobileMediaLimitTests(unittest.TestCase):
 {% endif %}"""
 
         self.assertEqual(site.count(guarded_redirect), 2)
+
+    def test_panel_blob_module_loader_is_allowed_by_csp(self) -> None:
+        headers = SECURITY_HEADERS_TEMPLATE.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:;",
+            headers,
+        )
