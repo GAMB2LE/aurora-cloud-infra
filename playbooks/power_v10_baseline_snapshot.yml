@@ -36,6 +36,39 @@
       changed_when: true
       when: not ansible_check_mode
 
+    - name: Inspect forecast generator lock after snapshot
+      ansible.builtin.stat:
+        path: "{{ aurora_power_forecast_generator_lock_path }}"
+        follow: false
+      register: aurora_power_forecast_generator_lock
+      when: not ansible_check_mode
+
+    - name: Assert snapshot preserved service-user lock ownership
+      ansible.builtin.assert:
+        that:
+          - aurora_power_forecast_generator_lock.stat.exists
+          - aurora_power_forecast_generator_lock.stat.isreg
+          - not aurora_power_forecast_generator_lock.stat.islnk
+          - aurora_power_forecast_generator_lock.stat.pw_name == aurora_service_user
+          - aurora_power_forecast_generator_lock.stat.gr_name == aurora_service_group
+          - aurora_power_forecast_generator_lock.stat.mode == '0600'
+        fail_msg: >-
+          The snapshot completed but did not leave the shared forecast lock as
+          an exact service-owned 0600 regular file; refusing to report success.
+      when: not ansible_check_mode
+
+    - name: Prove forecast service user can open the snapshot lock for writing
+      ansible.builtin.command:
+        argv:
+          - /bin/bash
+          - -c
+          - 'exec 9>>"$1"'
+          - aurora-lock-open-check
+          - "{{ aurora_power_forecast_generator_lock_path }}"
+      become_user: "{{ aurora_service_user }}"
+      changed_when: false
+      when: not ansible_check_mode
+
     - name: Report immutable v10 evidence snapshot
       ansible.builtin.debug:
         var: aurora_power_baseline_snapshot.stdout

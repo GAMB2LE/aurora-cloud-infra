@@ -208,7 +208,12 @@ def test_power_baseline_snapshot_helper_is_dev_only_explicit_and_valid_bash(
     assert 'generator_lock} != "${allowed_product_root}/.deterministic-generator.lock"' in content
     assert 'install -o "${service_user}" -g "${service_group}" -m 0600 /dev/null "${generator_lock}"' in content
     assert 'chown "${service_user}:${service_group}" -- "${generator_lock}"' in content
-    assert content.index('chown "${service_user}:${service_group}" -- "${generator_lock}"') < content.index('exec 9>"${generator_lock}"')
+    lock_open = content.index('exec 9>"${generator_lock}"')
+    assert content.index('generator_lock} != "${allowed_product_root}/.deterministic-generator.lock"') < lock_open
+    assert content.index('-L ${generator_lock}') < lock_open
+    assert content.index('install -o "${service_user}" -g "${service_group}" -m 0600 /dev/null "${generator_lock}"') < lock_open
+    assert content.index('chown "${service_user}:${service_group}" -- "${generator_lock}"') < lock_open
+    assert content.index('chmod 0600 -- "${generator_lock}"') < lock_open
     assert "status --porcelain=v1 --untracked-files=all" in content
     assert 'systemctl start --no-block "${unit}"' in content
     assert 'systemctl cat "${unit}" > "${definition_path}"' in content
@@ -232,6 +237,12 @@ def test_power_baseline_snapshot_playbook_requires_explicit_unpublished_dev_targ
     assert "aurora_power_forecast_publication_active | bool == false" in playbook
     assert "aurora_power_baseline_snapshot_name is defined" in playbook
     assert "aurora_release_snapshot_capture_on_run: false" in playbook
+    assert "Inspect forecast generator lock after snapshot" in playbook
+    assert "aurora_power_forecast_generator_lock.stat.pw_name == aurora_service_user" in playbook
+    assert "aurora_power_forecast_generator_lock.stat.gr_name == aurora_service_group" in playbook
+    assert "aurora_power_forecast_generator_lock.stat.mode == '0600'" in playbook
+    assert "Prove forecast service user can open the snapshot lock for writing" in playbook
+    assert "become_user: \"{{ aurora_service_user }}\"" in playbook
     assert "aurora_power_baseline_snapshot_enabled: false" in defaults
     assert "aurora_power_baseline_snapshot_enabled: true" in development
 
