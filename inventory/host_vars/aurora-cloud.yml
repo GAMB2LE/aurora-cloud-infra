@@ -11,4 +11,4 @@ ass_retention_dry_run: false
 ass_retention_timer_enabled: true
 ass_retention_max_candidates_per_run: 50000
 object_store_recovery_enabled: true
-object_store_recovery_deployment_id: ea7ba899d09ab5f0024ae38c5dbbabd27497cbbd
+object_store_recovery_deployment_id: 87a5057d41d57d2496322616b4973f93cf4d7ba9
