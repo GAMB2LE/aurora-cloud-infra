@@ -24,6 +24,15 @@ class V12CandidateEnsembleBoundaryTests(unittest.TestCase):
         self.assertNotIn("ConditionPathExists={{ aurora_zarr.power_soc_ensemble }}", service)
         self.assertIn("ReadWritePaths={{ aurora_power_v12_candidate_root }}", service)
         self.assertIn("MemoryMax=1.5G", service)
+        self.assertIn(
+            "ExecCondition={{ aurora_venv }}/bin/python /usr/local/bin/aurora-power-v12-candidate-launch --require-model-evaluation-idle",
+            service,
+        )
+        self.assertLess(service.index("ExecCondition="), service.index("ExecStart="))
+        self.assertIn('MODEL_EVALUATION_UNIT = "aurora-model-evaluation-daily.service"', launcher)
+        self.assertIn('active_state not in {"inactive", "failed"}', launcher)
+        self.assertIn('reason_code="model_evaluation_active"', launcher)
+        self.assertIn('["--require-model-evaluation-idle"]', launcher)
 
 
 if __name__ == "__main__":
