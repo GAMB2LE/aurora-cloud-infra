@@ -52,3 +52,17 @@ class NginxMobileMediaLimitTests(unittest.TestCase):
             "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:;",
             headers,
         )
+
+    def test_panel_presentation_origins_are_explicitly_allowlisted(self) -> None:
+        headers = SECURITY_HEADERS_TEMPLATE.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net;",
+            headers,
+        )
+        self.assertIn(
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net;",
+            headers,
+        )
+        self.assertNotRegex(headers, r"(?:^|[ ;])https:(?:[ ;])")
+        self.assertNotIn("gamb2le.pages.dev", headers)
