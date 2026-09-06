@@ -1262,7 +1262,12 @@ def main() -> int:
             if args.begin_attempt is None
             else "attempt_initialization"
         )
-        mark_failure(stage, str(exc))
+        # Bundle verification is also used as a read-only deployment and
+        # operator diagnostic.  A rejected path or corrupt candidate must
+        # fail its caller without rewriting the live forecast-pipeline status;
+        # the activation play remains fail-closed on this non-zero exit.
+        if args.verify_bundle is None:
+            mark_failure(stage, str(exc))
         print(f"{stage} failed: {exc}", file=sys.stderr)
         return 1
 

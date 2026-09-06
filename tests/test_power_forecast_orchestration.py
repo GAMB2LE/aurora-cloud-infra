@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import shlex
 import subprocess
+import sys
 
 from jinja2 import Environment, StrictUndefined
 import pandas as pd
@@ -806,6 +807,38 @@ def test_activation_bundle_verifier_rejects_a_corrupt_product(tmp_path: Path) ->
         generation.chmod(0o755)
         for item in generation.rglob("*"):
             item.chmod(0o755 if item.is_dir() else 0o644)
+
+
+def test_activation_bundle_verifier_failure_is_read_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    namespace = {"__name__": "rendered_power_publisher"}
+    exec(compile(_render_publisher(), str(PUBLISHER), "exec"), namespace)
+    generations = tmp_path / "generations"
+    generation = generations / "20260905T000000Z-fixture"
+    generation.mkdir(parents=True)
+    active = tmp_path / "active"
+    active.symlink_to(generation.relative_to(tmp_path))
+    status = tmp_path / "status.json"
+    history = tmp_path / "history.jsonl"
+    original_status = '{"status":"current"}\n'
+    original_history = '{"status":"current"}\n'
+    status.write_text(original_status)
+    history.write_text(original_history)
+    namespace["GENERATIONS_ROOT"] = generations
+    namespace["STATUS_PATH"] = status
+    namespace["HISTORY_PATH"] = history
+    monkeypatch.setattr(
+        sys, "argv", ["aurora-power-forecast-publish", "--verify-bundle", str(active)]
+    )
+
+    assert namespace["main"]() == 1
+    assert status.read_text() == original_status
+    assert history.read_text() == original_history
+    assert (
+        "bundle_activation_verification failed: "
+        "bundle verification requires a direct generation path"
+    ) in capsys.readouterr().err
 
 
 def test_activated_consumers_use_only_the_validated_active_pointer() -> None:
