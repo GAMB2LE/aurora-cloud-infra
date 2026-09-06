@@ -8,7 +8,7 @@ aurora_public_ip: 167.172.54.82
 aurora_app_repo: https://github.com/GAMB2LE/aurora_cloud_dashboard.git
 # Exact clean dashboard commit currently validated on development. Production
 # remains independently pinned to its immutable release tag.
-aurora_app_version: f7151a15c0fd7931628823badda3e71c57db04fa
+aurora_app_version: e7fae34b7847518a10562463d7a53354779900a1
 # Development-only performance experiment. Panel supports reconnecting after a
 # brief disconnect, while this prevents unused phone sessions retaining a full
 # dashboard document. Production currently uses a two-minute lifetime.
