@@ -1,6 +1,13 @@
 """Keep acceptance-only rollout separate from collection and retention state."""
 from pathlib import Path
+import shlex
+import subprocess
+import sys
+import tempfile
 import unittest
+
+
+VALIDATE_COMMAND = '''/usr/bin/python3 -c "import pathlib, sys; compile(pathlib.Path(sys.argv[1]).read_bytes(), sys.argv[1], 'exec')" "%s"'''
 
 
 class AcceptanceDeploymentTests(unittest.TestCase):
@@ -13,7 +20,26 @@ class AcceptanceDeploymentTests(unittest.TestCase):
         self.assertNotIn('dest: /etc/', text)
         self.assertNotIn('queue.sqlite', text)
         self.assertIn('unsafe_writes: false', text)
-        self.assertIn('validate: /usr/bin/python3 -m py_compile %s', text)
+        self.assertIn('validate: ' + VALIDATE_COMMAND, text)
+
+    def test_focused_validators_check_syntax_without_bytecode_or_execution(self):
+        for playbook in ('archive_recovery_acceptance.yml', 'archive_recovery_health.yml'):
+            text = (Path(__file__).parents[1] / 'playbooks' / playbook).read_text()
+            self.assertIn('validate: ' + VALIDATE_COMMAND, text)
+            self.assertNotIn('py_compile', text)
+            for source, valid in ((b'raise RuntimeError("must not execute")\n', True),
+                                  (b'def invalid(:\n', False)):
+                with self.subTest(playbook=playbook, valid=valid), tempfile.TemporaryDirectory() as temporary:
+                    path = Path(temporary) / 'staged source.py'
+                    path.write_bytes(source)
+                    # Ansible substitutes the staged path and splits argv;
+                    # no shell processes the command or its quoted argument.
+                    command = shlex.split(VALIDATE_COMMAND % path)
+                    command[0] = sys.executable
+                    result = subprocess.run(command, capture_output=True, text=True, timeout=10)
+                    self.assertEqual(result.returncode == 0, valid, result.stderr)
+                    self.assertEqual(path.read_bytes(), source)
+                    self.assertEqual(list(Path(temporary).iterdir()), [path])
 
     def test_verified_unique_rollback_precedes_module_update(self):
         text = (Path(__file__).parents[1] / 'playbooks' /
