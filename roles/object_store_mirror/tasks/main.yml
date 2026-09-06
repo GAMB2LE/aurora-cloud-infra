@@ -13,6 +13,9 @@
     - { path: "{{ object_store_repair_state_root }}", owner: "{{ aurora_service_user }}", group: "{{ aurora_service_group }}", mode: "0755" }
     - { path: /etc/aurora-object-store, owner: root, group: "{{ aurora_service_group }}", mode: "0750" }
     - { path: "{{ aurora_state_root }}/object-store-verification-gate", owner: root, group: root, mode: "0755" }
+    - { path: "{{ object_store_recovery_root }}", owner: "{{ aurora_service_user }}", group: "{{ aurora_service_group }}", mode: "2770" }
+    - { path: /usr/local/lib/aurora-object-store, owner: root, group: root, mode: "0755" }
+    - { path: "{{ object_store_recovery_runtime }}", owner: root, group: root, mode: "0755" }
   when: object_store_mirror_enabled | bool
 
 - name: Install object-store catalogue
@@ -76,6 +79,74 @@
     - aurora-object-store-repair.service
     - aurora-object-store-repair.path
     - aurora-object-store-recheck-after-repair.service
+    - aurora-object-store-recovery.service
+    - aurora-object-store-recovery.timer
+    - aurora-object-store-recovery-worker@.service
+    - aurora-object-store-recovery-upload.service
+    - aurora-object-store-recovery-upload.timer
+  when: object_store_mirror_enabled | bool
+
+- name: Install recovery modules together for stable sibling imports
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "/usr/local/lib/aurora-object-store/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - { src: aurora_object_store_recovery.py, dest: aurora_object_store_recovery.py }
+    - { src: aurora_object_store_s3.py, dest: aurora_object_store_s3.py }
+    - { src: aurora_object_store_evidence.py, dest: aurora_object_store_evidence.py }
+    - { src: aurora_object_store_acceptance.py, dest: aurora_object_store_acceptance.py }
+    - { src: aurora-object-store-inventory.py, dest: aurora_object_store_inventory.py }
+    - { src: aurora-object-store-verification-gate.py, dest: aurora_object_store_verification_gate.py }
+    - { src: aurora-object-store-verification-gate.py, dest: aurora-object-store-verification-gate.py }
+  when: object_store_mirror_enabled | bool
+
+- name: Install hash-locked recovery runtime requirements
+  ansible.builtin.copy:
+    src: aurora-object-store-recovery-requirements.txt
+    dest: "{{ object_store_recovery_runtime }}/requirements.txt"
+    owner: root
+    group: root
+    mode: "0644"
+  register: object_store_recovery_requirements
+  when: object_store_mirror_enabled | bool
+
+- name: Create dedicated recovery virtual environment
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -m
+      - venv
+      - "{{ object_store_recovery_runtime }}/venv"
+    creates: "{{ object_store_recovery_runtime }}/venv/bin/python"
+  register: object_store_recovery_venv
+  when: object_store_mirror_enabled | bool
+
+- name: Install locked recovery reader dependencies
+  ansible.builtin.command:
+    argv:
+      - "{{ object_store_recovery_runtime }}/venv/bin/python"
+      - -m
+      - pip
+      - install
+      - --require-hashes
+      - --only-binary=:all:
+      - --requirement
+      - "{{ object_store_recovery_runtime }}/requirements.txt"
+  when:
+    - object_store_mirror_enabled | bool
+    - object_store_recovery_requirements.changed or object_store_recovery_venv.changed
+    - not ansible_check_mode
+
+- name: Install recovery entry point using its dedicated runtime
+  ansible.builtin.template:
+    src: aurora-object-store-recovery.j2
+    dest: /usr/local/bin/aurora-object-store-recovery
+    owner: root
+    group: root
+    mode: "0755"
   when: object_store_mirror_enabled | bool
 
 - name: Find obsolete object-store unit backup files
@@ -142,9 +213,31 @@
     daemon_reload: true
   loop:
     - aurora-object-store-inventory.timer
-    - aurora-object-store-inventory-incremental@raw.timer
     - aurora-object-store-verification-gate.path
     - aurora-object-store-repair.path
+  when:
+    - object_store_mirror_enabled | bool
+    - not ansible_check_mode
+
+- name: Keep legacy raw scheduling only when recovery is disabled
+  ansible.builtin.systemd:
+    name: aurora-object-store-inventory-incremental@raw.timer
+    enabled: "{{ not object_store_recovery_enabled | bool }}"
+    state: "{{ 'stopped' if object_store_recovery_enabled | bool else 'started' }}"
+    daemon_reload: true
+  when:
+    - object_store_mirror_enabled | bool
+    - not ansible_check_mode
+
+- name: Apply automatic recovery scheduling policy
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: "{{ object_store_recovery_enabled | bool }}"
+    state: "{{ 'started' if object_store_recovery_enabled | bool else 'stopped' }}"
+    daemon_reload: true
+  loop:
+    - aurora-object-store-recovery.timer
+    - aurora-object-store-recovery-upload.timer
   when:
     - object_store_mirror_enabled | bool
     - not ansible_check_mode

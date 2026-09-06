@@ -1,0 +1,22 @@
+[Unit]
+Description=Upload a pinned canonical archive verification generation
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists={{ object_store_rclone_config }}
+ConditionPathExists={{ object_store_manifest_root }}/latest/comparison.json
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+UMask=0007
+Environment=XDG_CACHE_HOME={{ object_store_cache_root }}
+LoadCredential=s3-rclone-config:{{ object_store_rclone_config }}
+ExecStart=/usr/local/bin/aurora-object-store-recovery --catalog /etc/aurora-object-store/catalog.json upload
+TimeoutStartSec=30min
+Nice=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths={{ object_store_cache_root }} {{ object_store_recovery_root }}

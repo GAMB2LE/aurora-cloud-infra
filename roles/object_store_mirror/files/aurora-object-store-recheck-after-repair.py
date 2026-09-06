@@ -242,6 +242,9 @@ def recheck(
     sleep: Callable[[float], None] = time.sleep,
 ) -> int:
     result = json.loads(result_path.read_text(encoding="utf-8"))
+    if result.get('recovery_enqueued'):
+        print('Durable recovery queue owns the independent post-repair confirmations.')
+        return 0
     report = json.loads(report_path.read_text(encoding="utf-8"))
     jobs = repaired_jobs(result, report)
     if not jobs:

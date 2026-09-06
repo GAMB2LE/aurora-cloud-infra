@@ -12,6 +12,9 @@ from pathlib import Path
 import subprocess
 import sys
 
+sys.path.insert(0, "/usr/local/lib/aurora-object-store")
+from aurora_object_store_evidence import read_snapshot
+
 MIRROR = Path({{ gws_manifest_root | to_json }}) / "latest"
 OBJECT = Path({{ object_store_manifest_root | to_json }}) / "latest/comparison.json"
 OBJECT_GATE = Path({{ aurora_state_root | to_json }}) / "object-store-verification-gate/state.json"
@@ -122,7 +125,7 @@ def interleave_candidates(
     return selected
 
 
-def main() -> None:
+def prepare_retention(object_snapshot, object_config) -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--max-candidates",
@@ -154,7 +157,7 @@ def main() -> None:
     if not SIGNING_KEY.is_file():
         fail("permit signing key is unavailable")
     summary_path = MIRROR / "summary.json"
-    if not summary_path.exists() or not OBJECT.exists() or not OBJECT_GATE.exists():
+    if not summary_path.exists():
         fail("required verification evidence is missing")
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     verification_run = timestamp(summary["generated_at"])
@@ -169,8 +172,8 @@ def main() -> None:
     summary = json.loads(snapshot_summary.read_text(encoding="utf-8"))
     if timestamp(summary["generated_at"]) != verification_run:
         fail("immutable GWS verification snapshot is inconsistent")
-    report = json.loads(OBJECT.read_text(encoding="utf-8"))
-    object_gate = json.loads(OBJECT_GATE.read_text(encoding="utf-8"))
+    report = object_snapshot.report
+    object_gate = object_snapshot.gate
     verification_run = summary["generated_at"]
     object_store_run = report["generated_at"]
     if now - timestamp(summary["generated_at"]) > MAX_AGE:
@@ -271,8 +274,9 @@ def main() -> None:
         # retaining the pinned immutable candidate snapshot. Never issue a
         # permit beyond either the pinned or current raw-evidence deadline.
         current_summary = json.loads(summary_path.read_text(encoding="utf-8"))
-        current_report = json.loads(OBJECT.read_text(encoding="utf-8"))
-        current_gate = json.loads(OBJECT_GATE.read_text(encoding="utf-8"))
+        with read_snapshot(object_config) as current_snapshot:
+            current_report = current_snapshot.report
+            current_gate = current_snapshot.gate
         if current_gate.get("last_generated_at") != current_report.get(
             "generated_at"
         ):
@@ -387,6 +391,20 @@ def main() -> None:
         f"{'dry-run ' if DRY_RUN else ''}candidates "
         f"from {candidate_total} eligible"
     )
+
+
+def main() -> None:
+    object_config = {
+        "manifest_root": str(OBJECT.parent.parent),
+        "gate_state_path": str(OBJECT_GATE),
+    }
+    try:
+        # Keep the original report, gate and artifacts pinned for the complete
+        # candidate run. Each permit batch independently rechecks current proof.
+        with read_snapshot(object_config) as object_snapshot:
+            prepare_retention(object_snapshot, object_config)
+    except (OSError, ValueError) as error:
+        fail(f"cannot pin consistent object-store evidence: {error}")
 
 
 if __name__ == "__main__":

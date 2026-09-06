@@ -48,6 +48,70 @@ def load_retention_evidence_helpers():
 
 
 class ObjectStoreUnitTests(unittest.TestCase):
+    def test_recovery_units_are_bounded_and_credentials_are_restricted(self) -> None:
+        worker = (TEMPLATES / "aurora-object-store-recovery-worker@.service.j2").read_text()
+        tick = (TEMPLATES / "aurora-object-store-recovery.service.j2").read_text()
+        timer = (TEMPLATES / "aurora-object-store-recovery.timer.j2").read_text()
+        wrapper = (TEMPLATES / "aurora-object-store-recovery.j2").read_text()
+        self.assertIn("LoadCredential=s3-rclone-config:", worker)
+        self.assertIn("LoadCredential=gws-key:", worker)
+        self.assertIn("ProtectHome=true", worker)
+        self.assertIn("UMask=0007", worker)
+        self.assertIn("worker --job %i", worker)
+        self.assertIn("User=root", tick)
+        self.assertIn("ExecStopPost=+/usr/local/sbin/aurora-object-store-verification-gate", tick)
+        self.assertIn("OnBootSec=1min", timer)
+        self.assertIn("OnUnitActiveSec=5min", timer)
+        self.assertIn('/venv/bin/python /usr/local/lib/aurora-object-store/aurora_object_store_recovery.py "$@"', wrapper)
+
+    def test_recovery_deployment_stages_runtime_without_enabling_scheduler(self) -> None:
+        variables = GROUP_VARS.read_text()
+        tasks = (TEMPLATES.parent / "tasks/main.yml").read_text()
+        self.assertIn("object_store_recovery_enabled: false", variables)
+        self.assertIn("--require-hashes", tasks)
+        self.assertIn("--only-binary=:all:", tasks)
+        self.assertIn('mode: "2770"', tasks)
+        self.assertIn('"{{ not object_store_recovery_enabled | bool }}"', tasks)
+        for module in ("aurora_object_store_recovery.py", "aurora_object_store_s3.py", "aurora_object_store_evidence.py", "aurora_object_store_inventory.py"):
+            self.assertIn(module, tasks)
+
+    def test_enabled_legacy_units_enqueue_without_claiming_verification(self) -> None:
+        full = (TEMPLATES / "aurora-object-store-inventory.service.j2").read_text()
+        incremental = (TEMPLATES / "aurora-object-store-inventory-incremental@.service.j2").read_text()
+        self.assertIn("enqueue --daily", full)
+        self.assertIn("enqueue --job %i", incremental)
+        for source in (full, incremental):
+            recovery_branch = source.split("{% if object_store_recovery_enabled | bool %}", 1)[1].split("{% else %}", 1)[0]
+            self.assertNotIn("trigger-retention", recovery_branch)
+            self.assertNotIn("verification-gate", recovery_branch)
+            self.assertIn("TimeoutStartSec=2min", recovery_branch)
+
+    def test_canonical_manifest_uploads_are_preserved_and_retried(self) -> None:
+        upload = (TEMPLATES / "aurora-object-store-recovery-upload.service.j2").read_text()
+        timer = (TEMPLATES / "aurora-object-store-recovery-upload.timer.j2").read_text()
+        worker = (TEMPLATES / "aurora-object-store-recovery-worker@.service.j2").read_text()
+        tasks = (TEMPLATES.parent / "tasks/main.yml").read_text()
+        self.assertIn("User={{ aurora_service_user }}", upload)
+        self.assertIn("LoadCredential=s3-rclone-config:", upload)
+        self.assertIn("catalog.json upload", upload)
+        self.assertIn("TimeoutStartSec=30min", upload)
+        self.assertIn("ProtectSystem=strict", upload)
+        self.assertIn("OnBootSec=2min", timer)
+        self.assertIn("OnUnitActiveSec=15min", timer)
+        self.assertIn("Unit=aurora-object-store-recovery-upload.service", timer)
+        self.assertLess(worker.index("ExecStopPost=+/usr/local/sbin/aurora-object-store-verification-gate"), worker.index("start aurora-object-store-recovery-upload.service"))
+        scheduling = tasks.split("- name: Apply automatic recovery scheduling policy", 1)[1]
+        self.assertIn("aurora-object-store-recovery-upload.timer", scheduling)
+        self.assertIn('enabled: "{{ object_store_recovery_enabled | bool }}"', scheduling)
+
+    def test_acceptance_runtime_is_installed_and_deployment_identity_is_optional(self) -> None:
+        tasks = (TEMPLATES.parent / "tasks/main.yml").read_text()
+        variables = GROUP_VARS.read_text()
+        catalog = (TEMPLATES / "object-store-catalog.json.j2").read_text()
+        self.assertIn("aurora_object_store_acceptance.py", tasks)
+        self.assertIn('object_store_recovery_deployment_id: ""', variables)
+        self.assertIn('"recovery_deployment_id": {{ object_store_recovery_deployment_id | default', catalog)
+
     def test_inventory_units_use_systemd_credentials_for_gws_ssh(self) -> None:
         for name in (
             "aurora-object-store-inventory.service.j2",
@@ -252,11 +316,11 @@ class ObjectStoreUnitTests(unittest.TestCase):
             batch_loop,
         )
         self.assertGreater(
-            source.index("current_report = json.loads", batch_loop),
+            source.index("with read_snapshot(object_config) as current_snapshot:", batch_loop),
             batch_loop,
         )
         self.assertGreater(
-            source.index("current_gate = json.loads", batch_loop),
+            source.index("current_gate = current_snapshot.gate", batch_loop),
             batch_loop,
         )
         self.assertGreater(

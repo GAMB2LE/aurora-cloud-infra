@@ -1,0 +1,50 @@
+---
+- name: Read the authoritative production catalogue without logging its contents
+  ansible.builtin.slurp:
+    src: /etc/aurora-object-store/catalog.json
+  register: archive_recovery_catalog_bytes
+  no_log: true
+
+- name: Preserve the deployed catalogue as the configuration base
+  ansible.builtin.set_fact:
+    archive_recovery_live_catalog: "{{ archive_recovery_catalog_bytes.content | b64decode | from_json }}"
+  no_log: true
+
+- name: Require the production host and a complete deployed catalogue
+  ansible.builtin.assert:
+    that:
+      - inventory_hostname == 'aurora-cloud'
+      - archive_recovery_live_catalog.jobs | length == 6
+      - archive_recovery_live_catalog.jobs | map(attribute='name') | unique | length == 6
+      - "'raw' in archive_recovery_live_catalog.jobs | map(attribute='name') | list"
+      - archive_recovery_live_catalog.manifest_root.startswith('/data/')
+    fail_msg: This focused deployment requires the six-family production catalogue on /data.
+
+- name: Use deployed paths and stream mappings for the focused templates
+  ansible.builtin.set_fact:
+    object_store_manifest_root: "{{ archive_recovery_live_catalog.manifest_root }}"
+    object_store_rclone_config: "{{ archive_recovery_live_catalog.rclone_config }}"
+    object_store_recovery_root: "{{ archive_recovery_live_catalog.recovery_root | default(archive_recovery_live_catalog.manifest_root ~ '/recovery') }}"
+    gws_manifest_root: "{{ archive_recovery_live_catalog.gws_manifest_root }}"
+    gws_username: "{{ archive_recovery_live_catalog.gws_user }}"
+    gws_ssh_private_key: "{{ archive_recovery_live_catalog.gws_key }}"
+    aurora_archive_streams: "{{ archive_recovery_live_catalog.streams }}"
+    object_store_jobs: "{{ archive_recovery_live_catalog.jobs }}"
+  no_log: true
+
+- name: Assemble only the new recovery settings
+  ansible.builtin.set_fact:
+    archive_recovery_settings:
+      recovery_enabled: false
+      recovery_deployment_id: "{{ object_store_recovery_deployment_id | default('') }}"
+      recovery_root: "{{ object_store_recovery_root }}"
+      recovery_raw_refresh_hours: "{{ object_store_recovery_raw_refresh_hours | int }}"
+      recovery_products_refresh_hours: "{{ object_store_recovery_products_refresh_hours | int }}"
+      recovery_raw_epoch_hours: "{{ object_store_recovery_raw_epoch_hours | int }}"
+      recovery_products_epoch_hours: "{{ object_store_recovery_products_epoch_hours | int }}"
+      recovery_retry_delays_seconds: "{{ object_store_recovery_retry_delays_seconds }}"
+      recovery_cache_max_bytes: "{{ object_store_recovery_cache_max_bytes | int }}"
+      recovery_free_reserve_bytes: "{{ object_store_recovery_free_reserve_bytes | int }}"
+      recovery_s3_page_size: "{{ object_store_recovery_s3_page_size | int }}"
+      recovery_s3_connect_timeout_seconds: "{{ object_store_recovery_s3_connect_timeout_seconds | int }}"
+      recovery_s3_read_timeout_seconds: "{{ object_store_recovery_s3_read_timeout_seconds | int }}"

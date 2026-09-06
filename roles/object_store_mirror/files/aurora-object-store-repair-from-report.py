@@ -17,6 +17,7 @@ import json
 from pathlib import Path
 from pathlib import PurePosixPath
 import subprocess
+import sys
 import tempfile
 from typing import Iterator
 
@@ -205,6 +206,8 @@ def repair_job(
 
 
 def repair_latest(args: argparse.Namespace, catalog: dict) -> dict:
+    if catalog.get('recovery_enabled'):
+        return repair_recovery_latest(args, catalog)
     jobs = {job["name"]: job for job in catalog["jobs"]}
     selected = set(args.job or jobs)
     unknown = selected - set(jobs)
@@ -234,6 +237,70 @@ def repair_latest(args: argparse.Namespace, catalog: dict) -> dict:
         if not args.dry_run:
             publish_result(args.result, payload)
     return payload
+
+
+def repair_recovery_latest(args: argparse.Namespace, catalog: dict) -> dict:
+    """Invalidate observations before copies, without locking remote I/O."""
+    sys.path.insert(0, '/usr/local/lib/aurora-object-store')
+    from aurora_object_store_evidence import read_snapshot
+    from aurora_object_store_recovery import Queue, commit_lock
+
+    jobs = {job['name']: job for job in catalog['jobs']}
+    if not (Path(catalog['manifest_root']) / 'latest').is_symlink():
+        raise RuntimeError('recovery repair requires migrated immutable evidence')
+    selected = set(args.job or jobs)
+    if not selected <= set(jobs):
+        raise ValueError('unknown repair family')
+    queue = Queue(catalog)
+    results = []
+    try:
+        with read_snapshot(catalog) as snapshot:
+            for name in sorted(selected):
+                values = snapshot.report['jobs'][name]
+                comparison = values['source_vs_s3']
+                candidates = set().union(*(comparison.get(k, []) for k in ('missing_from_right', 'size_mismatch', 'checksum_mismatch')))
+                evidence = read_local_evidence(snapshot.path / 'comparison.json', name)
+                ready, deferred = settled_paths(Path(jobs[name]['source']), candidates, duration_seconds(verification_settle_age(jobs[name])), bool(jobs[name].get('copy_links')), evidence)
+                if args.dry_run:
+                    results.append(repair_job(name, jobs[name], values, catalog, True, evidence))
+                    continue
+                if not ready:
+                    results.append({'job':name,'candidates':len(candidates),'ready':0,'deferred':len(deferred),'returncode':0})
+                    # A crashed repair may return after its sources changed.
+                    # Finish its invalidation and request a fresh comparison;
+                    # never reclassify paths into writes outside that guard.
+                    pending=queue.db.execute('SELECT repair_id FROM repair_requests WHERE job=? AND completed=0',(name,)).fetchall()
+                    for item in pending:
+                        queue.repair_finished(name,item['repair_id'],success=False)
+                    continue
+                identity = str(values.get('verification_id') or values.get('verified_at') or snapshot.report['generated_at'])
+                repair_id = name + ':' + identity
+                with commit_lock(catalog):
+                    current = json.loads((Path(catalog['manifest_root']) / 'latest/comparison.json').read_text())
+                    current_values = current['jobs'][name]
+                    current_id = str(current_values.get('verification_id') or current_values.get('verified_at') or current['generated_at'])
+                    if current_id != identity:
+                        results.append({'job':name,'candidates':len(candidates),'ready':0,'deferred':len(candidates),'returncode':0,'reason':'new family evidence superseded repair request'})
+                        continue
+                    accepted = queue.invalidate(name, repair_id)
+                    previous = queue.db.execute('SELECT completed FROM repair_requests WHERE repair_id=? AND job=?', (repair_id,name)).fetchone()
+                    if not accepted and previous and previous['completed']:
+                        continue
+                # The family generation is invalid now. Interrupted copies are
+                # idempotently resumed by this same immutable repair identity.
+                try:
+                    result = repair_job(name, jobs[name], values, catalog, False, evidence)
+                except Exception:
+                    queue.repair_finished(name, repair_id, success=False)
+                    raise
+                queue.repair_finished(name, repair_id, success=result['returncode']==0)
+                results.append(result)
+            payload = {'report':snapshot.report['generated_at'],'jobs':results,'recovery_enqueued':True}
+            if not args.dry_run:
+                publish_result(args.result,payload)
+            return payload
+    finally:
+        queue.close()
 
 
 def main() -> int:

@@ -28,6 +28,17 @@ def load_operator_status():
 operator_status = load_operator_status()
 
 
+def load_recovery_helpers():
+    source = TEMPLATE.read_text(encoding="utf-8")
+    function_source = "def recovery_status" + source.split("def recovery_status", 1)[1].split("\n\ndef operator_status", 1)[0]
+    namespace = {"RAW_EVIDENCE_MAX_AGE_HOURS": 8, "OBJECT_REPORT_MAX_AGE_HOURS": 36}
+    exec(function_source, namespace)
+    return namespace["recovery_status"], namespace["recovery_progress"]
+
+
+recovery_status, recovery_progress = load_recovery_helpers()
+
+
 def load_prefix_delivery():
     source = TEMPLATE.read_text(encoding="utf-8")
     function_source = "def prefix_delivery" + source.split(
@@ -42,6 +53,32 @@ prefix_delivery = load_prefix_delivery()
 
 
 class ArchiveHealthPresentationTests(unittest.TestCase):
+    def clean_gate(self, current):
+        return {
+            "clean": True,
+            "stable_parity": True,
+            "raw_retention_ready": True,
+            "domains": {
+                name: {"clean": True, "stable_parity": True, "evidence_floor_generated_at": current.isoformat()}
+                for name in ("raw_retention", "products")
+            },
+        }
+
+    def recovery_fixture(self, current, **job_overrides):
+        return {
+            "state": "retry_wait",
+            "heartbeat_at": current.isoformat(),
+            "next_retry_at": (current + dt.timedelta(minutes=15)).isoformat(),
+            "jobs": {"products": {
+                "state": "retry_wait",
+                "first_failure_at": (current - dt.timedelta(minutes=30)).isoformat(),
+                "error_class": "transient",
+                "last_error": "JASMIN listing returned HTTP 504",
+                "progress": {"pages": 400},
+                **job_overrides,
+            }},
+        }
+
     def base_metrics(self):
         return {
             "streams_gws_issue_count": 0,
@@ -67,6 +104,72 @@ class ArchiveHealthPresentationTests(unittest.TestCase):
         self.assertIn("GWS copy is complete", result["detail"])
         self.assertIn("strict recheck is running", result["detail"])
         self.assertNotIn("object_store_", result["detail"])
+
+    def test_current_clean_evidence_and_retry_are_quiet_but_visible(self):
+        current = dt.datetime.now(dt.timezone.utc)
+        report = {"jobs": {"products": {"evidence_started_at": (current - dt.timedelta(hours=12)).isoformat()}}}
+        recovery = recovery_status(self.recovery_fixture(current), report, True, current)
+        result = operator_status([], self.base_metrics(), self.clean_gate(current), recovery_progress(recovery), recovery=recovery)
+        self.assertEqual(result["level"], "green")
+        self.assertIn("retrying automatically", result["detail"])
+        self.assertFalse(recovery["active_alert"])
+        self.assertEqual(recovery["jobs"]["products"]["progress"]["pages"], 400)
+        self.assertEqual(recovery["jobs"]["products"]["observation_age_hours"], 12)
+        self.assertEqual(recovery["affected_jobs"], ["products"])
+        self.assertFalse(result["pruning_paused"])
+
+    def test_blocked_or_six_hour_failure_escalates_even_with_clean_evidence(self):
+        current = dt.datetime.now(dt.timezone.utc)
+        for overrides, expected_level in (
+            ({"state": "blocked", "error_class": "auth"}, "red"),
+            ({"first_failure_at": (current - dt.timedelta(hours=6)).isoformat()}, "amber"),
+        ):
+            with self.subTest(overrides=overrides):
+                recovery = recovery_status(self.recovery_fixture(current, **overrides), {}, True, current)
+                result = operator_status(recovery["failures"], self.base_metrics(), self.clean_gate(current), {}, recovery=recovery)
+                self.assertEqual(result["level"], expected_level)
+                self.assertTrue(recovery["active_alert"])
+                self.assertEqual(result["title"], "Archive verification recovery needs attention")
+
+    def test_heartbeat_is_independent_of_worker_status_updates(self):
+        current = dt.datetime.now(dt.timezone.utc)
+        source = self.recovery_fixture(current)
+        source["updated_at"] = current.isoformat()
+        source["heartbeat_at"] = (current - dt.timedelta(minutes=16)).isoformat()
+        recovery = recovery_status(source, {}, True, current)
+        self.assertIn("archive_recovery_heartbeat_overdue", recovery["failures"])
+        self.assertEqual(recovery["heartbeat_age_minutes"], 16)
+        disabled = recovery_status({}, {}, False, current)
+        self.assertEqual(disabled["failures"], [])
+
+    def test_expiry_remains_an_alert_during_automatic_retry(self):
+        current = dt.datetime.now(dt.timezone.utc)
+        recovery = recovery_status(self.recovery_fixture(current), {}, True, current)
+        gate = self.clean_gate(current)
+        gate["domains"]["products"]["evidence_floor_generated_at"] = (current - dt.timedelta(hours=37)).isoformat()
+        result = operator_status([], self.base_metrics(), gate, {}, recovery=recovery)
+        self.assertEqual(result["level"], "amber")
+        self.assertEqual(result["title"], "Product archive verification is overdue")
+        self.assertNotIn("incomplete", result["title"])
+        gate["domains"]["raw_retention"]["evidence_floor_generated_at"] = (current - dt.timedelta(hours=9)).isoformat()
+        result = operator_status([], self.base_metrics(), gate, {}, recovery=recovery)
+        self.assertEqual(result["title"], "Archive verification is overdue")
+        self.assertTrue(result["pruning_paused"])
+
+    def test_independent_gws_expiry_cannot_be_hidden_by_current_s3_evidence(self):
+        current = dt.datetime.now(dt.timezone.utc)
+        result = operator_status(["gws_evidence_stale_hours=9.01"], self.base_metrics(), self.clean_gate(current), {})
+        self.assertEqual(result["title"], "Archive verification is overdue")
+        self.assertEqual(result["level"], "amber")
+        self.assertTrue(result["pruning_paused"])
+
+    def test_daily_completion_requires_new_verification_ids(self):
+        recovery = {"state": "queued", "jobs": {"raw": {"state": "idle"}, "products": {"state": "retry_wait"}},
+                    "daily_audits": {"daily": {"requested_at": "2026-09-06T03:20:00Z", "jobs": {"raw": "new-id", "products": None}}}}
+        progress = recovery_progress(recovery)
+        self.assertEqual(progress["completed_jobs"], ["raw"])
+        self.assertEqual(progress["state"], "queued")
+        self.assertEqual(progress["total_jobs"], 2)
 
     def test_first_clean_audit_stays_green_while_confirmation_is_pending(self):
         generated_at = dt.datetime.now(dt.timezone.utc).isoformat()

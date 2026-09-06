@@ -1,0 +1,19 @@
+[Unit]
+Description=Schedule and recover Aurora archive verification
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/aurora-object-store/catalog.json
+
+[Service]
+Type=oneshot
+User=root
+Group={{ aurora_service_group }}
+UMask=0007
+ExecStart=/usr/local/bin/aurora-object-store-recovery --catalog /etc/aurora-object-store/catalog.json tick
+ExecStopPost=+/usr/local/sbin/aurora-object-store-verification-gate
+TimeoutStartSec=2min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths={{ object_store_manifest_root }} {{ object_store_recovery_root }} {{ aurora_state_root }}/object-store-verification-gate

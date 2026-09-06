@@ -1,0 +1,103 @@
+---
+# Run after making and checksum-verifying the restricted rollback bundle.
+# This stage keeps legacy scheduling and copy writers untouched. It does not
+# install the new executable gate, repair or inventory units until activation.
+- name: Stage archive recovery readers and runtime without activating workers
+  hosts: aurora-cloud
+  become: true
+  vars:
+    object_store_recovery_enabled: false
+  tasks:
+    - name: Load deployed archive configuration
+      ansible.builtin.import_tasks: tasks/archive_recovery_context.yml
+      tags: always
+
+    - name: Require recovery to be disabled for staging
+      ansible.builtin.assert:
+        that: not archive_recovery_live_catalog.recovery_enabled | default(false) | bool
+        fail_msg: Recovery is already active; use an idle maintenance deployment instead of this staging playbook.
+      tags: always
+
+    - name: Create only recovery runtime directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ item.owner }}"
+        group: "{{ item.group }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: /usr/local/lib/aurora-object-store, owner: root, group: root, mode: '0755' }
+        - { path: "{{ object_store_recovery_runtime }}", owner: root, group: root, mode: '0755' }
+        - { path: "{{ object_store_recovery_root }}", owner: "{{ aurora_service_user }}", group: "{{ aurora_service_group }}", mode: '2770' }
+
+    - name: Install compatible reader and recovery modules as siblings
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../roles/object_store_mirror/files/{{ item.src }}"
+        dest: "/usr/local/lib/aurora-object-store/{{ item.dest }}"
+        owner: root
+        group: root
+        mode: '0644'
+      loop:
+        - { src: aurora_object_store_recovery.py, dest: aurora_object_store_recovery.py }
+        - { src: aurora_object_store_s3.py, dest: aurora_object_store_s3.py }
+        - { src: aurora_object_store_evidence.py, dest: aurora_object_store_evidence.py }
+        - { src: aurora_object_store_acceptance.py, dest: aurora_object_store_acceptance.py }
+        - { src: aurora-object-store-inventory.py, dest: aurora_object_store_inventory.py }
+        - { src: aurora-object-store-verification-gate.py, dest: aurora-object-store-verification-gate.py }
+
+    - name: Stage hash-locked reader requirements
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../roles/object_store_mirror/files/aurora-object-store-recovery-requirements.txt"
+        dest: "{{ object_store_recovery_runtime }}/requirements.txt"
+        owner: root
+        group: root
+        mode: '0644'
+      register: archive_recovery_staged_requirements
+
+    - name: Create the dedicated Python environment
+      ansible.builtin.command:
+        argv: [/usr/bin/python3, -m, venv, "{{ object_store_recovery_runtime }}/venv"]
+        creates: "{{ object_store_recovery_runtime }}/venv/bin/python"
+      register: archive_recovery_staged_venv
+
+    - name: Install the locked reader runtime
+      ansible.builtin.command:
+        argv: ["{{ object_store_recovery_runtime }}/venv/bin/python", -m, pip, install, --require-hashes, '--only-binary=:all:', --requirement, "{{ object_store_recovery_runtime }}/requirements.txt"]
+      when:
+        - archive_recovery_staged_requirements.changed or archive_recovery_staged_venv.changed
+        - not ansible_check_mode
+
+    - name: Install recovery entry point
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../roles/object_store_mirror/templates/aurora-object-store-recovery.j2"
+        dest: /usr/local/bin/aurora-object-store-recovery
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Install compatible health and retention readers only
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../roles/{{ item.role }}/templates/{{ item.template }}"
+        dest: "/usr/local/bin/{{ item.program }}"
+        owner: root
+        group: root
+        mode: '0755'
+      loop:
+        - { role: operations_monitor, template: aurora-archive-health.py.j2, program: aurora-archive-health }
+        - { role: ass_retention, template: aurora-ass-retention.py.j2, program: aurora-ass-retention }
+      tags: archive_recovery_readers
+
+    - name: Add disabled recovery settings while retaining all deployed mappings
+      ansible.builtin.copy:
+        content: "{{ archive_recovery_live_catalog | combine(archive_recovery_settings) | to_nice_json }}\n"
+        dest: /etc/aurora-object-store/catalog.json
+        owner: root
+        group: "{{ aurora_service_group }}"
+        mode: '0640'
+      no_log: true
+
+    - name: Validate the staged runtime without requesting work
+      ansible.builtin.command:
+        argv: ["{{ object_store_recovery_runtime }}/venv/bin/python", -c, "import sys; sys.path.insert(0, '/usr/local/lib/aurora-object-store'); import boto3, aurora_object_store_recovery, aurora_object_store_evidence, aurora_object_store_acceptance"]
+      changed_when: false
+      when: not ansible_check_mode
