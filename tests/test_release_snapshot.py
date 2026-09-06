@@ -36,6 +36,7 @@ def _render_power_baseline() -> str:
         "aurora_power_forecast_root": "/data/aurora/dev-products/power",
         "aurora_app_dir": "/opt/aurora-cloud-dashboard",
         "aurora_service_user": "aurora",
+        "aurora_service_group": "aurora",
         "aurora_power_forecast_generator_lock_path": "/data/aurora/dev-products/power/.deterministic-generator.lock",
         "aurora_zarr": {
             "power_soc_forecast": "/data/aurora/dev-products/power/power_soc_forecast.zarr",
@@ -204,6 +205,10 @@ def test_power_baseline_snapshot_helper_is_dev_only_explicit_and_valid_bash(
     assert '"sourceFingerprintVerified": True' in content
     assert "final_source_fingerprint=$(artifact_fingerprint" in content
     assert "baseline source changed before manifest finalization" in content
+    assert 'generator_lock} != "${allowed_product_root}/.deterministic-generator.lock"' in content
+    assert 'install -o "${service_user}" -g "${service_group}" -m 0600 /dev/null "${generator_lock}"' in content
+    assert 'chown "${service_user}:${service_group}" -- "${generator_lock}"' in content
+    assert content.index('chown "${service_user}:${service_group}" -- "${generator_lock}"') < content.index('exec 9>"${generator_lock}"')
     assert "status --porcelain=v1 --untracked-files=all" in content
     assert 'systemctl start --no-block "${unit}"' in content
     assert 'systemctl cat "${unit}" > "${definition_path}"' in content

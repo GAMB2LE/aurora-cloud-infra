@@ -30,6 +30,7 @@ snapshot_root={{ aurora_power_baseline_snapshot_root | quote }}
 allowed_product_root={{ aurora_power_forecast_root | quote }}
 app_dir={{ aurora_app_dir | quote }}
 service_user={{ aurora_service_user | quote }}
+service_group={{ aurora_service_group | quote }}
 generator_lock={{ aurora_power_forecast_generator_lock_path | quote }}
 
 if [[ ${site_env} != development || ${failover_role} == primary || ${publication_active} != false ]]; then
@@ -209,6 +210,24 @@ done
 
 # All deterministic/ensemble/planning publication paths share this lock. Keep
 # it until the copied bytes and their manifest have been finalized.
+# The snapshot helper runs as root, but the normal forecast writer does not.
+# Preserve one shared inode and explicitly return ownership to the service
+# account before opening it; otherwise the snapshot itself can strand a
+# root-owned 0600 lock and make the next fail-closed forecast unable to start.
+if [[ ${generator_lock} != "${allowed_product_root}/.deterministic-generator.lock" ]]; then
+  echo "refusing unexpected forecast generator lock: ${generator_lock}" >&2
+  exit 77
+fi
+if [[ -L ${generator_lock} || ( -e ${generator_lock} && ! -f ${generator_lock} ) ]]; then
+  echo "forecast generator lock is not a regular file" >&2
+  exit 77
+fi
+if [[ ! -e ${generator_lock} ]]; then
+  install -o "${service_user}" -g "${service_group}" -m 0600 /dev/null "${generator_lock}"
+else
+  chown "${service_user}:${service_group}" -- "${generator_lock}"
+  chmod 0600 -- "${generator_lock}"
+fi
 exec 9>"${generator_lock}"
 /usr/bin/flock --exclusive --wait 300 9
 lock_held=true
