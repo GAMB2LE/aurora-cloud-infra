@@ -1,4 +1,5 @@
 import datetime as dt
+import copy
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -37,6 +38,43 @@ def load_recovery_helpers():
 
 
 recovery_status, recovery_progress = load_recovery_helpers()
+
+
+def load_settled_source_status():
+    source = TEMPLATE.read_text(encoding="utf-8")
+    function_source = "def settled_source_status" + source.split(
+        "def settled_source_status", 1
+    )[1].split("\n\ndef operator_status", 1)[0]
+    namespace = {}
+    exec(function_source, namespace)
+    return namespace["settled_source_status"]
+
+
+settled_source_status = load_settled_source_status()
+
+
+def collect_main_gws_evidence(summary):
+    """Execute main's real ingestion path without live services or publication."""
+    source = TEMPLATE.read_text(encoding="utf-8")
+    age_source = "def evidence_age_hours" + source.split("def evidence_age_hours", 1)[1].split(
+        "\n\ndef recovery_status", 1
+    )[0]
+    main_source = "def collect():" + source.split("def main() -> int:", 1)[1].split(
+        "\n    object_missing = 0", 1
+    )[0] + "\n    return metrics, failures, retention_streams\n"
+    namespace = {
+        "dt": dt, "GWS": "gws", "INVENTORY_PROGRESS": "progress", "RECOVERY_STATUS": "recovery",
+        "DISPATCH": "dispatch", "MENAPIA_FLIGHT_STATUS": "menapia", "DISPATCH_DATABASE": "db",
+        "RECOVERY_ENABLED": False, "RAW_EVIDENCE_MAX_AGE_HOURS": 8, "OBJECT_REPORT_MAX_AGE_HOURS": 36,
+        "STREAMS": [{"name": "hatprog5", "prune_enabled": True}], "PREFIX": {"hatprog5": "hatpro"},
+        "read": lambda path: copy.deepcopy(summary) if path == "gws" else {},
+        "archive_snapshot": lambda: ({"generated_at": dt.datetime.now(dt.timezone.utc).isoformat()}, {}),
+        "recovery_status": lambda *args, **kwargs: {"failures": []},
+        "prefix_delivery": lambda *args, **kwargs: {},
+        "settled_source_status": settled_source_status,
+    }
+    exec(age_source + "\n\n" + main_source, namespace)
+    return namespace["collect"]()
 
 
 def load_prefix_delivery():
@@ -117,6 +155,186 @@ class ArchiveHealthPresentationTests(unittest.TestCase):
         self.assertEqual(recovery["jobs"]["products"]["observation_age_hours"], 12)
         self.assertEqual(recovery["affected_jobs"], ["products"])
         self.assertFalse(result["pruning_paused"])
+
+    def settled_fixture(self, current, **counts):
+        return {
+            "generated_at": current.isoformat(),
+            "gws_available": True,
+            "streams": {"hatprog5": {
+                "source_count": 38, "local_count": 38, "gws_count": 38,
+                "local_missing_count": 0, "local_mismatch_count": 0,
+                "gws_missing_count": 0, "gws_mismatch_count": 0,
+                "retention_local_missing_count": 0, "retention_local_mismatch_count": 0,
+                "retention_gws_missing_count": 0, "retention_gws_mismatch_count": 0,
+                "prune_ready": True,
+                **counts,
+            }},
+        }
+
+    def settled_presentation(self, summary, current, gate=None, progress=None):
+        settled = settled_source_status(summary, [{"name": "hatprog5", "prune_enabled": True}], current)
+        metrics = {**self.base_metrics(), **settled["metrics"]}
+        result = operator_status(
+            settled["failures"], metrics, gate or self.clean_gate(current), progress or {"state": "idle"}
+        )
+        return settled, result
+
+    def test_settled_path_gaps_alert_without_changing_retention_eligibility(self):
+        current = dt.datetime.now(dt.timezone.utc)
+        for field, wording in (
+            ("local_missing_count", "38 missing paths at configured cloud"),
+            ("gws_missing_count", "38 missing paths at configured GWS"),
+            ("local_mismatch_count", "38 size mismatches at configured cloud"),
+            ("gws_mismatch_count", "38 size mismatches at configured GWS"),
+        ):
+            with self.subTest(field=field):
+                summary = self.settled_fixture(current, **{field: 38})
+                gate = self.clean_gate(current)
+                before = copy.deepcopy((summary, gate))
+                settled, result = self.settled_presentation(summary, current, gate, {"state": "running"})
+                self.assertEqual(settled["state"], "current")
+                self.assertEqual(settled["affected_streams"], ["hatprog5"])
+                self.assertEqual(settled["metrics"][f"settled_source_{field}"], 38)
+                self.assertEqual(settled["metrics"][f"settled_source_hatprog5_{field}"], 38)
+                self.assertEqual(result["level"], "red")
+                self.assertEqual(result["title"], "Archive paths are incomplete")
+                self.assertIn(wording, result["detail"])
+                self.assertIn("hatprog5", result["detail"])
+                self.assertIn("Raw retention evidence remains independently clean", result["detail"])
+                self.assertFalse(result["pruning_paused"])
+                self.assertNotIn("recheck is running", result["detail"])
+                self.assertNotIn("object storage", result["detail"])
+                self.assertEqual((summary, gate), before)
+
+    def test_cloud_and_gws_counts_are_separate_not_a_claim_of_unique_missing_files(self):
+        current = dt.datetime.now(dt.timezone.utc)
+        _, result = self.settled_presentation(
+            self.settled_fixture(current, local_missing_count=38, gws_missing_count=38), current
+        )
+        self.assertIn("38 missing paths at configured cloud", result["detail"])
+        self.assertIn("38 missing paths at configured GWS", result["detail"])
+        self.assertNotIn("76", result["detail"])
+
+    def test_settled_path_alert_preserves_an_independently_paused_raw_gate(self):
+        current = dt.datetime.now(dt.timezone.utc)
+        gate = self.clean_gate(current)
+        gate["raw_retention_ready"] = False
+        _, result = self.settled_presentation(self.settled_fixture(current, gws_missing_count=1), current, gate)
+        self.assertEqual(result["level"], "red")
+        self.assertTrue(result["pruning_paused"])
+
+    def test_clean_settled_paths_with_transient_recovery_remain_green(self):
+        current = dt.datetime.now(dt.timezone.utc)
+        settled, _ = self.settled_presentation(self.settled_fixture(current), current)
+        recovery = recovery_status(self.recovery_fixture(current), {}, True, current)
+        result = operator_status([], {**self.base_metrics(), **settled["metrics"]}, self.clean_gate(current),
+                                 recovery_progress(recovery), recovery=recovery)
+        self.assertEqual(settled["affected_streams"], [])
+        self.assertEqual(result["level"], "green")
+        self.assertIn("retrying automatically", result["detail"])
+        self.assertFalse(result["pruning_paused"])
+
+    def test_stale_or_unavailable_settled_summary_cannot_assert_current_gaps(self):
+        current = dt.datetime.now(dt.timezone.utc)
+        examples = []
+        for age in (8, 9):
+            summary = self.settled_fixture(current - dt.timedelta(hours=age), gws_missing_count=38)
+            examples.append(summary)
+        examples.extend([
+            {**self.settled_fixture(current, gws_missing_count=38), "gws_available": False},
+            {**self.settled_fixture(current), "generated_at": "invalid"},
+            {**self.settled_fixture(current), "generated_at": current.replace(tzinfo=None).isoformat()},
+            {**self.settled_fixture(current), "generated_at": "9999-12-31T23:59:00+00:00"},
+            self.settled_fixture(current + dt.timedelta(minutes=6)),
+            {}, None,
+        ])
+        for summary in examples:
+            with self.subTest(summary=summary):
+                settled, result = self.settled_presentation(summary, current)
+                self.assertEqual(settled["state"], "unavailable")
+                self.assertIsNone(settled["metrics"]["settled_source_gws_missing_count"])
+                self.assertEqual(settled["affected_streams"], [])
+                self.assertEqual(result["level"], "amber")
+                self.assertEqual(result["title"], "Archive verification is overdue")
+                self.assertNotIn("38", result["detail"])
+                # Presentation alone cannot revoke a separate current gate.
+                self.assertFalse(result["pruning_paused"])
+
+    def test_malformed_or_missing_stream_counts_are_unknown_not_clean(self):
+        current = dt.datetime.now(dt.timezone.utc)
+        examples = []
+        for value in (None, "38", -1, True, 1.5):
+            examples.append(self.settled_fixture(current, local_missing_count=value))
+        for state in ({}, [], {"error": "remote collection failed"}):
+            examples.append({**self.settled_fixture(current), "streams": {"hatprog5": state}})
+        examples.append({**self.settled_fixture(current), "streams": []})
+        for summary in examples:
+            with self.subTest(summary=summary):
+                settled, result = self.settled_presentation(summary, current)
+                self.assertIsNone(settled["metrics"]["settled_source_local_missing_count"])
+                self.assertEqual(result["level"], "amber")
+                self.assertFalse(result["pruning_paused"])
+
+    def test_fresh_confirmed_gaps_remain_visible_when_another_stream_is_unknown(self):
+        current = dt.datetime.now(dt.timezone.utc)
+        summary = self.settled_fixture(current, gws_missing_count=38)
+        settled = settled_source_status(summary, [{"name": "hatprog5"}, {"name": "cl61"}], current)
+        result = operator_status(settled["failures"], {**self.base_metrics(), **settled["metrics"]},
+                                 self.clean_gate(current), {})
+        self.assertEqual(settled["state"], "unavailable")
+        self.assertEqual(settled["metrics"]["settled_source_gws_missing_count"], 38)
+        self.assertEqual(result["level"], "red")
+        self.assertFalse(result["pruning_paused"])
+
+    def test_planned_offline_stream_does_not_manufacture_missing_evidence(self):
+        current = dt.datetime.now(dt.timezone.utc)
+        summary = self.settled_fixture(current)
+        summary["streams"]["offline"] = {"planned_offline": True}
+        settled = settled_source_status(summary, [{"name": "hatprog5"}, {"name": "offline"}], current)
+        self.assertEqual(settled["state"], "current")
+        self.assertEqual(settled["metrics"]["settled_source_gws_missing_count"], 0)
+        self.assertEqual(settled["streams"]["offline"]["state"], "planned_offline")
+
+    def test_health_main_publishes_separate_settled_path_evidence(self):
+        source = TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn("settled_paths = settled_source_status(gws, STREAMS", source)
+        self.assertIn('metrics.update(settled_paths["metrics"])', source)
+        self.assertIn('"settled_source_paths":', source)
+        self.assertIn("issues += retention_missing + retention_mismatch", source)
+
+    def test_main_ingestion_handles_malformed_stream_container_and_timestamp(self):
+        current = dt.datetime.now(dt.timezone.utc)
+        examples = [{**self.settled_fixture(current), "streams": value} for value in (None, [])]
+        examples.extend({**self.settled_fixture(current), "generated_at": value} for value in (
+            "invalid", current.replace(tzinfo=None).isoformat(), "9999-12-31T23:59:00+00:00"
+        ))
+        for summary in examples:
+            with self.subTest(summary=summary):
+                metrics, failures, _ = collect_main_gws_evidence(summary)
+                self.assertEqual(metrics["settled_source_evidence_available_state"], 0)
+                self.assertIsNone(metrics["settled_source_gws_missing_count"])
+                self.assertIsInstance(metrics["hatpro_gws_missing_count"], int)
+                result = operator_status(failures, {**self.base_metrics(), **metrics}, self.clean_gate(current), {})
+                self.assertEqual(result["level"], "amber")
+                self.assertEqual(result["title"], "Archive verification is overdue")
+
+    def test_main_preserves_integer_legacy_telemetry_without_certifying_stale_gaps(self):
+        current = dt.datetime.now(dt.timezone.utc)
+        for age, count in ((0, 38), (9, 38), (0, "38"), (0, "invalid")):
+            with self.subTest(age=age, count=count):
+                summary = self.settled_fixture(current - dt.timedelta(hours=age), gws_missing_count=count)
+                metrics, failures, retention = collect_main_gws_evidence(summary)
+                self.assertIsInstance(metrics["hatpro_gws_missing_count"], int)
+                self.assertEqual(metrics["hatpro_gws_missing_count"], 0 if count == "invalid" else 38)
+                self.assertEqual(retention, [{"id": "hatprog5", "enabled": True, "ready": True,
+                                             "gws_missing": 0, "gws_mismatch": 0}])
+                result = operator_status(failures, {**self.base_metrics(), **metrics}, self.clean_gate(current), {})
+                if age == 0 and isinstance(count, int):
+                    self.assertEqual(result["level"], "red")
+                    self.assertFalse(result["pruning_paused"])
+                else:
+                    self.assertIsNone(metrics["settled_source_gws_missing_count"])
+                    self.assertEqual(result["level"], "amber")
 
     def confirmation_fixture(self, name, starts):
         observations = [

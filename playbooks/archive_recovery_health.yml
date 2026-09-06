@@ -23,6 +23,7 @@
         owner: root
         group: root
         mode: '0755'
+        validate: /usr/bin/python3 -m py_compile %s
 
     - name: Optionally refresh the existing health service
       ansible.builtin.systemd:

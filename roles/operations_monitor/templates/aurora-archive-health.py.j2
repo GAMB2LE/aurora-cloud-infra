@@ -214,11 +214,13 @@ def evidence_age_hours(value: object) -> float | None:
         return None
     try:
         timestamp = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
+        if timestamp.tzinfo is None:
+            return None
+        return (
+            dt.datetime.now(dt.timezone.utc) - timestamp
+        ).total_seconds() / 3600
+    except (ValueError, TypeError, OverflowError):
         return None
-    return (
-        dt.datetime.now(dt.timezone.utc) - timestamp
-    ).total_seconds() / 3600
 
 
 def recovery_status(status: dict, report: dict, enabled: bool, current=None, *, gate: dict | None = None) -> dict:
@@ -346,6 +348,78 @@ def recovery_progress(recovery: dict) -> dict:
     }
 
 
+def settled_source_status(gws: dict, streams: list[dict], current=None, max_age_hours: float = 8) -> dict:
+    """Keep settled path completeness separate from seven-day retention safety."""
+    import datetime as _dt
+
+    current = current or _dt.datetime.now(_dt.timezone.utc)
+    fields = ("local_missing_count", "local_mismatch_count", "gws_missing_count", "gws_mismatch_count")
+    failures = []
+    observed = None
+    expires = None
+    fresh = False
+    if not isinstance(gws, dict):
+        gws = {}
+    try:
+        observed = _dt.datetime.fromisoformat(gws["generated_at"].replace("Z", "+00:00"))
+        if observed.tzinfo is None:
+            raise ValueError("observation timestamp has no timezone")
+        expires = observed + _dt.timedelta(hours=max_age_hours)
+        fresh = observed <= current + _dt.timedelta(minutes=5) and current < expires
+        if not fresh:
+            failures.append("settled_source_evidence_overdue")
+    except (KeyError, TypeError, ValueError, AttributeError, OverflowError):
+        observed = expires = None
+        failures.append("settled_source_evidence_timestamp_invalid")
+    if gws.get("gws_available") is not True:
+        failures.append("settled_source_evidence_unavailable")
+    evidence_usable = fresh and gws.get("gws_available") is True
+    states = gws.get("streams")
+    if not isinstance(states, dict):
+        states = {}
+    if not streams:
+        failures.append("settled_source_evidence_stream_catalogue_missing")
+    totals = {field: 0 for field in fields}
+    per_stream = {}
+    affected = []
+    metrics = {}
+    for stream in streams:
+        name = stream["name"]
+        state = states.get(name)
+        if isinstance(state, dict) and state.get("planned_offline") is True:
+            per_stream[name] = {"state": "planned_offline"}
+            continue
+        valid = isinstance(state, dict) and not state.get("error") and all(
+            isinstance(state.get(field), int) and not isinstance(state[field], bool) and state[field] >= 0
+            for field in fields
+        )
+        if not valid:
+            failures.append(f"settled_source_evidence_invalid={name}")
+        counts = {field: state[field] if valid and evidence_usable else None for field in fields}
+        per_stream[name] = {"state": "current" if valid and evidence_usable else "unavailable", **counts}
+        for field, value in counts.items():
+            metrics[f"settled_source_{name.replace('-', '_')}_{field}"] = value
+            if value is not None:
+                totals[field] += value
+        if any(value for value in counts.values() if value is not None):
+            affected.append(name)
+    # Unknown evidence is never converted to a clean zero. Confirmed counts
+    # from other valid streams remain reportable if one stream is unavailable.
+    for field, total in totals.items():
+        metrics[f"settled_source_{field}"] = total if not failures or total else None
+    metrics["settled_source_affected_streams"] = affected
+    metrics["settled_source_evidence_available_state"] = int(not failures)
+    return {
+        "state": "current" if not failures else "unavailable",
+        "evidence_started_at": observed.isoformat() if observed else None,
+        "evidence_expires_at": expires.isoformat() if expires else None,
+        "affected_streams": affected,
+        "streams": per_stream,
+        "failures": failures,
+        "metrics": metrics,
+    }
+
+
 def operator_status(
     failures: list[str],
     metrics: dict[str, object],
@@ -380,7 +454,13 @@ def operator_status(
     gws_missing = metric_count("gws_all_missing_count")
     gws_mismatch = metric_count("gws_all_mismatch_count")
     stream_gws_issues = metric_count("streams_gws_issue_count")
-    measured_gap_free = all(
+    settled_counts = {
+        (destination, kind): metric_count(f"settled_source_{location}_{kind}_count")
+        for destination, location in (("cloud", "local"), ("GWS", "gws"))
+        for kind in ("missing", "mismatch")
+    }
+    settled_gaps = any(settled_counts.values())
+    archive_gap_free = all(
         float(metrics.get(key, -1)) == 0
         for key in (
             "streams_gws_issue_count",
@@ -390,6 +470,7 @@ def operator_status(
             "gws_all_mismatch_count",
         )
     )
+    measured_gap_free = archive_gap_free and not settled_gaps
     last_complete_clean = bool(gate.get("clean")) and bool(
         gate.get("stable_parity")
     )
@@ -490,7 +571,23 @@ def operator_status(
             details.append(f"GWS verification reports {', '.join(gws_parts)}.")
         elif object_missing or object_mismatch:
             details.append("The retention-age GWS copy is complete.")
-        if progress.get("state") in {"running", "publishing"}:
+        if settled_gaps:
+            path_issues = [
+                f"{count:,} {'missing paths' if kind == 'missing' else 'size mismatches'} at configured {destination} archive paths"
+                for (destination, kind), count in settled_counts.items() if count
+            ]
+            affected = metrics.get("settled_source_affected_streams")
+            affected_text = ", ".join(str(name) for name in affected) if isinstance(affected, list) else ""
+            details.append(
+                "Independent verification of settled source files reports "
+                + "; ".join(path_issues)
+                + (f" ({affected_text})." if affected_text else ".")
+            )
+        if settled_gaps and archive_gap_free:
+            # A path discrepancy does not imply a missing S3 ingress object or
+            # that an object-store worker is repairing source/GWS paths.
+            details.append("Archive-path reconciliation and a fresh independent check are required.")
+        elif progress.get("state") in {"running", "publishing"}:
             details.append("A strict recheck is running now.")
         else:
             details.append("Exact-path repair and a strict recheck are required.")
@@ -500,7 +597,7 @@ def operator_status(
             details.append("Raw retention evidence remains independently clean.")
         return {
             "level": "red",
-            "title": "Archive copies are incomplete",
+            "title": "Archive paths are incomplete" if settled_gaps and archive_gap_free else "Archive copies are incomplete",
             "detail": " ".join(details),
             "pruning_paused": pruning_paused,
         }
@@ -527,6 +624,20 @@ def operator_status(
             "title": "Archive verification is overdue",
             "detail": "Independent GWS verification is overdue. A fresh check is required before edge pruning can resume.",
             "pruning_paused": True,
+        }
+    if metrics.get("settled_source_evidence_available_state") == 0:
+        retention_detail = (
+            "Raw retention evidence remains independently current."
+            if raw_ready else "Edge pruning remains paused until raw retention evidence verifies cleanly."
+        )
+        return {
+            "level": "amber",
+            "title": "Archive verification is overdue",
+            "detail": (
+                "Complete current evidence for settled source-to-cloud/GWS paths is unavailable. "
+                "A fresh independent check is required. " + retention_detail
+            ),
+            "pruning_paused": pruning_paused,
         }
     proof_failures = [
         str(value)
@@ -737,6 +848,13 @@ def main() -> int:
     )
     metrics: dict[str, object] = {}
     failures: list[str] = list(recovery["failures"])
+    settled_paths = settled_source_status(gws, STREAMS, max_age_hours=RAW_EVIDENCE_MAX_AGE_HOURS)
+    metrics.update(settled_paths["metrics"])
+    failures.extend(settled_paths["failures"])
+    for field in ("local_missing_count", "local_mismatch_count", "gws_missing_count", "gws_mismatch_count"):
+        value = metrics[f"settled_source_{field}"]
+        if value:
+            failures.append(f"settled_source_{field}={value}")
     gws_age = evidence_age_hours(gws.get("generated_at"))
     object_age = evidence_age_hours(object_report.get("generated_at"))
     if gws_age is None:
@@ -750,12 +868,25 @@ def main() -> int:
     issues = 0
     prune_ready = 0
     retention_streams = []
+    gws_streams = gws.get("streams")
+    if not isinstance(gws_streams, dict):
+        gws_streams = {}
     for stream in STREAMS:
         name = stream["name"]
-        state = gws.get("streams", {}).get(name, {})
+        state = gws_streams.get(name, {})
+        if not isinstance(state, dict):
+            state = {}
         prefix = PREFIX.get(name, name)
-        missing = int(state.get("gws_missing_count") or 0)
-        mismatch = int(state.get("gws_mismatch_count") or 0)
+        # Preserve integer legacy telemetry; only the validated additive
+        # settled_source_* metrics can establish a current confirmed gap.
+        try:
+            missing = int(state.get("gws_missing_count") or 0)
+        except (TypeError, ValueError, OverflowError):
+            missing = 0
+        try:
+            mismatch = int(state.get("gws_mismatch_count") or 0)
+        except (TypeError, ValueError, OverflowError):
+            mismatch = 0
         retention_missing = int(state.get("retention_gws_missing_count") or 0)
         retention_mismatch = int(state.get("retention_gws_mismatch_count") or 0)
         count = int(state.get("source_count") or 0)
@@ -781,6 +912,7 @@ def main() -> int:
         # Fresh in-flight gaps remain observable above but do not make
         # seven-day retention unsafe.  The retention verifier supplies the
         # explicitly age-bounded counters used for the health gate.
+        # Ordinary settled-path gaps have their own presentation metrics above.
         issues += retention_missing + retention_mismatch
         prune_ready += int(bool(metrics[f"{prefix}_prune_ready_state"]))
 
@@ -1182,6 +1314,7 @@ def main() -> int:
             "last_success_age_minutes": last_delivery_success,
         },
         "durability": {
+            "settled_source_paths": {key: value for key, value in settled_paths.items() if key != "metrics"},
             "raw_retention": raw_domain,
             "products": product_domain,
             "gws_missing": metrics.get("gws_all_missing_count", 0),
