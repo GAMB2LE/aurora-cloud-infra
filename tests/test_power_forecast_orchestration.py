@@ -608,6 +608,38 @@ def test_new_attempt_does_not_inherit_an_older_failure(tmp_path: Path) -> None:
     assert second["failureCount"] == 1
 
 
+def test_new_attempt_clears_stale_pending_issue_identity(tmp_path: Path) -> None:
+    namespace = {"__name__": "rendered_power_publisher"}
+    exec(compile(_render_publisher(), str(PUBLISHER), "exec"), namespace)
+    namespace["STATUS_PATH"] = tmp_path / "status.json"
+    namespace["HISTORY_PATH"] = tmp_path / "history.jsonl"
+    (tmp_path / "status.json").write_text(
+        json.dumps(
+            {
+                "status": "current",
+                "pendingForecastIdentityID": "stale-independent-identity",
+                "pendingSourceCycleSetID": "stale-independent-cycle",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    namespace["begin_attempt"]("cached_reanchor")
+    status = json.loads((tmp_path / "status.json").read_text())
+
+    assert status["status"] == "assembling"
+    assert status["pendingForecastIdentityID"] is None
+    assert status["pendingSourceCycleSetID"] is None
+
+
+def test_completed_publication_clears_pending_issue_identity() -> None:
+    publisher = PUBLISHER.read_text()
+    completed_status = publisher[publisher.index('publish_status(\n                "current",') :]
+
+    assert "pendingForecastIdentityID=None" in completed_status
+    assert "pendingSourceCycleSetID=None" in completed_status
+
+
 def test_independent_mutating_timers_are_disabled_when_orchestrated() -> None:
     tasks = (ROOT / "roles/dashboard_services/tasks/main.yml").read_text()
     display_service = (TEMPLATES / "aurora-dev-power-display-refresh.service.j2").read_text()

@@ -266,6 +266,8 @@ def begin_attempt(refresh_kind: str) -> None:
         lastFailureDetail=None,
         failureCount=0,
         degradedModeCode="none",
+        pendingForecastIdentityID=None,
+        pendingSourceCycleSetID=None,
     )
 
 
@@ -1181,6 +1183,8 @@ def publish_bundle(forecast_source: Path, *, allow_cached_reanchor: bool) -> Non
                 lastFailureDetail=None,
                 failureCount=0,
                 activeGeneration=generation_id,
+                pendingForecastIdentityID=None,
+                pendingSourceCycleSetID=None,
                 **provenance,
             )
             retain_recent_generations()
