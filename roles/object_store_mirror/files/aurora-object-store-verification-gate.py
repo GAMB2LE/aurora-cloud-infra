@@ -133,7 +133,12 @@ def evaluate(config: dict, report: dict, previous: dict, *, report_sha256: str,
             failures.append(f"{name}:configured_family_missing")
         if value.get("verification_scope") != "full_family":
             failures.append(f"{name}:verification_scope_not_full_family")
-        started = value.get("evidence_started_at", value.get("verified_at"))
+        # Legacy verified_at was collection completion, not observation start.
+        # It cannot safely seed a certificate whose age starts before that.
+        started = value.get("evidence_started_at")
+        start_trusted = isinstance(started, str) and bool(started)
+        if not start_trusted:
+            failures.append(f"{name}:observation_start_untrusted")
         completed = value.get("verification_completed_at", value.get("verified_at"))
         identity = value.get("verification_id") or f"legacy:{name}:{value.get('verified_at', '')}"
         if not isinstance(identity, str):
@@ -172,32 +177,62 @@ def evaluate(config: dict, report: dict, previous: dict, *, report_sha256: str,
                 elif entries:
                     failures.append(f"{name}:{label}{counter}={len(entries)}")
         prior = previous.get("families", {}).get(name, {}) if previous.get("policy_version") == POLICY_VERSION else {}
-        observations = list(prior.get("observations", []))
-        ids = {entry.get("verification_id") for entry in observations}
-        new = name in verified and identity not in ids
-        if observations and new:
+        prior_observations = prior.get("observations", [])
+        if not isinstance(prior_observations, list):
+            prior_observations = []
+        prior_observations = [entry for entry in prior_observations if isinstance(entry, dict)]
+        ids = {entry.get("verification_id") for entry in prior_observations}
+        ids.add(prior.get("verification_id"))
+        watermark = prior.get("last_observation_completed_at", prior.get("verification_completed_at"))
+        new = (not prior or name in verified) and identity not in ids
+        if watermark and new:
             try:
-                new = parse_time(completed) > max(parse_time(x["verification_completed_at"]) for x in observations)
-            except (TypeError, ValueError, KeyError, AttributeError):
+                new = parse_time(completed) > parse_time(watermark)
+            except (TypeError, ValueError, AttributeError):
                 new = False
+        observations = []
+        seen = set()
+        for entry in prior_observations:
+            try:
+                observed = parse_time(entry["evidence_started_at"])
+                finished = parse_time(entry["verification_completed_at"])
+                eligible = (entry.get("start_trusted") is True
+                            and isinstance(entry.get("verification_id"), str)
+                            and entry["verification_id"] not in seen
+                            and observed <= finished <= now + dt.timedelta(minutes=5)
+                            and finished - observed <= dt.timedelta(hours=4 if name == "raw" else 12)
+                            and dt.timedelta(0) <= now - observed < dt.timedelta(hours=max_age))
+            except (TypeError, ValueError, KeyError, AttributeError):
+                eligible = False
+            if eligible:
+                observations.append(entry)
+                seen.add(entry["verification_id"])
         if failures:
-            streak = 0
             observations = []
-        elif prior:
-            streak = int(prior.get("clean_streak", 0)) + int(new)
-        else:
-            streak = 1
-            new = True
         if not failures and new:
             observations = [*observations, {"verification_id": identity,
-                "evidence_started_at": started, "verification_completed_at": completed}][-REQUIRED:]
+                "evidence_started_at": started, "verification_completed_at": completed,
+                "start_trusted": True}][-REQUIRED:]
+        streak = len(observations)
+        confirmation_floor = min((entry["evidence_started_at"] for entry in observations),
+                                 key=parse_time, default=None)
+        confirmation_expiry = ((parse_time(confirmation_floor) + dt.timedelta(hours=max_age)).isoformat()
+                               if confirmation_floor else None)
+        try:
+            watermark = max((value for value in (watermark, completed) if value), key=parse_time)
+        except (TypeError, ValueError, AttributeError):
+            pass
         families[name] = {
             "clean": not failures, "clean_streak": streak,
             "stable_parity": not failures and streak >= REQUIRED and len(observations) >= REQUIRED,
             "required_clean_reports": REQUIRED, "failures": failures,
             "verification_id": identity, "evidence_started_at": started,
+            "evidence_start_trusted": start_trusted,
             "verification_completed_at": completed, "evidence_max_age_hours": max_age,
             "evidence_age_hours": age, "observations": observations,
+            "confirmation_evidence_started_at": confirmation_floor,
+            "confirmation_expires_at": confirmation_expiry,
+            "last_observation_completed_at": watermark,
             "verified_in_report": name in verified,
             "last_clean_at": completed if not failures and new else prior.get("last_clean_at"),
         }
@@ -236,7 +271,8 @@ def evaluate(config: dict, report: dict, previous: dict, *, report_sha256: str,
         members = {n: f for n, f in families.items() if domain_for_job(n) == domain}
         failures = list(dict.fromkeys([*common, *(x for f in members.values() for x in f["failures"]),
                                       *(gws_failures if domain == "raw_retention" else [])]))
-        floors = [f["evidence_started_at"] for f in members.values() if f["evidence_started_at"]]
+        floors = [f["confirmation_evidence_started_at"] if f["stable_parity"] else f["evidence_started_at"]
+                  for f in members.values() if f["evidence_started_at"]]
         if domain == "raw_retention" and gws_at:
             floors.append(gws_at)
         try:

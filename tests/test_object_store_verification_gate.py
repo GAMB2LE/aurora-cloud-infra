@@ -97,7 +97,7 @@ class FamilyEvidenceTests(unittest.TestCase):
         state = evaluate(report(2), state)
         state = evaluate(report(3), state)
         replay = evaluate(report(), state)
-        self.assertEqual(replay["families"]["products"]["clean_streak"], 3)
+        self.assertEqual(replay["families"]["products"]["clean_streak"], 2)
 
     def test_dirty_family_resets_only_its_own_confirmations(self):
         state = evaluate(report(2), evaluate(report()))
@@ -142,14 +142,67 @@ class FamilyEvidenceTests(unittest.TestCase):
         self.assertFalse(state["stable_parity"])
         self.assertTrue(all(value["clean_streak"] == 1 for value in state["families"].values()))
 
-    def test_legacy_family_timestamp_is_only_one_observation(self):
+    def test_legacy_completion_timestamp_cannot_seed_an_observation(self):
         value = report()
         for item in value["jobs"].values():
             for key in ("verification_id", "evidence_started_at", "verification_completed_at"):
                 item.pop(key)
         state = evaluate(value)
-        self.assertEqual(state["clean_streak"], 1)
-        self.assertEqual(evaluate(value, state)["clean_streak"], 1)
+        self.assertEqual(state["clean_streak"], 0)
+        self.assertFalse(state["raw_retention_ready"])
+        self.assertIn("raw:observation_start_untrusted", state["failures"])
+        self.assertEqual(evaluate(value, state)["clean_streak"], 0)
+
+    def test_first_confirmation_expires_while_latest_proof_remains_clean(self):
+        for name,horizon in (("raw",8),("products",36)):
+            with self.subTest(family=name):
+                cfg=config((name,))
+                oldest=NOW-dt.timedelta(hours=horizon)+dt.timedelta(minutes=1)
+                value=report(1,(name,))
+                value['jobs'][name]=family(name,1,started=oldest,completed=oldest+dt.timedelta(seconds=30))
+                first=evaluate(value,cfg=cfg)
+                value['jobs'][name]=family(name,2,started=NOW-dt.timedelta(hours=1),completed=NOW-dt.timedelta(minutes=59))
+                second=evaluate(value,first,cfg=cfg)
+                domain='raw_retention' if name=='raw' else 'products'
+                self.assertTrue(second['families'][name]['stable_parity'])
+                self.assertEqual(second['domains'][domain]['evidence_floor_generated_at'],oldest.isoformat())
+                later=NOW+dt.timedelta(minutes=2)
+                expired=evaluate(value,second,cfg=cfg,now=later)
+                self.assertTrue(expired['families'][name]['clean'])
+                self.assertEqual(expired['families'][name]['clean_streak'],1)
+                self.assertFalse(expired['families'][name]['stable_parity'])
+                replay=evaluate(value,expired,cfg=cfg,now=later)
+                self.assertEqual(replay['families'][name]['clean_streak'],1)
+                fresh=copy.deepcopy(value)
+                fresh['jobs'][name]=family(name,3,started=later-dt.timedelta(minutes=1),completed=later)
+                restored=evaluate(fresh,replay,cfg=cfg,now=later)
+                self.assertTrue(restored['families'][name]['stable_parity'])
+                self.assertEqual({row['verification_id'] for row in restored['families'][name]['observations']},{f'{name}-2',f'{name}-3'})
+
+    def test_unrelated_refresh_cannot_restore_an_expired_confirmation(self):
+        cfg=config(('products','manifests'))
+        value=report(1,('products','manifests'))
+        oldest=NOW-dt.timedelta(hours=36)+dt.timedelta(minutes=1)
+        value['jobs']['products']=family('products',1,started=oldest,completed=oldest+dt.timedelta(seconds=30))
+        first=evaluate(value,cfg=cfg)
+        value['jobs']['products']=family('products',2)
+        value['jobs']['manifests']=family('manifests',2)
+        second=evaluate(value,first,cfg=cfg)
+        later=NOW+dt.timedelta(minutes=2)
+        value['jobs']['manifests']=family('manifests',3,started=NOW,completed=later)
+        value.update(verification_mode='incremental',verified_jobs=['manifests'],incremental_depth=1,
+                     base_generated_at=second['last_generated_at'],base_report_sha256=second['report_sha256'])
+        updated=evaluate(value,second,cfg=cfg,now=later)
+        self.assertTrue(updated['families']['products']['clean'])
+        self.assertEqual(updated['families']['products']['clean_streak'],1)
+        self.assertFalse(updated['products_stable_parity'])
+
+    def test_legacy_explicit_start_can_seed_at_most_one_confirmation(self):
+        value=report()
+        previous={'policy_version':6,'clean_streak':90,'clean':True}
+        state=evaluate(value,previous)
+        self.assertEqual(state['clean_streak'],1)
+        self.assertTrue(all(row['evidence_start_trusted'] for row in state['families'].values()))
 
     def test_same_report_expires_without_another_publication(self):
         value = report(2)
