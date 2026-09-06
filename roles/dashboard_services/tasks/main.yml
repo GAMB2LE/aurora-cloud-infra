@@ -147,6 +147,7 @@
       - -f
       - --
       - "{{ aurora_power_forecast_bundle_current_root }}"
+  check_mode: false
   register: aurora_power_forecast_activation_generation
   changed_when: false
   failed_when: false
@@ -231,6 +232,7 @@
       - --verify-bundle
       - "{{ aurora_power_forecast_activation_generation.stdout }}"
   become_user: "{{ aurora_service_user }}"
+  check_mode: false
   changed_when: false
   when: aurora_power_forecast_publication_active | bool
 

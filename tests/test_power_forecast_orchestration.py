@@ -674,9 +674,19 @@ def test_development_activates_only_after_explicit_bundle_validation() -> None:
         "Activate the first validated development Power generation"
     )
     assert "/usr/bin/readlink" in tasks
+    resolve_task = tasks[
+        tasks.index("Resolve the candidate development Power generation for activation") :
+        tasks.index("Inspect the resolved candidate development Power bundle manifest")
+    ]
+    assert "check_mode: false" in resolve_task
     assert "aurora_power_forecast_activation_generation.stdout is match" in tasks
     assert 'src: current' not in tasks
     assert 'src: "{{ aurora_power_forecast_activation_generation.stdout }}"' in tasks
+    verify_task = tasks[
+        tasks.index("Verify every artifact and identity in the candidate activation bundle") :
+        tasks.index("Activate the first validated development Power generation")
+    ]
+    assert "check_mode: false" in verify_task
     assert "AURORA_POWER_FORECAST_BUNDLE_READY_PATH=" in environment
     assert "AURORA_POWER_FORECAST_PUBLICATION_ACTIVE=" in environment
     assert "aurora_power_forecast_bundle_active_root" in environment
