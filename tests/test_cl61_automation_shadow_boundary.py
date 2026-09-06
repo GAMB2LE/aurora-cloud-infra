@@ -13,6 +13,11 @@ class CL61AutomationShadowBoundaryTests(unittest.TestCase):
 
         self.assertIn('aurora_cl61_automation_shadow_enabled: "{{ aurora_is_development }}"', variables)
         self.assertIn("aurora_cl61_automation_status_path", variables)
+        self.assertIn("aurora_cl61_automation_api_status_path", variables)
+        self.assertIn(
+            "aurora_power_forecast_bundle_current_root ~ '/cl61_automation_status.json'",
+            variables,
+        )
         self.assertIn("aurora_cl61_automation_shadow_enabled: true", droplet)
         self.assertNotIn("aurora_cl61_automation_shadow_enabled: true", production)
 
@@ -26,7 +31,14 @@ class CL61AutomationShadowBoundaryTests(unittest.TestCase):
 
         self.assertIn("--enable-automation-shadow", service)
         self.assertIn("aurora_cl61_automation_shadow_enabled", service)
-        self.assertIn("CL61_AUTOMATION_STATUS_PATH", env)
+        self.assertIn(
+            "CL61_AUTOMATION_STATUS_PATH={{ aurora_cl61_automation_api_status_path }}",
+            env,
+        )
+        self.assertIn(
+            "--automation-status-output {{ aurora_cl61_automation_status_path }}",
+            service,
+        )
         self.assertIn("AURORA_CL61_AUTOMATION_SHADOW_ENABLED", env)
         self.assertIn("Assert CL61 shadow automation is development-only", tasks)
         self.assertIn("aurora_failover_role != 'primary'", tasks)

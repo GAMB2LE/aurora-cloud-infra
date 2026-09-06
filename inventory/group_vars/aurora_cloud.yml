@@ -246,6 +246,14 @@ aurora_cl61_automation_status_path: >-
   {{ (aurora_power_forecast_bundle_active_root ~ '/cl61_automation_status.json')
      if aurora_power_forecast_publication_active | bool
      else (aurora_power_operating_root ~ '/cl61_automation_status.json') }}
+# The additive development API may expose the latest checksum-verified shadow
+# receipt without activating the bundled forecast for any operational/mobile
+# consumer. Keep the standalone writer path above separate so a manual writer
+# can never target the immutable current bundle.
+aurora_cl61_automation_api_status_path: >-
+  {{ (aurora_power_forecast_bundle_current_root ~ '/cl61_automation_status.json')
+     if (aurora_site_env == 'development' and aurora_power_forecast_orchestration_enabled | bool)
+     else aurora_cl61_automation_status_path }}
 aurora_cl61_automation_history_path: "{{ aurora_power_operating_root }}/cl61_automation_history.jsonl"
 aurora_power_display_summary_path: >-
   {{ (aurora_power_forecast_bundle_active_root ~ '/power_display_summary.zarr')
