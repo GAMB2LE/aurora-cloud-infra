@@ -1,0 +1,96 @@
+---
+# Code-only rollout: no source writes, service restarts, timer or cursor edits.
+- name: Deploy path-aware HATPRO discovery while preserving writer schedules
+  hosts: aurora-cloud
+  become: true
+  vars:
+    hatpro_deploy_code: "{{ lookup('file', playbook_dir ~ '/../scripts/deploy_hatpro_discovery.py') }}"
+  tasks:
+    - name: Require the production host and a unique rollback label
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname == 'aurora-cloud'
+          - hatpro_discovery_release | default('') is match('^[A-Za-z0-9][A-Za-z0-9._-]{0,100}$')
+
+    - name: Read authoritative live HATPRO bindings and code hashes
+      ansible.builtin.command:
+        argv: [/usr/bin/python3, -B, -c, "{{ hatpro_deploy_code }}", context]
+      register: hatpro_context_result
+      check_mode: false
+      changed_when: false
+      no_log: true
+
+    - name: Preserve the existing source and destination configuration
+      ansible.builtin.set_fact:
+        hatpro_live_context: "{{ hatpro_context_result.stdout | from_json }}"
+      no_log: true
+
+    - name: Confirm an idle source-sync and backfill boundary
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - -B
+          - -c
+          - "{{ hatpro_deploy_code }}"
+          - preflight
+          - "{{ hatpro_discovery_release }}"
+          - "{{ hatpro_live_context | to_json }}"
+      check_mode: false
+      changed_when: false
+
+    - name: Stage and atomically install the two HATPRO discovery files
+      when: not ansible_check_mode
+      block:
+        - name: Create a restricted temporary staging directory
+          ansible.builtin.tempfile:
+            state: directory
+            prefix: aurora-hatpro-discovery.
+          register: hatpro_discovery_stage
+
+        - name: Stage the discovery driver
+          ansible.builtin.copy:
+            src: "{{ playbook_dir }}/../roles/source_sync/files/aurora_hatpro_discovery.py"
+            dest: "{{ hatpro_discovery_stage.path }}/aurora-hatpro-discovery.py"
+            mode: '0600'
+
+        - name: Stage the wrapper using the deployed source bindings
+          ansible.builtin.template:
+            src: "{{ playbook_dir }}/../roles/source_sync/templates/aurora-hatpro-sync.j2"
+            dest: "{{ hatpro_discovery_stage.path }}/aurora-hatpro-sync"
+            mode: '0600'
+            validate: /bin/bash -n %s
+          vars:
+            hatpro_source_user: "{{ hatpro_live_context.config.source_user }}"
+            hatpro_source_host: "{{ hatpro_live_context.config.source_host }}"
+            hatpro_source_port: "{{ hatpro_live_context.config.source_port }}"
+            hatpro_source_path: "{{ hatpro_live_context.config.source_path }}"
+            hatpro_source_pattern: "{{ hatpro_live_context.config.source_pattern }}"
+            hatpro_source_destination: "{{ hatpro_live_context.config.destination }}"
+            hatpro_source_state_file: "{{ hatpro_live_context.config.state_file }}"
+            hatpro_source_auth: "{{ hatpro_live_context.config.source_auth }}"
+            hatpro_source_ssh_key_path: "{{ hatpro_live_context.config.ssh_key }}"
+            hatpro_source_start_fresh: "{{ hatpro_live_context.config.start_fresh }}"
+
+        - name: Verify rollback then install without changing services or state
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/python3
+              - -B
+              - -c
+              - "{{ hatpro_deploy_code }}"
+              - install
+              - "{{ hatpro_discovery_release }}"
+              - "{{ hatpro_live_context | to_json }}"
+              - "{{ hatpro_discovery_stage.path }}"
+          register: hatpro_discovery_installed
+          changed_when: true
+
+        - name: Show the verified deployment receipt
+          ansible.builtin.debug:
+            var: hatpro_discovery_installed.stdout
+      always:
+        - name: Remove only this temporary staging directory
+          ansible.builtin.file:
+            path: "{{ hatpro_discovery_stage.path }}"
+            state: absent
+          when: hatpro_discovery_stage.path is defined
