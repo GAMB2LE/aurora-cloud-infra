@@ -170,6 +170,42 @@ uv run ansible-playbook playbooks/dashboard_release.yml --limit <host> --check -
 uv run ansible-playbook playbooks/dashboard_release.yml --limit <host>
 ```
 
+For an existing mobile API that needs only a Python source correction, use
+`playbooks/mobile_api_code_release.yml`. It checks out an exact reviewed commit,
+compiles changed Python files in memory with the existing virtual environment,
+and restarts only `aurora-mobile-api.service` when the source SHA changes. It
+does not install dependencies or apply service units, environment files, nginx,
+timers, or data-product roles. Use a candidate based on the host's current
+source so unrelated development work remains included; inspect that complete
+diff before release. Do not use this path for dependency or configuration changes.
+
+Supply a reviewed variables file containing the current host SHA, candidate SHA,
+and release ref:
+
+```yaml
+aurora_mobile_api_expected_revision: <full current host commit SHA>
+aurora_mobile_api_target_revision: <full candidate commit SHA>
+# Development: the same candidate SHA. Production: an annotated prod-YYYYMMDD.N tag.
+aurora_app_version: <exact development SHA or production tag>
+```
+
+```bash
+uv run ansible-playbook playbooks/mobile_api_code_release.yml --limit <host> -e @/path/to/release-vars.yml --check --diff
+uv run ansible-playbook playbooks/mobile_api_code_release.yml --limit <host> -e @/path/to/release-vars.yml
+```
+
+Both modes require an existing clean checkout at the expected SHA, the configured
+origin, an existing Python environment, and a healthy local API. Production also
+requires the remote annotated tag to resolve to the candidate SHA. Check mode
+performs these read-only checks and predicts the Git change; it does not fetch,
+compile the candidate, restart, or validate candidate health. A normal run checks
+`http://127.0.0.1:<mobile API port>/health` after restart. Verify the public API and
+the corrected plots separately before claiming release acceptance. Record any
+required inventory pin update separately from this narrowly scoped deployment.
+The Git task suppresses patch output even with `--diff`: Ansible's Git diff
+implementation fetches objects during check mode. Review the candidate patch
+in the source repository before running the host checks.
+
 Use the runtime release playbook when preparing or repairing the complete
 dashboard service set, including source sync, nginx, and development mirror
 units. It deliberately does not reapply GWS, object-store, verification,

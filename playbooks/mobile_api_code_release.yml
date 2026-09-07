@@ -1,0 +1,186 @@
+---
+- name: Release only existing Aurora mobile API source
+  hosts: aurora_cloud
+  become: true
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: true
+  tasks:
+    - name: Require exact current and target source revisions
+      ansible.builtin.assert:
+        that:
+          - aurora_mobile_api_expected_revision | default('') is match('^[0-9a-f]{40}$')
+          - aurora_mobile_api_target_revision | default('') is match('^[0-9a-f]{40}$')
+          - aurora_site_env in ['production', 'development']
+          - >-
+            (aurora_site_env == 'production' and
+             aurora_app_version is match('^prod-[0-9]{8}\.[0-9]+$')) or
+            (aurora_site_env == 'development' and
+             aurora_app_version == aurora_mobile_api_target_revision)
+        fail_msg: >-
+          Supply full expected and target commit SHAs. Production also requires
+          an annotated prod-YYYYMMDD.N aurora_app_version; development requires
+          aurora_app_version to equal the target SHA. Review the candidate diff
+          against the existing host revision before using this playbook.
+
+    - name: Inspect existing checkout and Python environment
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "{{ aurora_app_dir }}/.git"
+        - "{{ aurora_venv }}/bin/python"
+      register: aurora_mobile_api_existing_paths
+
+    - name: Refuse to provision a missing checkout or environment
+      ansible.builtin.assert:
+        that:
+          - aurora_mobile_api_existing_paths.results | map(attribute='stat.exists') | list == [true, true]
+
+    - name: Read existing source status revision and origin
+      ansible.builtin.command:
+        argv: "{{ ['git', '-C', aurora_app_dir] + item }}"
+      loop:
+        - [status, --porcelain, --untracked-files=all]
+        - [rev-parse, HEAD]
+        - [remote, get-url, origin]
+      become_user: "{{ aurora_service_user }}"
+      register: aurora_mobile_api_existing_source
+      changed_when: false
+      check_mode: false
+
+    - name: Refuse an unexpected or unpreserved source checkout
+      ansible.builtin.assert:
+        that:
+          - aurora_mobile_api_existing_source.results[0].stdout | trim == ''
+          - aurora_mobile_api_existing_source.results[1].stdout | trim == aurora_mobile_api_expected_revision
+          - aurora_mobile_api_existing_source.results[2].stdout | trim == aurora_app_repo
+        fail_msg: >-
+          The existing checkout must be clean, at the explicitly expected SHA,
+          and use the configured origin. Preserve and review any unexpected
+          changes before choosing the candidate; this playbook will not reset
+          files, replace origin, or reconcile another live branch.
+
+    - name: Read the annotated production release tag from origin
+      ansible.builtin.command:
+        argv:
+          - git
+          - ls-remote
+          - --exit-code
+          - "{{ aurora_app_repo }}"
+          - "refs/tags/{{ aurora_app_version }}"
+          - "refs/tags/{{ aurora_app_version }}^{}"
+      become_user: "{{ aurora_service_user }}"
+      environment:
+        GIT_TERMINAL_PROMPT: '0'
+      register: aurora_mobile_api_release_tag
+      changed_when: false
+      check_mode: false
+      when: aurora_site_env == 'production'
+
+    - name: Require an annotated production tag at the exact target commit
+      ansible.builtin.assert:
+        that:
+          - aurora_mobile_api_release_tag.stdout_lines | length == 2
+          - >-
+            (aurora_mobile_api_target_revision ~ '\trefs/tags/' ~ aurora_app_version ~ '^{}')
+            in aurora_mobile_api_release_tag.stdout_lines
+        fail_msg: The production release tag must be annotated and resolve to the exact target SHA.
+      when: aurora_site_env == 'production'
+
+    - name: Verify the current mobile API is healthy before changing source
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ aurora_mobile_api_port }}/health"
+        return_content: true
+        use_proxy: false
+        timeout: 10
+      register: aurora_mobile_api_health_before
+      failed_when: >-
+        aurora_mobile_api_health_before.status | default(0) != 200 or
+        (aurora_mobile_api_health_before.json | default({})).get('status') != 'ok'
+      changed_when: false
+      check_mode: false
+
+    - name: Check out the exact reviewed mobile API source commit
+      ansible.builtin.git:
+        repo: "{{ aurora_app_repo }}"
+        dest: "{{ aurora_app_dir }}"
+        version: "{{ aurora_mobile_api_target_revision }}"
+        clone: false
+        update: true
+        force: false
+        recursive: false
+      become_user: "{{ aurora_service_user }}"
+      environment:
+        GIT_TERMINAL_PROMPT: '0'
+      register: aurora_mobile_api_source
+      # ansible.builtin.git fetches objects from get_diff even in check mode.
+      # Suppress its diff path so --check --diff remains read-only on the host.
+      diff: false
+
+    - name: Verify source checkout resolved to the expected release
+      ansible.builtin.assert:
+        that:
+          - aurora_mobile_api_source.before == aurora_mobile_api_expected_revision
+          - aurora_mobile_api_source.after == aurora_mobile_api_target_revision
+
+    - name: Explain check mode validation limits
+      ansible.builtin.debug:
+        msg: >-
+          Preflight and current /health passed. Git predicts source
+          {{ aurora_mobile_api_expected_revision }} -> {{ aurora_mobile_api_target_revision }}.
+          Check mode does not fetch, check out, compile candidate code, or restart
+          the service. Candidate health must be verified by the normal release
+          run and public endpoint smoke checks.
+      when: ansible_check_mode
+
+    - name: Compile changed Python modules in memory using the existing environment
+      ansible.builtin.command:
+        argv:
+          - "{{ aurora_venv }}/bin/python"
+          - -B
+          - -c
+          - |
+            import pathlib
+            import subprocess
+            import sys
+
+            root = pathlib.Path(sys.argv[1])
+            paths = subprocess.check_output([
+                'git', '-C', str(root), 'diff', '--name-only', '-z',
+                '--diff-filter=ACMRT', sys.argv[2], sys.argv[3], '--', '*.py',
+            ]).decode().split('\0')
+            for name in filter(None, paths):
+                path = root / name
+                compile(path.read_bytes(), str(path), 'exec')
+                print(name)
+          - "{{ aurora_app_dir }}"
+          - "{{ aurora_mobile_api_expected_revision }}"
+          - "{{ aurora_mobile_api_target_revision }}"
+      become_user: "{{ aurora_service_user }}"
+      changed_when: false
+      when:
+        - not ansible_check_mode
+        - aurora_mobile_api_source.before != aurora_mobile_api_source.after
+
+    - name: Restart only the mobile API after a source change
+      ansible.builtin.systemd_service:
+        name: aurora-mobile-api.service
+        state: restarted
+      when:
+        - not ansible_check_mode
+        - aurora_mobile_api_source.before != aurora_mobile_api_source.after
+
+    - name: Verify the mobile API after the source release
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ aurora_mobile_api_port }}/health"
+        return_content: true
+        use_proxy: false
+        timeout: 10
+      register: aurora_mobile_api_health_after
+      until: >-
+        aurora_mobile_api_health_after.status | default(0) == 200 and
+        (aurora_mobile_api_health_after.json | default({})).get('status') == 'ok'
+      retries: 10
+      delay: 2
+      changed_when: false
+      when: not ansible_check_mode
