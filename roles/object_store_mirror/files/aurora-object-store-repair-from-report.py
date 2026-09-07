@@ -14,6 +14,7 @@ import csv
 import datetime as dt
 import fcntl
 import json
+import math
 from pathlib import Path
 from pathlib import PurePosixPath
 import subprocess
@@ -30,6 +31,22 @@ DEFAULT_RESULT = Path(
     "/var/lib/aurora-cloud/object-store-repair/result.json"
 )
 RCLONE = "/usr/bin/rclone"
+
+
+class SourceMetadataError(ValueError):
+    error_class = "source_metadata"
+    restart_epoch = True
+
+
+def validate_source_mtime(value, relative: str) -> float:
+    """Match the collector's fail-closed source-age contract before any copy."""
+    try:
+        stamp = float(value)
+        if isinstance(value, bool) or not math.isfinite(stamp) or stamp < 1:
+            raise ValueError("invalid source modification time")
+    except (TypeError, ValueError, OverflowError):
+        raise SourceMetadataError(f"Source modification time is invalid for {relative!r}; a finite positive timestamp is required") from None
+    return stamp
 
 
 def parse_args() -> argparse.Namespace:
@@ -101,10 +118,14 @@ def settled_paths(
             deferred.append(relative_path)
             continue
         expected = evidence.get(relative_path) if evidence is not None else None
+        if (path.is_symlink() and not copy_links) or not path.is_file():
+            deferred.append(relative_path)
+            continue
+        source_mtime = validate_source_mtime(stat.st_mtime, relative_path)
+        if expected is not None:
+            validate_source_mtime(expected.get("mtime"), relative_path)
         if (
-            (path.is_symlink() and not copy_links)
-            or not path.is_file()
-            or stat.st_mtime > cutoff
+            source_mtime > cutoff
             or (
                 evidence is not None
                 and (
@@ -134,7 +155,7 @@ def read_local_evidence(report: Path, name: str) -> dict[str, dict]:
         for row in csv.DictReader(handle, delimiter="\t"):
             result[row["relative_path"]] = {
                 "size": int(row["size"]),
-                "mtime": int(float(row["mtime"])),
+                "mtime": int(validate_source_mtime(row.get("mtime"), row["relative_path"])),
             }
     return result
 
@@ -243,7 +264,7 @@ def repair_recovery_latest(args: argparse.Namespace, catalog: dict) -> dict:
     """Invalidate observations before copies, without locking remote I/O."""
     sys.path.insert(0, '/usr/local/lib/aurora-object-store')
     from aurora_object_store_evidence import read_snapshot
-    from aurora_object_store_recovery import Queue, commit_lock
+    from aurora_object_store_recovery import Queue, commit_lock, atomic_json
 
     jobs = {job['name']: job for job in catalog['jobs']}
     if not (Path(catalog['manifest_root']) / 'latest').is_symlink():
@@ -259,8 +280,23 @@ def repair_recovery_latest(args: argparse.Namespace, catalog: dict) -> dict:
                 values = snapshot.report['jobs'][name]
                 comparison = values['source_vs_s3']
                 candidates = set().union(*(comparison.get(k, []) for k in ('missing_from_right', 'size_mismatch', 'checksum_mismatch')))
-                evidence = read_local_evidence(snapshot.path / 'comparison.json', name)
-                ready, deferred = settled_paths(Path(jobs[name]['source']), candidates, duration_seconds(verification_settle_age(jobs[name])), bool(jobs[name].get('copy_links')), evidence)
+                try:
+                    evidence = read_local_evidence(snapshot.path / 'comparison.json', name)
+                    ready, deferred = settled_paths(Path(jobs[name]['source']), candidates, duration_seconds(verification_settle_age(jobs[name])), bool(jobs[name].get('copy_links')), evidence)
+                except SourceMetadataError as error:
+                    if not args.dry_run:
+                        with commit_lock(catalog):
+                            current = json.loads((Path(catalog['manifest_root']) / 'latest/comparison.json').read_text())
+                            current_values = current['jobs'][name]
+                            current_id = str(current_values.get('verification_id') or current_values.get('verified_at') or current['generated_at'])
+                            identity = str(values.get('verification_id') or values.get('verified_at') or snapshot.report['generated_at'])
+                            if current_id != identity:
+                                results.append({'job':name,'candidates':len(candidates),'ready':0,'deferred':len(candidates),'returncode':0,'reason':'new family evidence superseded source fault'})
+                                continue
+                            queue.source_metadata_failed(name, error)
+                        atomic_json(queue.root / 'status.json', queue.status())
+                    results.append({'job':name,'candidates':len(candidates),'ready':0,'deferred':len(candidates),'returncode':1,'error_class':'source_metadata','error':str(error)})
+                    continue
                 if args.dry_run:
                     results.append(repair_job(name, jobs[name], values, catalog, True, evidence))
                     continue
@@ -290,6 +326,18 @@ def repair_recovery_latest(args: argparse.Namespace, catalog: dict) -> dict:
                 # idempotently resumed by this same immutable repair identity.
                 try:
                     result = repair_job(name, jobs[name], values, catalog, False, evidence)
+                except SourceMetadataError as error:
+                    with commit_lock(catalog):
+                        current = json.loads((Path(catalog['manifest_root']) / 'latest/comparison.json').read_text())
+                        current_values = current['jobs'][name]
+                        current_id = str(current_values.get('verification_id') or current_values.get('verified_at') or current['generated_at'])
+                        if current_id != identity or not queue.source_metadata_failed(name, error, repair_id=repair_id):
+                            results.append({'job':name,'candidates':len(candidates),'ready':0,'deferred':len(candidates),'returncode':0,'reason':'new family evidence or recovery superseded source fault'})
+                            continue
+                    queue.repair_finished(name, repair_id, success=False)
+                    atomic_json(queue.root / 'status.json', queue.status())
+                    results.append({'job':name,'candidates':len(candidates),'ready':0,'deferred':len(candidates),'returncode':1,'error_class':'source_metadata','error':str(error)})
+                    continue
                 except Exception:
                     queue.repair_finished(name, repair_id, success=False)
                     raise

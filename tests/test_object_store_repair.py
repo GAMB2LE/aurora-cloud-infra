@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import tempfile
 import threading
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 import json
@@ -24,6 +25,57 @@ SPEC.loader.exec_module(repair)
 
 
 class ObjectStoreRepairTests(unittest.TestCase):
+    def test_invalid_source_timestamps_never_reach_copy(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source=Path(temporary)
+            (source/'camera.jpg').write_bytes(b'partial')
+            for invalid in (0,-1,0.5,float('nan'),float('inf'),-float('inf'),None,'invalid',True,False):
+                with self.subTest(invalid=invalid), \
+                     mock.patch.object(repair.Path,'stat',return_value=SimpleNamespace(st_size=7,st_mtime=invalid,st_mode=0o100644)), \
+                     mock.patch.object(repair.subprocess,'run') as copy:
+                    with self.assertRaises(repair.SourceMetadataError) as raised:
+                        repair.repair_job('raw',{'source':str(source),'destination':'raw','verification_settle_age':'6h'},
+                                          {'source_vs_s3':{'missing_from_right':['camera.jpg']}},{},False,
+                                          {'camera.jpg':{'size':7,'mtime':invalid}})
+                    self.assertEqual(raised.exception.error_class,'source_metadata')
+                    copy.assert_not_called()
+
+    def test_invalid_report_timestamp_cannot_authorize_a_now_repaired_source(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source=Path(temporary)
+            (source/'camera.jpg').write_bytes(b'archive')
+            os.utime(source/'camera.jpg',(100,100))
+            for invalid in (0,-1,None,'invalid',float('nan')):
+                with self.subTest(invalid=invalid), mock.patch.object(repair.subprocess,'run') as copy:
+                    with self.assertRaises(repair.SourceMetadataError):
+                        repair.repair_job('raw',{'source':str(source),'destination':'raw','verification_settle_age':'6h'},
+                                          {'source_vs_s3':{'missing_from_right':['camera.jpg']}},{},False,
+                                          {'camera.jpg':{'size':7,'mtime':invalid}})
+                    copy.assert_not_called()
+
+    def test_read_local_evidence_rejects_invalid_source_timestamp(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            for invalid in ('0','-1','nan','inf','not-a-timestamp',''):
+                with self.subTest(invalid=invalid):
+                    (root/'raw-local.tsv').write_text('relative_path\tsize\tmtime\tchecksum\ncamera.jpg\t131072\t'+invalid+'\t\n')
+                    with self.assertRaises(repair.SourceMetadataError):
+                        repair.read_local_evidence(root/'comparison.json','raw')
+
+    def test_excluded_pointer_and_nonfile_are_deferred_before_timestamp_validation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            target=root/'target.dat'
+            target.write_bytes(b'not selected')
+            os.utime(target,(0,0))
+            (root/'pointer.dat').symlink_to(target.name)
+            (root/'directory').mkdir()
+            os.utime(root/'directory',(0,0))
+            with mock.patch.object(repair,'validate_source_mtime',side_effect=AssertionError('excluded path was validated')):
+                ready,deferred=repair.settled_paths(root,{'pointer.dat','directory'},21600)
+            self.assertEqual(ready,[])
+            self.assertEqual(deferred,['directory','pointer.dat'])
+
     def test_publish_result_is_atomic_and_readable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "state" / "result.json"

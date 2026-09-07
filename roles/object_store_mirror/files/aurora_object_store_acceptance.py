@@ -8,7 +8,7 @@ import sqlite3
 import urllib.request
 
 
-ACCEPTANCE_POLICY_VERSION = 2
+ACCEPTANCE_POLICY_VERSION = 3
 
 
 def _time(value):
@@ -80,8 +80,8 @@ def assess(config, report, gate, gws, public, *, now, previous, observations, ba
     deployment=config.get('recovery_deployment_id','unversioned')
     state=dict(previous) if previous.get('deployment_id')==deployment else {}
     if state and state.get('acceptance_policy_version') != ACCEPTANCE_POLICY_VERSION:
-        # Previous samples did not necessarily check settled canonical-path
-        # coverage. Never carry their elapsed-time credit into this policy.
+        # Earlier samples did not necessarily reject invalid source metadata.
+        # Never carry their elapsed-time credit into this policy.
         failures.append('acceptance policy changed; fresh unattended window required')
         state['clean_window_started_at']=None
     state['acceptance_policy_version']=ACCEPTANCE_POLICY_VERSION
@@ -91,6 +91,14 @@ def assess(config, report, gate, gws, public, *, now, previous, observations, ba
         failures.append('coordinator heartbeat is missing or overdue')
     if coordinator.get('state')=='blocked':
         failures.append('coordinator has a permanently blocked family')
+    recovery_jobs=coordinator.get('jobs',{})
+    if isinstance(recovery_jobs,dict):
+        for name,value in sorted(recovery_jobs.items()):
+            # A source-integrity failure is not an ordinary gateway retry.
+            # Keep it disqualifying during retries, even if older canonical
+            # evidence and a lagging public response still appear clean.
+            if isinstance(value,dict) and value.get('error_class')=='source_metadata':
+                failures.append(str(name)+': source metadata is invalid; fresh complete verification required')
     resource_fields=('used_bytes','max_bytes','free_bytes','reserve_bytes')
     if (not isinstance(resources,dict) or
             any(type(resources.get(key)) is not int or resources[key]<0 for key in resource_fields) or

@@ -62,6 +62,63 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(resumed['evidence_started_at'],epoch['evidence_started_at'])
         self.assertEqual(self.q.row('raw')['state'],'queued')
 
+    def test_source_metadata_fault_survives_retries_interruptions_and_launch_errors(self):
+        fault=recovery.load_inventory().SourceMetadataError('camera.jpg has invalid timestamp')
+        self.q.enqueue(['raw'])
+        epoch=self.q.claim('raw')
+        self.q.fail(epoch,fault,restart_epoch=True)
+        for event in ('transient','defer','interruption','launch','manual_retry'):
+            self.now=self.q.row('raw')['next_retry_at']+1
+            if event=='launch':
+                self.q.launch_ready(lambda name: (_ for _ in ()).throw(RuntimeError('launch failed')))
+            elif event=='manual_retry':
+                self.q.retry('raw')
+            else:
+                epoch=self.q.claim('raw')
+                self.assertEqual(epoch['error_class'],'source_metadata')
+                if event=='transient':self.q.fail(epoch,RuntimeError('gateway timeout'))
+                elif event=='defer':self.q.defer(epoch)
+                else:self.q.recover_workers(lambda name:False)
+            self.assertEqual(self.q.row('raw')['error_class'],'source_metadata')
+            self.assertTrue(self.q.row('raw')['last_error'].startswith(str(fault)))
+        self.now=self.q.row('raw')['next_retry_at']+1
+        epoch=self.q.claim('raw')
+        self.q.complete(epoch,*self.evidence(epoch))
+        self.assertIsNone(self.q.row('raw')['error_class'])
+        self.assertIsNone(self.q.row('raw')['last_error'])
+
+    def test_sticky_source_fault_keeps_a_later_permanent_failure_explanation(self):
+        self.q.enqueue(['raw'])
+        epoch=self.q.claim('raw')
+        self.q.fail(epoch,recovery.load_inventory().SourceMetadataError('camera timestamp invalid'),restart_epoch=True)
+        self.now=self.q.row('raw')['next_retry_at']+1
+        epoch=self.q.claim('raw')
+        error=RuntimeError('GWS credentials rejected')
+        error.error_class='auth'
+        self.q.fail(epoch,error)
+        row=self.q.row('raw')
+        self.assertEqual(row['state'],'blocked')
+        self.assertEqual(row['error_class'],'source_metadata')
+        self.assertIn('camera timestamp invalid',row['last_error'])
+        self.assertIn('latest attempt (auth): GWS credentials rejected',row['last_error'])
+
+    def test_repair_source_metadata_fault_fences_old_audit_without_postponing_retries(self):
+        self.q.enqueue(['raw'])
+        epoch=self.q.claim('raw')
+        fault=recovery.load_inventory().SourceMetadataError('invalid source timestamp')
+        self.q.source_metadata_failed('raw',fault)
+        first=self.q.row('raw')
+        self.assertIsNone(first['verification_id'])
+        self.assertEqual(first['generation'],epoch['generation']+1)
+        self.assertEqual(first['remaining'],2)
+        self.assertEqual(first['state'],'retry_wait')
+        with self.assertRaises(RuntimeError):self.q.validate(epoch)
+        self.now+=1
+        self.q.source_metadata_failed('raw',fault)
+        self.assertEqual(self.q.row('raw')['generation'],first['generation'])
+        self.assertEqual(self.q.row('raw')['next_retry_at'],first['next_retry_at'])
+
+
     def test_backlogged_daily_cycles_require_distinct_observations(self):
         self.q.enqueue(daily=True,batch_id='day-one')
         self.now+=86400

@@ -102,6 +102,33 @@ class AcceptanceTests(unittest.TestCase):
         self.assertIsNone(rejected['clean_window_started_at'])
         self.assertNotIn('accepted_at',rejected)
 
+    def test_invalid_source_metadata_rejects_clean_cached_evidence_during_retry(self):
+        start=a._time('2026-09-06T12:00:00Z');now=start+49*3600
+        previous,obs,batches=self.prior_and_observations(start,now)
+        for state in ('retry_wait','launching','running','queued','idle'):
+            with self.subTest(state=state):
+                runtime=self.runtime(now)
+                runtime['coordinator'].update(state=state,jobs={'raw':{
+                    'state':state,'error_class':'source_metadata',
+                    'last_error':'Source modification time is invalid',
+                }})
+                rejected=a.assess(*self.fixture(now),now=now,previous=previous,
+                                  observations=obs,batches=batches,**runtime)
+                self.assertEqual(rejected['status'],'under_validation')
+                self.assertIsNone(rejected['clean_window_started_at'])
+                self.assertIn('raw: source metadata is invalid; fresh complete verification required',rejected['failures'])
+
+    def test_gateway_retry_with_valid_evidence_does_not_become_source_failure(self):
+        start=a._time('2026-09-06T12:00:00Z');now=start+49*3600
+        previous,obs,batches=self.prior_and_observations(start,now)
+        runtime=self.runtime(now)
+        runtime['coordinator'].update(state='retry_wait',jobs={'raw':{
+            'state':'retry_wait','error_class':'transient','last_error':'HTTP 504',
+        }})
+        accepted=a.assess(*self.fixture(now),now=now,previous=previous,
+                          observations=obs,batches=batches,**runtime)
+        self.assertEqual(accepted['status'],'complete')
+
     def test_settled_stream_counters_are_required_even_when_retention_is_clean(self):
         start=a._time('2026-09-06T12:00:00Z');now=start+49*3600
         previous,obs,batches=self.prior_and_observations(start,now)

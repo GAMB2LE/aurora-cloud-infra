@@ -1,0 +1,275 @@
+---
+# Focused code-only safety patch. Supply a NEW archive_source_timestamp_guard_release.
+# Busy services/queue entries/locks defer deployment; no services are stopped or started.
+# Restore only the six files recorded in the verified before.json if rollback is needed.
+- name: Deploy archive source timestamp guards at a short idle boundary
+  hosts: aurora-cloud
+  become: true
+  vars:
+    object_store_recovery_enabled: true
+    archive_timestamp_guard_files:
+      - { source: aurora-object-store-inventory.py, target: /usr/local/bin/aurora-object-store-inventory }
+      - { source: aurora-object-store-inventory.py, target: /usr/local/lib/aurora-object-store/aurora_object_store_inventory.py }
+      - { source: aurora_object_store_recovery.py, target: /usr/local/lib/aurora-object-store/aurora_object_store_recovery.py }
+      - { source: aurora-object-store-repair-from-report.py, target: /usr/local/bin/aurora-object-store-repair-from-report }
+      - { source: aurora_object_store_acceptance.py, target: /usr/local/lib/aurora-object-store/aurora_object_store_acceptance.py }
+    archive_timestamp_guard_code: |
+      import contextlib
+      import fcntl
+      import hashlib
+      import json
+      import os
+      from pathlib import Path
+      import re
+      import sqlite3
+      import stat
+      import subprocess
+      import sys
+      import tempfile
+
+      TARGETS = (
+          '/usr/local/bin/aurora-object-store-inventory',
+          '/usr/local/lib/aurora-object-store/aurora_object_store_inventory.py',
+          '/usr/local/lib/aurora-object-store/aurora_object_store_recovery.py',
+          '/usr/local/bin/aurora-object-store-repair-from-report',
+          '/usr/local/lib/aurora-object-store/aurora_object_store_acceptance.py',
+          '/usr/local/bin/aurora-archive-health',
+      )
+      CATALOG = Path('/etc/aurora-object-store/catalog.json')
+      BACKUPS = Path('/var/lib/aurora-cloud/recovery-rollbacks')
+      ROOT_UID = ROOT_GID = 0
+      BASE_UNITS = (
+          'aurora-object-store-recovery.service',
+          'aurora-object-store-repair.service',
+          'aurora-object-store-recheck-after-repair.service',
+          'aurora-ass-retention.service',
+          'aurora-object-store-inventory.service',
+          'aurora-object-store-verification-gate.service',
+          'aurora-object-store-recovery-upload.service',
+          'aurora-archive-health.service',
+      )
+
+      def fingerprint(path):
+          path = Path(path)
+          info = path.lstat()
+          if not stat.S_ISREG(info.st_mode) or info.st_uid != ROOT_UID:
+              raise RuntimeError('Expected root-owned regular file: ' + str(path))
+          parent = path.parent.lstat()
+          if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != ROOT_UID:
+              raise RuntimeError('Expected real root-owned parent: ' + str(path.parent))
+          return dict(sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+                      uid=info.st_uid, gid=info.st_gid, mode=stat.S_IMODE(info.st_mode))
+
+      def idle(config):
+          units = list(BASE_UNITS)
+          for job in config['jobs']:
+              for prefix in ('aurora-object-store-recovery-worker@', 'aurora-object-store-inventory-incremental@'):
+                  units.append(prefix + job['name'] + '.service')
+          result = subprocess.run(
+              ['/bin/systemctl', 'show', *units, '--property=Id,LoadState,ActiveState,Job'],
+              capture_output=True, text=True, timeout=15, check=True)
+          states = {}
+          for block in result.stdout.strip().split('\n\n'):
+              values = dict(line.split('=', 1) for line in block.splitlines() if '=' in line)
+              if values.get('Id'):
+                  states[values['Id']] = values
+          for unit in units:
+              value = states.get(unit, {})
+              if (value.get('LoadState') != 'loaded'
+                      or value.get('ActiveState') not in ('inactive', 'failed')
+                      or value.get('Job') not in ('', '0')):
+                  raise RuntimeError('Deployment deferred; service not idle: ' + unit)
+          root = Path(config.get('recovery_root', config['manifest_root'] + '/recovery'))
+          with sqlite3.connect((root / 'queue.sqlite').as_uri() + '?mode=ro', uri=True, timeout=0) as db:
+              db.execute('PRAGMA query_only=ON')
+              active = db.execute("SELECT name,state FROM jobs WHERE state IN ('running','launching','repairing')").fetchall()
+              repairs = db.execute('SELECT job FROM repair_requests WHERE completed=0').fetchall()
+          if active or repairs:
+              raise RuntimeError('Deployment deferred; unfinished recovery or repair work')
+          return states
+
+      def canonical(config):
+          latest = Path(config['manifest_root']) / 'latest'
+          if not latest.is_symlink():
+              raise RuntimeError('Expected immutable canonical generation pointer')
+          return dict(pointer=os.readlink(latest), **{
+              name: hashlib.sha256((latest / name).read_bytes()).hexdigest()
+              for name in ('comparison.json', 'verification-gate.json')})
+
+      def exclusive(path, data):
+          with Path(path).open('xb') as handle:
+              os.fchmod(handle.fileno(), 0o600)
+              handle.write(data)
+              handle.flush()
+              os.fsync(handle.fileno())
+
+      def sync_dir(path):
+          directory = os.open(path, os.O_RDONLY)
+          try:
+              os.fsync(directory)
+          finally:
+              os.close(directory)
+
+      def replace(path, data, metadata):
+          path = Path(path)
+          fd, temporary = tempfile.mkstemp(prefix='.source-timestamp-guard-', dir=path.parent)
+          try:
+              with os.fdopen(fd, 'wb') as handle:
+                  os.fchown(handle.fileno(), metadata['uid'], metadata['gid'])
+                  os.fchmod(handle.fileno(), metadata['mode'])
+                  handle.write(data)
+                  handle.flush()
+                  os.fsync(handle.fileno())
+              os.replace(temporary, path)
+              sync_dir(path.parent)
+          finally:
+              if os.path.exists(temporary):
+                  os.unlink(temporary)
+
+      def deploy(mode, label, expected_catalog_sha, stage=None):
+          if mode not in ('preflight', 'install') or os.geteuid() != ROOT_UID:
+              raise RuntimeError('A root-owned focused deployment is required')
+          if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,127}', label):
+              raise RuntimeError('A unique safe release label is required')
+          catalog_before = fingerprint(CATALOG)
+          if catalog_before['sha256'] != expected_catalog_sha:
+              raise RuntimeError('Catalogue changed since the rendering context was read')
+          config = json.loads(CATALOG.read_bytes())
+          names = [job['name'] for job in config['jobs']]
+          if not config.get('recovery_enabled') or len(names) != 6 or len(set(names)) != 6 or 'raw' not in names:
+              raise RuntimeError('Active six-family recovery is required')
+          backup = BACKUPS / ('source-timestamp-' + label)
+          if backup.exists() or backup.is_symlink():
+              raise RuntimeError('Never overwrite an existing rollback bundle')
+          parent = BACKUPS.lstat()
+          if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != ROOT_UID or stat.S_IMODE(parent.st_mode) != 0o700:
+              raise RuntimeError('Expected existing restricted root-owned rollback parent')
+          root = Path(config.get('recovery_root', config['manifest_root'] + '/recovery'))
+          # Existing read-only lock inodes fence publication and both worker lanes.
+          # A contending worker defers normally; no scheduling policy is changed.
+          locks = [Path(config['manifest_root']) / '.inventory.lock',
+                   root / 'worker-raw.lock', root / 'worker-products.lock']
+          with contextlib.ExitStack() as stack:
+              for path in locks:
+                  if not stat.S_ISREG(path.lstat().st_mode):
+                      raise RuntimeError('Expected existing regular archive lock')
+                  handle = stack.enter_context(path.open('rb'))
+                  fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+              units = idle(config)
+              before = {path: fingerprint(path) for path in TARGETS}
+              pinned = canonical(config)
+              if mode == 'preflight':
+                  return dict(state='idle', files=len(TARGETS))
+              payload = {path: (Path(stage) / Path(path).name).read_bytes() for path in TARGETS}
+              if payload[TARGETS[0]] != payload[TARGETS[1]]:
+                  raise RuntimeError('Both installed inventory copies must contain identical code')
+              for path, data in payload.items():
+                  compile(data, path, 'exec')  # Validate syntax in memory, never run code or emit bytecode.
+              old = {path: Path(path).read_bytes() for path in TARGETS}
+              backup.mkdir(mode=0o700)
+              for path, data in old.items():
+                  saved = backup / (Path(path).name + '.before')
+                  exclusive(saved, data)
+                  actual = fingerprint(saved)
+                  if actual['sha256'] != before[path]['sha256'] or actual['mode'] != 0o600 or actual['gid'] != ROOT_GID:
+                      raise RuntimeError('Rollback verification failed before publication')
+              record = dict(files=before, catalog=catalog_before, canonical=pinned, units=units)
+              exclusive(backup / 'before.json', (json.dumps(record, indent=2) + '\n').encode())
+              sync_dir(backup)
+              sync_dir(BACKUPS)
+              # Recheck after staging/backup, immediately before the short replacement sequence.
+              idle(config)
+              if (fingerprint(CATALOG) != catalog_before or canonical(config) != pinned
+                      or any(fingerprint(path) != before[path] for path in TARGETS)):
+                  raise RuntimeError('Live inputs changed; deployment deferred')
+              changed = []
+              try:
+                  for path, data in payload.items():
+                      changed.append(path)
+                      replace(path, data, before[path])
+                  for path, data in payload.items():
+                      expected = dict(before[path], sha256=hashlib.sha256(data).hexdigest())
+                      if fingerprint(path) != expected:
+                          raise RuntimeError('Installed file verification failed: ' + path)
+                  if fingerprint(CATALOG) != catalog_before or canonical(config) != pinned:
+                      raise RuntimeError('Catalogue or canonical evidence changed during deployment')
+              except Exception:
+                  for path in reversed(changed):
+                      replace(path, old[path], before[path])
+                  raise
+              installed = {path: fingerprint(path) for path in TARGETS}
+              exclusive(backup / 'installed.json', (json.dumps(installed, indent=2) + '\n').encode())
+              return dict(state='installed', files=len(TARGETS), rollback=str(backup))
+
+      if __name__ == '__main__':
+          print(json.dumps(deploy(*sys.argv[1:])))
+  tasks:
+    - name: Preserve authoritative deployed configuration for the health template
+      ansible.builtin.import_tasks: tasks/archive_recovery_context.yml
+
+    - name: Require active recovery and a unique release label
+      ansible.builtin.assert:
+        that:
+          - archive_recovery_live_catalog.recovery_enabled | default(false) | bool
+          - archive_source_timestamp_guard_release | default('') is match('^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
+
+    - name: Assert an idle boundary without changing any runtime files
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - -c
+          - "{{ archive_timestamp_guard_code }}"
+          - preflight
+          - "{{ archive_source_timestamp_guard_release }}"
+          - "{{ archive_recovery_catalog_bytes.content | b64decode | hash('sha256') }}"
+      check_mode: false
+      changed_when: false
+
+    - name: Stage and deploy only the source timestamp safety patch
+      when: not ansible_check_mode
+      block:
+        - name: Create a restricted temporary staging directory
+          ansible.builtin.tempfile:
+            state: directory
+            prefix: aurora-source-timestamp-guard.
+          register: archive_timestamp_guard_stage
+
+        - name: Stage both inventory copies and the three guarded runtime programs
+          ansible.builtin.copy:
+            src: "{{ playbook_dir }}/../roles/object_store_mirror/files/{{ item.source }}"
+            dest: "{{ archive_timestamp_guard_stage.path }}/{{ item.target | basename }}"
+            owner: root
+            group: root
+            mode: '0600'
+            unsafe_writes: false
+            validate: /usr/bin/python3 -c "import pathlib, sys; compile(pathlib.Path(sys.argv[1]).read_bytes(), sys.argv[1], 'exec')" "%s"
+          loop: "{{ archive_timestamp_guard_files }}"
+
+        - name: Stage the compatible health reader without refreshing its service
+          ansible.builtin.template:
+            src: "{{ playbook_dir }}/../roles/operations_monitor/templates/aurora-archive-health.py.j2"
+            dest: "{{ archive_timestamp_guard_stage.path }}/aurora-archive-health"
+            owner: root
+            group: root
+            mode: '0600'
+            unsafe_writes: false
+            validate: /usr/bin/python3 -c "import pathlib, sys; compile(pathlib.Path(sys.argv[1]).read_bytes(), sys.argv[1], 'exec')" "%s"
+
+        - name: Verify rollback and atomically install the six code files at the idle boundary
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/python3
+              - -c
+              - "{{ archive_timestamp_guard_code }}"
+              - install
+              - "{{ archive_source_timestamp_guard_release }}"
+              - "{{ archive_recovery_catalog_bytes.content | b64decode | hash('sha256') }}"
+              - "{{ archive_timestamp_guard_stage.path }}"
+          register: archive_timestamp_guard_result
+          changed_when: true
+      always:
+        - name: Remove only this play's temporary staged code
+          ansible.builtin.file:
+            path: "{{ archive_timestamp_guard_stage.path }}"
+            state: absent
+          when: archive_timestamp_guard_stage.path is defined

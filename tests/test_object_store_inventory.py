@@ -27,6 +27,33 @@ SPEC.loader.exec_module(inventory)
 
 
 class ObjectStoreInventoryTests(unittest.TestCase):
+    def test_invalid_source_mtime_is_a_fault_not_settled_or_absent_evidence(self):
+        for value in (0, -1, 0.5, float('nan'), float('inf'), -float('inf'), None, 'invalid', True, False):
+            with self.subTest(value=value), mock.patch.object(inventory.Path,'exists',return_value=True), \
+                 mock.patch.object(inventory.Path,'is_symlink',return_value=False), \
+                 mock.patch.object(inventory.Path,'stat',return_value=SimpleNamespace(st_size=131072,st_mtime=value)), \
+                 mock.patch.object(inventory.os,'walk',return_value=iter([('/source',[],['camera.jpg'])])):
+                with self.assertRaises(inventory.SourceMetadataError) as raised:
+                    inventory.local_inventory('/source',[],'6h',strict_errors=True)
+                self.assertEqual(raised.exception.error_class,'source_metadata')
+                self.assertTrue(raised.exception.restart_epoch)
+                self.assertIn('camera.jpg',str(raised.exception))
+
+    def test_excluded_source_with_invalid_mtime_does_not_change_archive_scope(self):
+        with mock.patch.object(inventory.Path,'exists',return_value=True), \
+             mock.patch.object(inventory.Path,'is_symlink',return_value=False), \
+             mock.patch.object(inventory.Path,'stat',return_value=SimpleNamespace(st_size=10,st_mtime=0)), \
+             mock.patch.object(inventory.os,'walk',return_value=iter([('/source',[],['excluded.tmp'])])):
+            self.assertEqual(inventory.local_inventory('/source',inventory.COMMON_EXCLUDES,'6h',strict_errors=True),{})
+
+    def test_final_stability_rejects_invalid_current_and_frozen_source_times(self):
+        for current, frozen in ((0,100),(100,0),(0,0),(float('nan'),100),(100,'invalid')):
+            with self.subTest(current=current,frozen=frozen), \
+                 mock.patch.object(inventory.Path,'is_symlink',return_value=False), \
+                 mock.patch.object(inventory.Path,'stat',return_value=SimpleNamespace(st_size=131072,st_mtime=current)):
+                with self.assertRaises(inventory.SourceMetadataError):
+                    inventory.retain_unchanged_local_snapshot('/source',{'camera.jpg':{'size':131072,'mtime':frozen}})
+
     def test_frozen_observation_cutoff_excludes_newly_settled_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/'newly-settled.dat'

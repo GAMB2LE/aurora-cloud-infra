@@ -11,6 +11,7 @@ import fcntl
 import fnmatch
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import random
@@ -36,6 +37,27 @@ COMMON_EXCLUDES = [
     "**/*backup*.zarr/**",
     "**/*schema-backup*.zarr/**",
 ]
+
+
+class SourceMetadataError(ValueError):
+    error_class = "source_metadata"
+    restart_epoch = True
+
+
+def validate_source_mtime(value, relative: str) -> float:
+    """Unknown source age is a fault, never settled or silently absent data."""
+    try:
+        stamp = float(value)
+        if isinstance(value, bool) or not math.isfinite(stamp) or stamp < 1:
+            raise ValueError("invalid source modification time")
+    except (TypeError, ValueError, OverflowError):
+        raise SourceMetadataError(f"Source modification time is invalid for {relative!r}; a finite positive timestamp is required") from None
+    return stamp
+
+
+def validate_source_rows(rows: dict[str, dict]) -> None:
+    for relative, row in rows.items():
+        validate_source_mtime(row.get("mtime") if isinstance(row, dict) else None, relative)
 
 
 def parse_args() -> argparse.Namespace:
@@ -156,15 +178,16 @@ def local_inventory(
                 stat = path.stat()
             except FileNotFoundError:
                 continue
-            if stat.st_mtime > settled_before:
-                continue
             relative = path.relative_to(base).as_posix()
             if excluded(relative, patterns):
+                continue
+            source_mtime = validate_source_mtime(stat.st_mtime, relative)
+            if source_mtime > settled_before:
                 continue
             result[relative] = {
                 "relative_path": relative,
                 "size": stat.st_size,
-                "mtime": int(stat.st_mtime),
+                "mtime": int(source_mtime),
                 "checksum": "",
             }
     return result
@@ -179,6 +202,7 @@ def retain_unchanged_local_snapshot(
     base = Path(root)
     stable: dict[str, dict] = {}
     for relative, row in rows.items():
+        expected_mtime = validate_source_mtime(row.get("mtime"), relative)
         path = base / relative
         try:
             if path.is_symlink() and not copy_links:
@@ -186,9 +210,10 @@ def retain_unchanged_local_snapshot(
             stat = path.stat()
         except FileNotFoundError:
             continue
+        source_mtime = validate_source_mtime(stat.st_mtime, relative)
         if (
             stat.st_size == row["size"]
-            and int(stat.st_mtime) == int(row["mtime"])
+            and int(source_mtime) == int(expected_mtime)
         ):
             stable[relative] = row
     return stable
