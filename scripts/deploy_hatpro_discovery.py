@@ -37,10 +37,17 @@ def configuration(source):
     for line in source.splitlines():
         key, separator, value = line.partition('=')
         if separator and key in KEYS:
+            if key in values:
+                raise ValueError('Duplicate source assignment: ' + key)
             parts = shlex.split(value)
             if len(parts) != 1:
                 raise ValueError('Unsupported source assignment: ' + key)
             values[key] = parts[0]
+            # Stop at the complete top-level binding block. The old script has
+            # a remote heredoc that reassigns source_path="$1" and pattern="$2";
+            # those are remote parameters, never deployment configuration.
+            if set(values) == set(KEYS):
+                break
     if not values:
         # POSIX shells remove escaped newlines before word splitting; shlex
         # alone retains them as tokens and is not a complete shell parser.
