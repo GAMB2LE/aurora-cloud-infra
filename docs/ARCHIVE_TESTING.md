@@ -36,6 +36,7 @@ as the new recovery tests.
 | Resource and credential boundaries | Checkpoints, queue journals and source/artifact files respect recovery storage limits; credentials come from the nominated restricted remote; the SDK cannot perform nested request retries. |
 | End-to-end failure/recovery | Four families finish while raw and products fail on a late page; recreated workers resume their checkpoints, then collect separate clean confirmations without repeating successful families. |
 | Health and acceptance | Automatic retry remains explanatory while valid evidence exists; expiry, permanent failure and missing coordinator heartbeats alert; acceptance rejects settled cloud/GWS discrepancies, invalid counter evidence and legacy policy credit, and requires the configured duration and subsequent completed daily audits. |
+| Incomplete source copies | Zero, negative and non-finite source mtimes cannot enter settled verification, resume from a frozen checkpoint or authorize exact repair. Source-metadata faults remain visible through retries and reject acceptance even with clean cached evidence; normal gateway retries retain their existing quiet policy. |
 
 ## Live compatibility and acceptance are separate
 

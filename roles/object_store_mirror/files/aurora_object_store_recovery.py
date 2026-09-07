@@ -253,12 +253,34 @@ class Queue:
                     row['generation'] != epoch['generation']):
                 return
             category = getattr(error, 'error_class', 'transient')
+            sticky = row['error_class'] == 'source_metadata' and category != 'source_metadata'
+            message = str(error)[:1000]
+            if sticky:
+                original = (row['last_error'] or 'Invalid source metadata').split('; latest attempt (',1)[0]
+                message = original[:600] + f'; latest attempt ({category}): ' + str(error)[:350]
             count = row['attempt_count']+1
             delays = self.config.get('recovery_retry_delays_seconds', [900,1800,3600])
             delay = min(3600,float(delays[min(count-1,len(delays)-1)]))
             delay = min(3600,delay+random.uniform(0,min(60,delay/10)))
             state = 'blocked' if category in ('auth','config') else 'retry_wait'
-            self.db.execute('UPDATE jobs SET state=?,attempt_count=?,first_failure_at=COALESCE(first_failure_at,?),next_retry_at=?,last_error=?,error_class=?,owner_pid=NULL,verification_id=? WHERE name=? AND generation=? AND verification_id=? AND state=\'running\'', (state,count,self.clock(),self.clock()+delay,str(error)[:1000],category,None if restart_epoch else epoch['verification_id'],epoch['name'],epoch['generation'],epoch['verification_id']))
+            self.db.execute('UPDATE jobs SET state=?,attempt_count=?,first_failure_at=COALESCE(first_failure_at,?),next_retry_at=?,last_error=?,error_class=?,owner_pid=NULL,verification_id=? WHERE name=? AND generation=? AND verification_id=? AND state=\'running\'', (state,count,self.clock(),self.clock()+delay,message,'source_metadata' if sticky else category,None if restart_epoch else epoch['verification_id'],epoch['name'],epoch['generation'],epoch['verification_id']))
+
+    def source_metadata_failed(self, name, error, *, repair_id=None):
+        """Fence a repair's invalid source before copying; keep automatic retries."""
+        with self.transaction():
+            row = self.row(name)
+            if repair_id is not None:
+                record = self.db.execute('SELECT generation,completed FROM repair_requests WHERE repair_id=? AND job=?',(repair_id,name)).fetchone()
+                if (not record or record['completed'] or row['generation'] != record['generation'] or row['state'] != 'repairing'):
+                    return False
+            if repair_id is None and row['error_class'] == 'source_metadata' and (row['last_error'] or '').split('; latest attempt (',1)[0] == str(error)[:1000]:
+                return True
+            count = row['attempt_count']+1
+            delays = self.config.get('recovery_retry_delays_seconds', [900,1800,3600])
+            delay = min(3600,float(delays[min(count-1,len(delays)-1)]))
+            delay = min(3600,delay+random.uniform(0,min(60,delay/10)))
+            self.db.execute("UPDATE jobs SET generation=generation+1,state='retry_wait',verification_id=NULL,owner_pid=NULL,remaining=MAX(remaining,2),attempt_count=?,queued_at=COALESCE(queued_at,?),first_failure_at=COALESCE(first_failure_at,?),next_retry_at=?,error_class='source_metadata',last_error=? WHERE name=?", (count,self.clock(),self.clock(),self.clock()+delay,str(error)[:1000],name))
+            return True
 
     def defer(self, epoch, delay=30):
         """Busy commit lock is scheduling pressure, not a failed observation."""
@@ -280,9 +302,9 @@ class Queue:
                     raise ValueError('checkpoint expired; request a fresh retry')
                 if row['fingerprint'] != fingerprint(self.config,self.jobs[name]):
                     raise ValueError('checkpoint configuration changed; request a fresh retry')
-                self.db.execute("UPDATE jobs SET state='queued',next_retry_at=0,remaining=MAX(remaining,1),attempt_count=0,first_failure_at=NULL,error_class=NULL,last_error=NULL,owner_pid=NULL,queued_at=? WHERE name=?",(self.clock(),name))
+                self.db.execute("UPDATE jobs SET state='queued',next_retry_at=0,remaining=MAX(remaining,1),attempt_count=0,first_failure_at=CASE WHEN error_class='source_metadata' THEN first_failure_at ELSE NULL END,last_error=CASE WHEN error_class='source_metadata' THEN last_error ELSE NULL END,error_class=CASE WHEN error_class='source_metadata' THEN error_class ELSE NULL END,owner_pid=NULL,queued_at=? WHERE name=?",(self.clock(),name))
                 return
-            self.db.execute("UPDATE jobs SET state='queued',generation=generation+1,verification_id=NULL,next_retry_at=0,remaining=MAX(remaining,1),attempt_count=0,first_failure_at=NULL,error_class=NULL,last_error=NULL,queued_at=? WHERE name=?",(self.clock(),name))
+            self.db.execute("UPDATE jobs SET state='queued',generation=generation+1,verification_id=NULL,next_retry_at=0,remaining=MAX(remaining,1),attempt_count=0,first_failure_at=CASE WHEN error_class='source_metadata' THEN first_failure_at ELSE NULL END,last_error=CASE WHEN error_class='source_metadata' THEN last_error ELSE NULL END,error_class=CASE WHEN error_class='source_metadata' THEN error_class ELSE NULL END,queued_at=? WHERE name=?",(self.clock(),name))
 
     def complete(self, epoch, report, gate):
         now = self.clock()
@@ -337,7 +359,7 @@ class Queue:
             self.db.execute('UPDATE repair_requests SET completed=1 WHERE repair_id=? AND job=?',(repair_id,name))
             # Failed copy also needs a new observation; successful subsets must
             # never leave the family permanently stuck in repairing.
-            self.db.execute("UPDATE jobs SET state='queued',remaining=2,next_retry_at=?,last_error=?,error_class=? WHERE name=? AND generation=?",(self.clock(),None if success else 'exact-path repair failed; fresh comparison queued',None if success else 'transient',name,record['generation']))
+            self.db.execute("UPDATE jobs SET state='queued',remaining=2,next_retry_at=?,last_error=CASE WHEN error_class='source_metadata' THEN last_error ELSE ? END,error_class=CASE WHEN error_class='source_metadata' THEN error_class ELSE ? END WHERE name=? AND generation=?",(self.clock(),None if success else 'exact-path repair failed; fresh comparison queued',None if success else 'transient',name,record['generation']))
 
     def recover_workers(self, active):
         """Reconcile durable intent against live units after crash or reboot."""
@@ -350,7 +372,7 @@ class Queue:
                     continue
                 if row['state']=='launching' and now-(row['heartbeat_at'] or 0)<120:
                     continue
-                self.db.execute("UPDATE jobs SET state='retry_wait',next_retry_at=?,owner_pid=NULL,last_error='worker interrupted; checkpoint preserved',error_class='transient',first_failure_at=COALESCE(first_failure_at,?) WHERE name=?",(now,now,row['name']))
+                self.db.execute("UPDATE jobs SET state='retry_wait',next_retry_at=?,owner_pid=NULL,last_error=CASE WHEN error_class='source_metadata' THEN last_error ELSE 'worker interrupted; checkpoint preserved' END,error_class=CASE WHEN error_class='source_metadata' THEN error_class ELSE 'transient' END,first_failure_at=COALESCE(first_failure_at,?) WHERE name=?",(now,now,row['name']))
             repairing=bool(self.db.execute("SELECT 1 FROM jobs WHERE state='repairing'").fetchone())
         return repairing
 
@@ -375,7 +397,7 @@ class Queue:
                 launch(chosen['name'])
             except Exception as error:
                 with self.transaction():
-                    self.db.execute("UPDATE jobs SET state='retry_wait',next_retry_at=?,last_error=?,error_class='transient',first_failure_at=COALESCE(first_failure_at,?) WHERE name=? AND state='launching' AND generation=?",(now+300,str(error)[:1000],now,chosen['name'],chosen['generation']))
+                    self.db.execute("UPDATE jobs SET state='retry_wait',next_retry_at=?,last_error=CASE WHEN error_class='source_metadata' THEN last_error ELSE ? END,error_class=CASE WHEN error_class='source_metadata' THEN error_class ELSE 'transient' END,first_failure_at=COALESCE(first_failure_at,?) WHERE name=? AND state='launching' AND generation=?",(now+300,str(error)[:1000],now,chosen['name'],chosen['generation']))
             else:
                 launched.append(chosen['name'])
         return launched
@@ -557,8 +579,15 @@ def run_worker(config,name,*,shadow=False):
                     if metadata.get('source_root_identity')!=list(source_identity):
                         raise ValueError('frozen source root changed or is not bound')
                     snapshot=json.loads(raw)
+                    if (not isinstance(snapshot,dict) or
+                            any(not isinstance(snapshot.get(part),dict) for part in ('local','pending'))):
+                        raise ValueError('frozen source snapshot shape is invalid')
                 except (ValueError,KeyError,TypeError) as error:
                     raise RestartEpochError('frozen source checkpoint invalid') from error
+                # A digest-valid checkpoint from an older collector may still
+                # contain an unknown age. Reject it even if today's file healed.
+                inv.validate_source_rows(snapshot['local'])
+                inv.validate_source_rows(snapshot['pending'])
             else:
                 if (directory/'epoch.json').exists() or (directory/'s3.sqlite').exists():
                     raise RestartEpochError('frozen source snapshot is missing from an existing checkpoint')

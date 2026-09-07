@@ -280,7 +280,9 @@ def recovery_status(status: dict, report: dict, enabled: bool, current=None, *, 
         state = str(value.get("state") or "unknown")
         if state == "blocked":
             failures.append(f"archive_recovery_blocked={name}")
-        elif failure_hours is not None and failure_hours >= 6:
+        if value.get("error_class") == "source_metadata":
+            failures.append(f"archive_source_metadata_invalid={name}")
+        elif state != "blocked" and failure_hours is not None and failure_hours >= 6:
             failures.append(f"archive_recovery_failure_overdue={name}")
         jobs[name] = {
             **{key: value.get(key) for key in (
@@ -297,7 +299,13 @@ def recovery_status(status: dict, report: dict, enabled: bool, current=None, *, 
     affected = [name for name, job in jobs.items() if job["state"] in {"queued", "running", "launching", "repairing", "retry_wait", "blocked"}]
     state = str(status.get("state") or "unknown")
     detail = ""
-    if any(item.startswith("archive_recovery_blocked=") for item in failures):
+    if any(item.startswith("archive_source_metadata_invalid=") for item in failures):
+        detail = "A source file has an invalid modification time and cannot be treated as settled or certified. "
+        if any(item.startswith("archive_recovery_blocked=") for item in failures):
+            detail += "Source delivery and the recorded recovery error need attention before verification can continue."
+        else:
+            detail += "Source delivery needs attention; verification retries will continue automatically."
+    elif any(item.startswith("archive_recovery_blocked=") for item in failures):
         detail = "Automatic archive verification is blocked. Review the affected family and its recorded error in Ops."
     elif "archive_recovery_heartbeat_overdue" in failures:
         detail = "The archive recovery coordinator has not reported a current heartbeat within 15 minutes."
@@ -321,7 +329,8 @@ def recovery_status(status: dict, report: dict, enabled: bool, current=None, *, 
         "heartbeat_age_minutes": heartbeat_age,
         "failures": failures,
         "active_alert": bool(failures),
-        "level": "red" if any("blocked=" in item for item in failures) else "amber" if failures else "green",
+        "source_metadata_invalid": any(item.startswith("archive_source_metadata_invalid=") for item in failures),
+        "level": "red" if any("blocked=" in item or item.startswith("archive_source_metadata_invalid=") for item in failures) else "amber" if failures else "green",
         "detail": detail,
     }
 
@@ -547,6 +556,13 @@ def operator_status(
     phase = str(progress.get("phase") or "verification").replace("_", " ")
 
     pruning_paused = not raw_ready
+    if recovery and recovery.get("source_metadata_invalid"):
+        return {
+            "level": "red",
+            "title": "Archive source verification needs attention",
+            "detail": recovery["detail"],
+            "pruning_paused": pruning_paused,
+        }
     if not measured_gap_free:
         details: list[str] = []
         if object_missing:

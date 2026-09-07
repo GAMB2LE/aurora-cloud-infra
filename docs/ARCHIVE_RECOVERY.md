@@ -127,6 +127,27 @@ the next acceptance sample before recording deployment success.
 A task heartbeat should deliver the final evidence report automatically after the
 runtime acceptance record passes; remain quiet while state is unchanged.
 
+Source modification times must be finite and strictly positive. A zero timestamp
+can mark an interrupted copy at its final path; it is not proof that a new file
+has satisfied the settling interval. Initial, resumed and final source validation
+must reject such metadata without silently omitting the file or replacing its
+mtime with ctime. Exact-path repair must also refuse it before copying. The
+durable `source_metadata` fault remains visible during automatic retries and
+disqualifies acceptance immediately, even while older canonical evidence is fresh.
+Only a successful fresh verification clears it. Inspect source delivery before
+changing anything; matching a partial cloud file to S3 does not establish parity
+with the upstream instrument file. This guard does not change copy writers or
+authorize repair of source-ingest behavior.
+
+Deploy this guard with `playbooks/archive_source_timestamp_guard.yml` and a unique
+`archive_source_timestamp_guard_release`. Both installed inventory entry points,
+the recovery module, exact repair program, acceptance reader and health reader
+are in scope; catalogue, deployment identity, canonical evidence and checkpoints
+are preserved. The playbook requires an idle boundary and verifies restricted
+rollback copies before installing code. Busy work is a deployment deferral, not
+permission to restart workers or alter scheduling. Acceptance policy 3 starts a
+new qualifying window rather than inheriting credit from the weaker policy.
+
 If rollback is required, stop new scheduling and fence verifier, repair and
 retention triggers without killing active copy writers. Wait for both workers and
 any repair/retention operation to become idle. Verify the restricted bundle SHA256,

@@ -156,6 +156,55 @@ class ArchiveHealthPresentationTests(unittest.TestCase):
         self.assertEqual(recovery["affected_jobs"], ["products"])
         self.assertFalse(result["pruning_paused"])
 
+    def test_invalid_source_metadata_alerts_immediately_and_stays_visible_during_retry(self):
+        current = dt.datetime.now(dt.timezone.utc)
+        for state in ("retry_wait", "launching", "running", "queued", "idle"):
+            with self.subTest(state=state):
+                recovery = recovery_status(self.recovery_fixture(
+                    current, state=state, error_class="source_metadata",
+                    first_failure_at=current.isoformat(),
+                    last_error="Source modification time is invalid",
+                ), {}, True, current)
+                gate = self.clean_gate(current)
+                original = copy.deepcopy(gate)
+                result = operator_status(recovery["failures"], self.base_metrics(), gate, {}, recovery=recovery)
+                self.assertTrue(recovery["active_alert"])
+                self.assertTrue(recovery["source_metadata_invalid"])
+                self.assertIn("archive_source_metadata_invalid=products", recovery["failures"])
+                self.assertEqual(result["level"], "red")
+                self.assertEqual(result["title"], "Archive source verification needs attention")
+                self.assertIn("invalid modification time", result["detail"])
+                self.assertIn("retries will continue automatically", result["detail"])
+                self.assertFalse(result["pruning_paused"])
+                self.assertEqual(gate, original)
+
+    def test_invalid_source_does_not_masquerade_as_settled_archive_loss(self):
+        current = dt.datetime.now(dt.timezone.utc)
+        recovery = recovery_status(self.recovery_fixture(
+            current, error_class="source_metadata", first_failure_at=current.isoformat(),
+        ), {}, True, current)
+        metrics = self.base_metrics()
+        metrics["object_store_all_missing_count"] = 1
+        gate = {"raw_retention_ready": False, "clean": False, "stable_parity": False}
+        result = operator_status(recovery["failures"], metrics, gate, {}, recovery=recovery)
+        self.assertEqual(result["title"], "Archive source verification needs attention")
+        self.assertTrue(result["pruning_paused"])
+
+    def test_source_fault_remains_explicit_when_a_later_credential_error_blocks_retry(self):
+        current = dt.datetime.now(dt.timezone.utc)
+        recovery = recovery_status(self.recovery_fixture(
+            current, state="blocked", error_class="source_metadata",
+            last_error="Source metadata remains invalid; authentication unavailable",
+        ), {}, True, current)
+        metrics = self.base_metrics()
+        metrics["object_store_all_missing_count"] = 1
+        result = operator_status(recovery["failures"], metrics, self.clean_gate(current), {}, recovery=recovery)
+        self.assertTrue(recovery["source_metadata_invalid"])
+        self.assertIn("archive_recovery_blocked=products", recovery["failures"])
+        self.assertEqual(result["title"], "Archive source verification needs attention")
+        self.assertIn("recorded recovery error", result["detail"])
+        self.assertNotIn("retries will continue", result["detail"])
+
     def settled_fixture(self, current, **counts):
         return {
             "generated_at": current.isoformat(),
