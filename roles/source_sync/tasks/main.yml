@@ -277,6 +277,16 @@
     - not radar_backfill_enabled | bool or not radar_backfill_timer_enabled | bool
     - not ansible_check_mode
 
+- name: Install HATPRO path-aware discovery driver
+  ansible.builtin.copy:
+    src: aurora_hatpro_discovery.py
+    dest: /usr/local/lib/aurora-hatpro-discovery.py
+    owner: root
+    group: root
+    mode: "0644"
+    validate: /usr/bin/python3 -c "import pathlib,sys; compile(pathlib.Path(sys.argv[1]).read_bytes(), sys.argv[1], 'exec')" %s
+  when: hatpro_source_sync_enabled | bool
+
 - name: Install HATPRO source sync script
   ansible.builtin.template:
     src: aurora-hatpro-sync.j2

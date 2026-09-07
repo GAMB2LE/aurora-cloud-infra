@@ -32,21 +32,56 @@ sudo -u aurora ssh -o IdentityFile=none -o PubkeyAuthentication=no aurora@100.12
 ## Current Deployed Behavior
 
 `aurora-hatpro-source-sync.service` runs `/usr/local/bin/aurora-hatpro-sync`.
-When `/var/lib/aurora-cloud/hatpro-sync.last` does not exist, the script writes
-`0`, pulls the full current source history, and then advances the state marker
-on later runs.
+Its path-aware discovery driver inventories matching source relative paths,
+sizes and modification times. It selects new or changed paths even when their
+mtime is older than `/var/lib/aurora-cloud/hatpro-sync.last`. A flat file moved
+into `Yyyyy/Mmm/Ddd/` or an entire renamed directory cannot be hidden by the
+old timestamp cursor. Destination size/mtime differences also qualify for the
+existing rsync copier; unchanged files are not transferred.
+
+The existing two-minute live timer, six-hour backfill timer, authentication,
+`rsync -a --partial` copy implementation and shared archive dispatcher are
+unchanged. Live discovery shares the existing backfill lock and defers on
+contention rather than running overlapping HATPRO destination copies.
+
+Discovery persists exact pending handoffs before copying. A failed listing,
+copy or archive enqueue does not advance the cursor past unsubmitted work.
+Pending handoffs survive process restarts and are replayed even if the cloud
+file already exists. If a source path moves while pending, fresh discovery
+finds its replacement path; an old path is enqueued only when its completed
+cloud copy still matches the saved metadata. Source files and old cloud copies
+are never deleted. A successful enqueue is delivery work, not verified archive
+parity; independent GWS and S3 checks still determine health and retention.
+
+Malformed/truncated listings, unsafe destination symlinks, invalid source
+metadata and corrupt or differently bound checkpoints fail explicitly. They
+are never interpreted as an empty inventory or a reset cursor. State files
+`hatpro-sync.last.pending.json` and `hatpro-sync.last.baseline.json` reside
+alongside the cursor, with restricted permissions and atomic/fsynced writes.
+Do not hand-edit those files to suppress a failure.
+
+When the cursor is absent in production `start_fresh: false` mode,
+discovery reconciles the current source history before advancing the cursor.
 
 If you deliberately want a fresh-start behavior, set
-`hatpro_source_start_fresh: true` and redeploy. In that mode the script writes
-the current epoch and exits when the state file is absent.
+`hatpro_source_start_fresh: true` before the first run. That mode records an
+explicit path/metadata baseline and the current epoch without copying old
+history. Later new relative paths or changed metadata are still discovered,
+including files with old mtimes. Existing fresh-start cursors migrate their
+old-history baseline conservatively. Changing configured source bindings
+with existing discovery state is an explicit block, not permission to reuse
+checkpoints for a different source.
 
-To reset the sync point manually:
-
-```bash
-sudo systemctl stop aurora-hatpro-source-sync.timer
-sudo -u aurora date +%s | sudo tee /var/lib/aurora-cloud/hatpro-sync.last
-sudo systemctl start aurora-hatpro-source-sync.timer
-```
+Use `playbooks/hatpro_discovery.yml` with a unique `hatpro_discovery_release`
+to deploy only the discovery driver and wrapper. The playbook reads live
+source bindings, defers while sync/backfill is busy, verifies restricted
+rollback copies, and atomically installs the two code files. It does not
+restart services, alter either schedule, reset the cursor, change acquisition
+or touch archive verification/retention state. The next existing timer run
+performs reconciliation. Validate actual copied paths, durable dispatch,
+fresh independent archive evidence and the public API before claiming an
+incident resolved. Roll back only the recorded code files; do not restore a
+historical cursor over runtime progress or change source files.
 
 ## Gap reconciliation
 
@@ -55,6 +90,8 @@ reconciliation every six hours. It copies only source paths absent from the
 cloud raw archive and queues only the files actually copied for GWS and object
 storage delivery. This is deliberately separate from the live timestamp cursor:
 files recovered on ASS with an older mtime must still reach both archives.
+The live path-aware scan now also discovers these gaps on its normal schedule;
+the existing backfill remains a separate safety net.
 
 For an incident repair, run one bounded manual reconciliation and observe it
 before relying on the timer:
