@@ -40,6 +40,21 @@ class HatproDeploymentTests(unittest.TestCase):
     def test_legacy_and_wrapper_bindings_are_identical(self):
         self.assertEqual(deploy.configuration(LEGACY), deploy.configuration(WRAPPER))
 
+    def test_remote_heredoc_parameters_cannot_override_top_level_bindings(self):
+        deployed = LEGACY + '''
+ssh example bash -s <<'REMOTE_FIND'
+source_path="$1"
+source_pattern="$2"
+last_epoch="$3"
+REMOTE_FIND
+'''
+        self.assertEqual(deploy.configuration(deployed), deploy.configuration(WRAPPER))
+        self.assertEqual(deploy.configuration(deployed)['source_path'], '/home/aurora/data/hatprog5')
+
+    def test_conflicting_top_level_assignments_are_rejected(self):
+        with self.assertRaisesRegex(ValueError, 'Duplicate source assignment'):
+            deploy.configuration(LEGACY.replace('source_host=', 'source_user=changed\nsource_host='))
+
     def test_fresh_start_binding_is_preserved(self):
         self.assertEqual(deploy.configuration(LEGACY.replace('start_fresh=0', 'start_fresh=1')),
                          deploy.configuration(WRAPPER + ' --start-fresh'))
@@ -56,6 +71,12 @@ class HatproDeploymentTests(unittest.TestCase):
     def test_noncommissioned_state_path_is_rejected(self):
         with self.assertRaises(ValueError):
             deploy.configuration(LEGACY.replace('/var/lib/aurora-cloud/hatpro-sync.last', '/tmp/cursor'))
+
+    def test_unresolved_remote_placeholders_are_rejected_before_deployment(self):
+        for source in (LEGACY.replace('/home/aurora/data/hatprog5', '$1'),
+                       LEGACY.replace('HATPROG5-AURORA-ICELAND_*', '$2')):
+            with self.subTest(source=source), self.assertRaises(ValueError):
+                deploy.configuration(source)
 
     def test_idle_requires_loaded_inactive_units_without_pids_or_jobs(self):
         def result(active='inactive', pid='0', job=''):
