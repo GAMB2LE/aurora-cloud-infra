@@ -37,10 +37,17 @@ def configuration(source):
     for line in source.splitlines():
         key, separator, value = line.partition('=')
         if separator and key in KEYS:
+            if key in values:
+                raise ValueError('Duplicate source assignment: ' + key)
             parts = shlex.split(value)
             if len(parts) != 1:
                 raise ValueError('Unsupported source assignment: ' + key)
             values[key] = parts[0]
+            # Stop at the complete top-level binding block. The old script has
+            # a remote heredoc that reassigns source_path="$1" and pattern="$2";
+            # those are remote parameters, never deployment configuration.
+            if set(values) == set(KEYS):
+                break
     if not values:
         # POSIX shells remove escaped newlines before word splitting; shlex
         # alone retains them as tokens and is not a complete shell parser.
@@ -59,6 +66,11 @@ def configuration(source):
             values[key] = tokens.pop(0)
     if set(values) != set(KEYS) or values['start_fresh'] not in ('0', '1'):
         raise ValueError('Incomplete HATPRO source configuration')
+    for key in ('source_path', 'destination', 'state_file', 'ssh_key', 'known_hosts'):
+        if not values[key].startswith('/'):
+            raise ValueError('Unresolved or nonabsolute HATPRO binding: ' + key)
+    if not values['source_pattern'].startswith('HATPROG5-AURORA-ICELAND_'):
+        raise ValueError('Expected the commissioned HATPRO filename scope')
     if values['state_file'] != '/var/lib/aurora-cloud/hatpro-sync.last':
         raise ValueError('Focused deployment requires the commissioned HATPRO state path')
     values['source_port'] = int(values['source_port'])
