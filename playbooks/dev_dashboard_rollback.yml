@@ -1,0 +1,32 @@
+---
+- name: Restore one checksum-verified development dashboard release snapshot
+  hosts: aurora-cloud-droplet
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Validate explicit development rollback target
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname == 'aurora-cloud-droplet'
+          - aurora_site_env == 'development'
+          - aurora_failover_role != 'primary'
+          - aurora_rollback_snapshot_name is defined
+          - aurora_rollback_snapshot_name is match('^[0-9]{8}T[0-9]{6}Z$')
+          - aurora_rollback_dashboard_revision is defined
+          - aurora_rollback_dashboard_revision is match('^[0-9a-f]{40}$')
+        fail_msg: >-
+          Supply an exact development snapshot name and 40-character dashboard
+          commit. This playbook refuses production and implicit targets.
+
+    - name: Run checksum-verified development rollback
+      ansible.builtin.command:
+        argv:
+          - /usr/local/sbin/aurora-development-rollback
+          - "{{ aurora_rollback_snapshot_name }}"
+          - "{{ aurora_rollback_dashboard_revision }}"
+      register: aurora_development_rollback
+      changed_when: true
+
+    - name: Report restored development revision
+      ansible.builtin.debug:
+        var: aurora_development_rollback.stdout

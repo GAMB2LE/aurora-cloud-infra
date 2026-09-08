@@ -1,0 +1,266 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+umask 077
+
+if [[ $# -ne 2 ]]; then
+  echo "usage: $0 <snapshot-name> <40-character-dashboard-commit>" >&2
+  exit 64
+fi
+
+snapshot_root={{ aurora_release_snapshot_root | quote }}
+app_dir={{ aurora_app_dir | quote }}
+service_user={{ aurora_service_user | quote }}
+service_group={{ aurora_service_group | quote }}
+uv_bin={{ aurora_uv_bin | quote }}
+snapshot_name=$1
+dashboard_revision=$2
+
+if [[ ! "${snapshot_name}" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]; then
+  echo "snapshot-name must be the exact UTC directory name YYYYMMDDTHHMMSSZ" >&2
+  exit 64
+fi
+if [[ ! "${dashboard_revision}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "dashboard revision must be an explicit 40-character lowercase commit" >&2
+  exit 64
+fi
+
+snapshot_dir="${snapshot_root}/${snapshot_name}"
+archive="${snapshot_dir}/configuration.tar.gz"
+checksum_manifest="${snapshot_dir}/snapshot.sha256"
+state_manifest="${snapshot_dir}/service-states.tsv"
+
+for required in "${archive}" "${checksum_manifest}" "${state_manifest}"; do
+  if [[ ! -f "${required}" ]]; then
+    echo "required rollback artifact missing: ${required}" >&2
+    exit 66
+  fi
+done
+
+(
+  cd "${snapshot_dir}"
+  sha256sum --check --strict snapshot.sha256
+)
+
+source_commit=$(sed -n 's/^source_commit=//p' "${snapshot_dir}/manifest.txt")
+if [[ ! "${source_commit}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "checksummed snapshot has no unambiguous 40-character source_commit" >&2
+  exit 65
+fi
+if [[ "${dashboard_revision}" != "${source_commit}" ]]; then
+  echo "requested revision does not equal the checksummed snapshot source_commit" >&2
+  exit 65
+fi
+
+archive_listing=$(tar -tzf "${archive}")
+if grep -Eq '(^/|(^|/)\.\.(/|$))' <<< "${archive_listing}"; then
+  echo "snapshot archive contains an unsafe path" >&2
+  exit 65
+fi
+
+require_clean_checkout() {
+  if ! runuser -u "${service_user}" -- git -C "${app_dir}" diff --quiet --ignore-submodules --; then
+    echo "dashboard checkout has unstaged tracked changes; refusing rollback" >&2
+    exit 73
+  fi
+  if ! runuser -u "${service_user}" -- git -C "${app_dir}" diff --cached --quiet --ignore-submodules --; then
+    echo "dashboard checkout has staged tracked changes; refusing rollback" >&2
+    exit 73
+  fi
+  if [[ -n "$(runuser -u "${service_user}" -- git -C "${app_dir}" ls-files --others --exclude-standard)" ]]; then
+    echo "dashboard checkout has untracked files; refusing rollback" >&2
+    exit 73
+  fi
+}
+
+require_clean_checkout
+runuser -u "${service_user}" -- git -C "${app_dir}" cat-file -e "${dashboard_revision}^{commit}"
+
+quiesce_units=(
+  aurora-power-append.timer
+  aurora-pdu-append.timer
+  aurora-dev-live-pull-product-power.timer
+  aurora-power-soc-forecast.timer
+  aurora-power-soc-forecast-learn.timer
+  aurora-power-soc-ensemble.timer
+  aurora-power-soc-planning-forecast.timer
+  aurora-power-operating-scenarios.timer
+  aurora-dev-power-display-refresh.timer
+  aurora-power-quicklooks.timer
+  aurora-power-v12-candidate.timer
+  aurora-power-append.service
+  aurora-pdu-append.service
+  aurora-dev-live-pull@product-power.service
+  aurora-power-soc-forecast.service
+  aurora-power-soc-forecast-learn.service
+  aurora-power-soc-ensemble.service
+  aurora-power-soc-planning-forecast.service
+  aurora-power-operating-scenarios.service
+  aurora-dev-power-display-refresh.service
+  aurora-power-quicklooks.service
+  aurora-power-forecast-publish.service
+  aurora-power-forecast-reanchor-publish.service
+  aurora-power-v12-candidate.service
+  aurora-power-prod-dev-evaluation.service
+  aurora-dashboard.service
+  aurora-mobile-api.service
+)
+for unit in "${quiesce_units[@]}"; do
+  systemctl stop "${unit}" 2>/dev/null || true
+done
+# Stopping a failed pipeline stage can spawn its OnFailure instance after the
+# fixed service list was built. Discover and quiesce those transient writers
+# only after every triggering unit has been stopped.
+while read -r failure_unit _; do
+  if [[ "${failure_unit}" == aurora-power-forecast-bundle-failure@*.service ]]; then
+    systemctl stop "${failure_unit}" 2>/dev/null || true
+    quiesce_units+=("${failure_unit}")
+  fi
+done < <(systemctl list-units --all --plain --no-legend \
+  'aurora-power-forecast-bundle-failure@*.service' 2>/dev/null || true)
+for unit in "${quiesce_units[@]}"; do
+  state=$(systemctl is-active "${unit}" 2>/dev/null || true)
+  case "${state}" in
+    inactive|failed|unknown) ;;
+    *)
+      echo "rollback cannot proceed while ${unit} is ${state}" >&2
+      exit 75
+      ;;
+  esac
+done
+active_failure_units=$(systemctl list-units --state=active --plain --no-legend \
+  'aurora-power-forecast-bundle-failure@*.service' 2>/dev/null || true)
+if [[ -n "${active_failure_units}" ]]; then
+  echo "rollback cannot proceed while a Power failure-status writer is active" >&2
+  exit 75
+fi
+
+restore_units=(
+  aurora-power-append.timer
+  aurora-pdu-append.timer
+  aurora-dev-live-pull-product-power.timer
+  aurora-power-soc-forecast.timer
+  aurora-power-soc-forecast-learn.timer
+  aurora-power-soc-ensemble.timer
+  aurora-power-soc-planning-forecast.timer
+  aurora-power-operating-scenarios.timer
+  aurora-dev-power-display-refresh.timer
+  aurora-power-quicklooks.timer
+  aurora-power-v12-candidate.timer
+)
+
+temporary_root=$(mktemp -d /var/tmp/aurora-development-rollback.XXXXXX)
+cleanup() {
+  rm -rf -- "${temporary_root}"
+}
+trap cleanup EXIT
+tar -xzf "${archive}" -C "${temporary_root}"
+(
+  cd "${temporary_root}"
+  sha256sum --check --strict "${snapshot_dir}/configuration.sha256"
+)
+
+install -m 0644 "${temporary_root}/etc/aurora-dashboard.env" /etc/aurora-dashboard.env
+for name in \
+  aurora-power-append.service \
+  aurora-power-append.timer \
+  aurora-pdu-append.service \
+  aurora-pdu-append.timer \
+  aurora-dev-live-pull@.service \
+  aurora-dev-live-pull-product-power.timer \
+  aurora-power-soc-forecast.service \
+  aurora-power-soc-forecast-learn.service \
+  aurora-power-soc-ensemble.service \
+  aurora-power-soc-planning-forecast.service \
+  aurora-power-soc-planning-forecast.timer \
+  aurora-power-operating-scenarios.service \
+  aurora-power-operating-scenarios.timer \
+  aurora-dev-power-display-refresh.service \
+  aurora-dev-power-display-refresh.timer \
+  aurora-power-quicklooks.service \
+  aurora-power-quicklooks.timer \
+  aurora-power-v12-candidate.service \
+  aurora-power-v12-candidate.timer; do
+  source_path="${temporary_root}/etc/systemd/system/${name}"
+  if [[ -f "${source_path}" ]]; then
+    install -m 0644 "${source_path}" "/etc/systemd/system/${name}"
+  fi
+done
+
+# These files did not exist before issue-driven orchestration. Removing only
+# this named set restores the captured service graph and never touches /data.
+rm -f -- \
+  /etc/systemd/system/aurora-power-forecast-publish.service \
+  /etc/systemd/system/aurora-power-forecast-reanchor-publish.service \
+  /etc/systemd/system/aurora-power-prod-dev-evaluation.service \
+  /etc/systemd/system/aurora-power-forecast-bundle-failure@.service \
+  /usr/local/bin/aurora-power-forecast-publish \
+  /usr/local/bin/aurora-power-forecast-runner \
+  /usr/local/bin/aurora-power-v12-candidate-launch
+
+runuser -u "${service_user}" -- git -C "${app_dir}" checkout --detach "${dashboard_revision}"
+actual_revision=$(runuser -u "${service_user}" -- git -C "${app_dir}" rev-parse HEAD)
+if [[ "${actual_revision}" != "${dashboard_revision}" ]]; then
+  echo "rollback revision verification failed before dependency sync" >&2
+  exit 70
+fi
+if [[ ! -f "${app_dir}/requirements-runtime.txt" ]]; then
+  echo "rollback revision lacks requirements-runtime.txt" >&2
+  exit 66
+fi
+chown root:"${service_group}" "${temporary_root}"
+chmod 0750 "${temporary_root}"
+install -d -o "${service_user}" -g "${service_group}" -m 0750 "${temporary_root}/uv-cache"
+runuser -u "${service_user}" -- env \
+  UV_CACHE_DIR="${temporary_root}/uv-cache" \
+  "${uv_bin}" pip sync \
+  "${app_dir}/requirements-runtime.txt" \
+  --python "${app_dir}/venv/bin/python"
+require_clean_checkout
+systemctl daemon-reload
+
+while IFS=$'\t' read -r unit enabled active; do
+  case "${unit}" in
+    aurora-power-*.timer|aurora-pdu-append.timer|aurora-dev-power-display-refresh.timer|aurora-dev-live-pull-product-power.timer) ;;
+    *) continue ;;
+  esac
+  if [[ "${enabled}" == "enabled" ]]; then
+    systemctl enable "${unit}"
+  else
+    systemctl disable "${unit}" 2>/dev/null || true
+  fi
+  if [[ "${unit}" == *.timer ]]; then
+    if [[ "${active}" == "active" ]]; then
+      systemctl start "${unit}"
+    else
+      systemctl stop "${unit}" 2>/dev/null || true
+    fi
+  fi
+done < "${state_manifest}"
+
+systemctl restart aurora-dashboard.service aurora-mobile-api.service
+
+actual_revision=$(runuser -u "${service_user}" -- git -C "${app_dir}" rev-parse HEAD)
+if [[ "${actual_revision}" != "${dashboard_revision}" ]]; then
+  echo "rollback revision verification failed" >&2
+  exit 70
+fi
+for reader in aurora-dashboard.service aurora-mobile-api.service; do
+  if ! systemctl is-active --quiet "${reader}"; then
+    echo "rollback reader verification failed for ${reader}" >&2
+    exit 70
+  fi
+done
+for unit in "${restore_units[@]}"; do
+  expected=$(awk -F '\t' -v wanted="${unit}" '$1 == wanted { print $3 }' "${state_manifest}")
+  actual=$(systemctl is-active "${unit}" 2>/dev/null || true)
+  if [[ "${expected}" == "active" && "${actual}" != "active" ]]; then
+    echo "rollback timer-state verification failed for ${unit}: expected active, got ${actual}" >&2
+    exit 70
+  fi
+  if [[ "${expected}" != "active" && "${actual}" == "active" ]]; then
+    echo "rollback timer-state verification failed for ${unit}: expected inactive, got active" >&2
+    exit 70
+  fi
+done
+echo "development dashboard restored to ${dashboard_revision} from ${snapshot_name}; product data was not modified"

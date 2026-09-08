@@ -1,0 +1,17 @@
+[Unit]
+Description=Record failed development Power forecast stage %i
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+EnvironmentFile=/etc/aurora-dashboard.env
+ExecStart={{ aurora_venv }}/bin/python /usr/local/bin/aurora-power-forecast-publish --record-failure %i
+Nice=19
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths={{ aurora_app_dir }} {{ aurora_product_root }} {{ aurora_raw_root }}
+ReadWritePaths={{ aurora_power_forecast_root }}

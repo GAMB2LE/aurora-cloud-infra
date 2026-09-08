@@ -7,5 +7,14 @@ dependencies = [
   "ansible==13.6.0",
 ]
 
+[dependency-groups]
+test = [
+  "pytest>=8,<10",
+  "pandas==2.3.3",
+  "xarray==2025.6.1",
+  "zarr==2.18.3",
+  "numcodecs==0.13.1",
+]
+
 [tool.uv]
 package = false

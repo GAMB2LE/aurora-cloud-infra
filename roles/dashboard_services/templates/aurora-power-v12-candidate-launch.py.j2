@@ -1,0 +1,378 @@
+#!{{ aurora_venv }}/bin/python
+"""Launch v12 only from one checksum-verified independent bundle generation."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+from datetime import datetime, timezone
+import uuid
+
+import pandas as pd
+import xarray as xr
+
+
+APP_DIR = Path({{ aurora_app_dir | to_json }})
+PYTHON = Path({{ (aurora_venv ~ '/bin/python') | to_json }})
+GENERATIONS_ROOT = Path({{ aurora_power_forecast_bundle_generations_root | to_json }})
+INDEPENDENT_BUNDLE = Path({{ aurora_power_forecast_bundle_independent_root | to_json }})
+CANDIDATE_ROOT = Path({{ aurora_power_v12_candidate_root | to_json }})
+BASELINE_ARCHIVE = Path({{ aurora_zarr.power_soc_forecast_archive | to_json }})
+POWER_ZARR = Path({{ aurora_zarr.power | to_json }})
+PDU_ZARR = Path({{ aurora_zarr.pdu | to_json }})
+ASFS_ZARR = Path({{ aurora_zarr.asfs_logger | to_json }})
+UAS_LOG = Path({{ uas_source_destination | to_json }})
+PUBLIC_SOURCE_ROOT = Path({{ aurora_power_v12_public_source_manifest_root | to_json }})
+PHYSICAL_CONFIG = APP_DIR / "config/power_solar_physical_candidate_v1.json"
+RUN_STATUS = CANDIDATE_ROOT / "run_status.json"
+EVALUATION_HISTORY = CANDIDATE_ROOT / "evaluation_history.jsonl"
+MODEL_EVALUATION_UNIT = "aurora-model-evaluation-daily.service"
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def atomic_json(path: Path, payload: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, sort_keys=True, indent=2)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, path)
+
+
+def append_launcher_history(payload: dict[str, object]) -> None:
+    EVALUATION_HISTORY.parent.mkdir(parents=True, exist_ok=True)
+    with EVALUATION_HISTORY.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, sort_keys=True) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def record_launcher_status(status: str, **updates: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "schema_version": 1,
+        "environment": "development",
+        "authority": "candidate",
+        "status": status,
+        "updated_at_utc": utc_now(),
+        **updates,
+    }
+    atomic_json(RUN_STATUS, payload)
+    append_launcher_history(payload)
+    return payload
+
+
+def backend_recorded_detailed_failure() -> bool:
+    """Return true only when the backend replaced our execution marker."""
+    try:
+        payload = json.loads(RUN_STATUS.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return (
+        isinstance(payload, dict)
+        and payload.get("status") == "failed"
+        and payload.get("reason_code") != "launcher_execution_running"
+        and bool(payload.get("updated_at_utc") or payload.get("updatedAt"))
+    )
+
+
+def require_model_evaluation_idle() -> int:
+    """Fail closed while the independent model evaluator may use host memory."""
+    result = subprocess.run(
+        [
+            "/usr/bin/systemctl",
+            "show",
+            MODEL_EVALUATION_UNIT,
+            "--property=ActiveState",
+            "--value",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    active_state = result.stdout.strip().lower()
+    if result.returncode != 0 or active_state not in {"inactive", "failed"}:
+        record_launcher_status(
+            "deferred",
+            stage="resource_preflight",
+            reason_code="model_evaluation_active",
+            model_evaluation_unit=MODEL_EVALUATION_UNIT,
+            model_evaluation_active_state=active_state or "unknown",
+        )
+        return 1
+    return 0
+
+
+def artifact_digest(path: Path) -> str:
+    files = [path] if path.is_file() else sorted(
+        (item for item in path.rglob("*") if item.is_file()),
+        key=lambda item: item.relative_to(path).as_posix(),
+    )
+    digest = hashlib.sha256()
+    for item in files:
+        relative = item.name if path.is_file() else item.relative_to(path).as_posix()
+        digest.update(relative.encode("utf-8") + b"\0")
+        with item.open("rb") as handle:
+            for block in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(block)
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def canonical_json_digest(payload: object) -> str:
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def dataset_attrs(path: Path) -> dict[str, str]:
+    dataset = xr.open_zarr(path, chunks=None)
+    try:
+        return {str(key): str(value) for key, value in dataset.attrs.items()}
+    finally:
+        dataset.close()
+
+
+def same_utc_time(left: object, right: object) -> bool:
+    left_time = pd.to_datetime(left, utc=True, errors="coerce")
+    right_time = pd.to_datetime(right, utc=True, errors="coerce")
+    return not pd.isna(left_time) and not pd.isna(right_time) and left_time == right_time
+
+
+def validated_product(
+    generation: Path,
+    products: dict[str, object],
+    logical_name: str,
+) -> tuple[Path, dict[str, object]]:
+    record = products.get(logical_name)
+    if not isinstance(record, dict):
+        raise RuntimeError(f"independent bundle lacks {logical_name}")
+    relative = str(record.get("relativePath") or "")
+    expected = str(record.get("sha256") or "").removeprefix("sha256:").lower()
+    target = (generation / relative).resolve(strict=True)
+    if not relative or generation not in target.parents:
+        raise RuntimeError(f"independent bundle has unsafe {logical_name} path")
+    if len(expected) != 64 or artifact_digest(target) != expected:
+        raise RuntimeError(f"independent bundle {logical_name} checksum mismatch")
+    return target, record
+
+
+def candidate_command() -> list[str]:
+    generation = INDEPENDENT_BUNDLE.resolve(strict=True)
+    generations_root = GENERATIONS_ROOT.resolve(strict=True)
+    if generation.parent != generations_root:
+        raise RuntimeError("latest independent bundle is outside the generations root")
+    manifest_path = generation / "generation.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("status") != "complete":
+        raise RuntimeError("latest independent bundle is incomplete")
+    if manifest.get("independentCycle") is not True:
+        raise RuntimeError("candidate refuses a cached re-anchor bundle")
+    if manifest.get("forecastRefreshKind") != "ecmwf_cycle":
+        raise RuntimeError("candidate requires a full ECMWF-cycle bundle")
+    if manifest.get("controlAuthority") != "advisory_only" or manifest.get(
+        "cl61ActuationEnabled"
+    ) is not False:
+        raise RuntimeError("candidate bundle violates the advisory-only control boundary")
+
+    products = manifest.get("products")
+    components = manifest.get("components")
+    source_products = manifest.get("sourceManifestProducts")
+    if not isinstance(products, dict) or not isinstance(components, dict):
+        raise RuntimeError("candidate bundle lacks product/component provenance")
+    if not isinstance(source_products, dict):
+        raise RuntimeError("candidate bundle lacks source-manifest products")
+    expected_source_digest = "sha256:" + canonical_json_digest(source_products)
+    if manifest.get("sourceManifestDigest") != expected_source_digest:
+        raise RuntimeError("candidate bundle source-manifest digest mismatch")
+
+    product_names = {
+        "deterministic": "deterministicForecast",
+        "planning": "planningForecast",
+        "ensemble": "ensembleForecast",
+    }
+    resolved: dict[str, Path] = {}
+    cycle_map: dict[str, str] = {}
+    for label, product_name in product_names.items():
+        component = components.get(label)
+        source_record = source_products.get(label)
+        if not isinstance(component, dict) or not isinstance(source_record, dict):
+            raise RuntimeError(f"candidate bundle lacks matching {label} provenance")
+        target, product_record = validated_product(generation, products, product_name)
+        if source_record.get("product") != product_name:
+            raise RuntimeError(f"candidate bundle {label} product identity mismatch")
+        for key in ("relativePath", "sha256"):
+            if source_record.get(key) != product_record.get(key):
+                raise RuntimeError(f"candidate bundle {label} {key} mismatch")
+        expected_product_identity = (
+            product_record.get("forecastIdentityID")
+            or product_record.get("publicationSignature")
+            or product_record.get("sourceCycleSetID")
+            or product_record.get("sha256")
+        )
+        if source_record.get("productIdentityID") != expected_product_identity:
+            raise RuntimeError(f"candidate bundle {label} product identity mismatch")
+        for key in (
+            "forecastIdentityID",
+            "sourceCycleSetID",
+            "upstreamSourceManifestDigest",
+            "socAnchorUTC",
+        ):
+            if source_record.get(key) != component.get(key):
+                raise RuntimeError(f"candidate bundle {label} {key} mismatch")
+        cycle_map[label] = str(component.get("sourceCycleSetID") or "")
+        resolved[label] = target
+
+    expected_cycle_set = "power-cycle-set-v1-" + hashlib.sha256(
+        json.dumps(cycle_map, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:20]
+    if manifest.get("sourceCycleSetID") != expected_cycle_set:
+        raise RuntimeError("candidate bundle combined source-cycle identity mismatch")
+
+    deterministic_attrs = dataset_attrs(resolved["deterministic"])
+    ensemble_attrs = dataset_attrs(resolved["ensemble"])
+    identity = str(manifest.get("forecastIdentityID") or "")
+    if not identity or deterministic_attrs.get("forecast_identity_id") != identity:
+        raise RuntimeError("candidate deterministic identity does not match its bundle")
+    if deterministic_attrs.get("forecast_verification_eligible", "").lower() != "true":
+        raise RuntimeError("candidate deterministic snapshot is not archive eligible")
+    if deterministic_attrs.get("forecast_refresh_kind") != "ecmwf_cycle":
+        raise RuntimeError("candidate deterministic snapshot is not a full cycle")
+    if not same_utc_time(
+        deterministic_attrs.get("ecmwf_cycle_time"),
+        components["deterministic"].get("cycleUTC"),
+    ):
+        raise RuntimeError("candidate deterministic source cycle does not match its bundle")
+    if not same_utc_time(
+        ensemble_attrs.get("ecmwf_cycle_time"), components["ensemble"].get("cycleUTC")
+    ):
+        raise RuntimeError("candidate ensemble source cycle does not match its bundle")
+    if (
+        ensemble_attrs.get("ensemble_source_identity_contract")
+        != "deterministic-plus-ens-site-forcing-v1"
+        or not re.fullmatch(
+            r"power-ensemble-source-set-v1-[0-9a-f]{20}",
+            ensemble_attrs.get("source_cycle_set_id", ""),
+        )
+        or not re.fullmatch(
+            r"sha256:[0-9a-f]{64}",
+            ensemble_attrs.get("source_manifest_digest", ""),
+        )
+        or not re.fullmatch(
+            r"sha256:[0-9a-f]{64}",
+            ensemble_attrs.get("ensemble_site_forcing_sha256", ""),
+        )
+        or ensemble_attrs.get("source_cycle_set_id")
+        != components["ensemble"].get("sourceCycleSetID")
+        or ensemble_attrs.get("source_manifest_digest")
+        != components["ensemble"].get("upstreamSourceManifestDigest")
+        or ensemble_attrs.get("forecast_identity_id")
+        != components["ensemble"].get("forecastIdentityID")
+        or ensemble_attrs.get("deterministic_source_cycle_set_id")
+        != deterministic_attrs.get("source_cycle_set_id")
+        or ensemble_attrs.get("deterministic_source_manifest_digest")
+        != deterministic_attrs.get("source_manifest_digest")
+        or ensemble_attrs.get("deterministic_forecast_identity_id")
+        != deterministic_attrs.get("forecast_identity_id")
+        or not same_utc_time(
+            ensemble_attrs.get("ensemble_source_cycle_time_utc"),
+            ensemble_attrs.get("ecmwf_cycle_time"),
+        )
+    ):
+        raise RuntimeError("candidate ensemble composite source identity is invalid")
+    if not same_utc_time(
+        deterministic_attrs.get("initial_soc_time"), ensemble_attrs.get("initial_soc_time")
+    ):
+        raise RuntimeError("candidate deterministic and ensemble SOC anchors do not match")
+
+    return [
+            str(PYTHON),
+            "generate_power_soc_v12_candidate.py",
+            "--baseline-issue-zarr", str(resolved["deterministic"]),
+            "--baseline-archive-zarr", str(BASELINE_ARCHIVE),
+            "--baseline-ensemble-zarr", str(resolved["ensemble"]),
+            "--candidate-root", str(CANDIDATE_ROOT),
+            "--power-zarr", str(POWER_ZARR),
+            "--pdu-zarr", str(PDU_ZARR),
+            "--asfs-zarr", str(ASFS_ZARR),
+            "--menapia-mqtt-log", str(UAS_LOG),
+            "--public-source-manifest-root", str(PUBLIC_SOURCE_ROOT),
+            "--physical-config", str(PHYSICAL_CONFIG),
+        ]
+
+
+def main() -> int:
+    requested_at = utc_now()
+    record_launcher_status(
+        "running",
+        requested_at_utc=requested_at,
+        stage="launcher_preflight",
+        reason_code="launcher_preflight_running",
+    )
+    try:
+        command = candidate_command()
+    except Exception as exc:
+        record_launcher_status(
+            "failed",
+            requested_at_utc=requested_at,
+            stage="launcher_preflight",
+            reason_code="launcher_preflight_failed",
+            error_type=type(exc).__name__,
+            error_detail=str(exc)[:500],
+        )
+        raise
+
+    record_launcher_status(
+        "running",
+        requested_at_utc=requested_at,
+        stage="candidate_execution",
+        reason_code="launcher_execution_running",
+    )
+    try:
+        subprocess.run(command, cwd=APP_DIR, check=True)
+    except Exception as exc:
+        if backend_recorded_detailed_failure():
+            # The backend owns the candidate status contract. Preserve its
+            # first detailed failure and add wrapper context to history only.
+            append_launcher_history(
+                {
+                    "schema_version": 1,
+                    "environment": "development",
+                    "authority": "launcher_wrapper",
+                    "status": "failed",
+                    "updated_at_utc": utc_now(),
+                    "requested_at_utc": requested_at,
+                    "stage": "candidate_execution",
+                    "reason_code": "backend_failure_preserved",
+                    "error_type": type(exc).__name__,
+                    "error_detail": str(exc)[:500],
+                }
+            )
+        else:
+            record_launcher_status(
+                "failed",
+                requested_at_utc=requested_at,
+                stage="candidate_execution",
+                reason_code="launcher_execution_failed",
+                error_type=type(exc).__name__,
+                error_detail=str(exc)[:500],
+            )
+        raise
+    return 0
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] == ["--require-model-evaluation-idle"]:
+        raise SystemExit(require_model_evaluation_idle())
+    if sys.argv[1:]:
+        raise SystemExit("usage: aurora-power-v12-candidate-launch [--require-model-evaluation-idle]")
+    raise SystemExit(main())

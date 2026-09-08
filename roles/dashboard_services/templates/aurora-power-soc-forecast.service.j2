@@ -2,6 +2,12 @@
 Description=Aurora power SOC forecast from ECMWF solar data
 After=network-online.target aurora-power-append.service
 Wants=network-online.target
+{% if aurora_power_forecast_orchestration_enabled | bool %}
+OnFailure=aurora-power-forecast-bundle-failure@%n.service
+{% if aurora_power_v12_candidate_enabled | bool %}
+OnSuccess=aurora-power-v12-candidate.service
+{% endif %}
+{% endif %}
 
 [Service]
 Type=oneshot
@@ -9,6 +15,18 @@ User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
 WorkingDirectory={{ aurora_app_dir }}
 EnvironmentFile=/etc/aurora-dashboard.env
+{% if aurora_power_forecast_orchestration_enabled | bool %}
+ExecStart=/usr/local/bin/aurora-power-forecast-runner full-cycle
+{% else %}
 ExecStart={{ aurora_venv }}/bin/python generate_power_soc_forecast.py --power-zarr {{ aurora_zarr.power }} --output-zarr {{ aurora_zarr.power_soc_forecast }} --cache-dir {{ aurora_paths.products_power_ecmwf_solar_forecast }} --state {{ aurora_power_forecast_root }}/power_soc_forecast_state.json --archive-zarr {{ aurora_zarr.power_soc_forecast_archive }} --skill-zarr {{ aurora_zarr.power_soc_forecast_skill }} --hindcast-zarr {{ aurora_zarr.power_soc_hindcast }} --horizon-hours 96
+{% endif %}
+
 Nice=10
-TimeoutStartSec=900
+{% if aurora_power_forecast_orchestration_enabled | bool %}
+# Leave enough headroom for the immutable ENS stage while preventing a
+# regressed display build from exhausting the host beside model evaluation.
+MemoryHigh=3G
+MemoryMax=3500M
+OOMPolicy=stop
+{% endif %}
+TimeoutStartSec={{ '4h' if aurora_power_forecast_orchestration_enabled | bool else '900' }}
