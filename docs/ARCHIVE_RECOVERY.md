@@ -86,6 +86,19 @@ Ops evidence age and expiry use the oldest required trusted confirmation from
 the pinned family gate, not the newest check or an in-progress worker timestamp.
 Refreshing another family cannot extend that published evidence deadline.
 
+If a health read cannot acquire the publication lock within its bounded retries,
+it defers to the next normal health timer without overwriting the previous record
+or advancing its timestamp. Lock contention is not missing archive evidence.
+Prolonged contention therefore still makes health stale; genuinely missing,
+unreadable, corrupt or expired evidence remains fail-closed. This presentation
+deferral does not change retention checks or any confirmation counts.
+Deploy reader-only fixes with `playbooks/archive_recovery_health.yml` and a unique
+`archive_recovery_health_release`. Verify the check-mode diff against the live
+reader first. The playbook verifies a restricted rollback copy, atomically
+replaces only the reader, and records the corrective intervention so the next
+normal coordinator tick resets acceptance. Leave `archive_recovery_health_refresh`
+false to use the normal health timer; no worker or source writer needs restarting.
+
 After correcting an explicit authentication/configuration block, use
 `sudo aurora-object-store-recovery retry --job <exact-family>`. This records a
 manual intervention and starts a fresh observation; it does not certify parity.
