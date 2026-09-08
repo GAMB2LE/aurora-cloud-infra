@@ -5,7 +5,7 @@ import subprocess
 from jinja2 import Environment, StrictUndefined
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = ROOT / "roles/release_snapshot/templates/aurora-release-snapshot.sh.j2"
 ROLLBACK_TEMPLATE = ROOT / "roles/release_snapshot/templates/aurora-development-rollback.sh.j2"
 POWER_BASELINE_TEMPLATE = (
