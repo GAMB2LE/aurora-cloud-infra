@@ -133,6 +133,16 @@
           run and public endpoint smoke checks.
       when: ansible_check_mode
 
+    - name: Label future forecast products with the exact installed source
+      ansible.builtin.lineinfile:
+        path: /etc/aurora-dashboard.env
+        regexp: '^AURORA_FORECAST_CODE_REVISION='
+        line: 'AURORA_FORECAST_CODE_REVISION={{ aurora_mobile_api_target_revision }}'
+        create: false
+      # The file also contains protected settings. Only this revision metadata
+      # is changed; never include surrounding environment lines in a diff.
+      diff: false
+
     - name: Compile changed Python modules in memory using the existing environment
       ansible.builtin.command:
         argv:
