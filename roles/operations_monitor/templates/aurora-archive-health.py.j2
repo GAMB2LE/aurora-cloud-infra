@@ -105,7 +105,10 @@ def archive_snapshot() -> tuple[dict, dict]:
             time.sleep(0.2)
         except (OSError, ValueError):
             return {}, {}
-    return {}, {}
+    # Exhausted lock retries say nothing about the evidence itself. Preserve
+    # the previous health record (including its age) until a scheduled read
+    # can pin a generation; never publish an invented empty inventory.
+    raise BlockingIOError("archive evidence publication is busy")
 
 
 def unit(name: str) -> dict:
@@ -850,8 +853,14 @@ def operator_status(
 
 
 def main() -> int:
+    try:
+        object_report, gate = archive_snapshot()
+    except BlockingIOError:
+        # A normal timer tick will retry. Do not renew generated_at: prolonged
+        # contention must still become stale health, not indefinitely green.
+        print("Archive health update deferred: evidence publication is busy", file=sys.stderr)
+        return 0
     gws = read(GWS)
-    object_report, gate = archive_snapshot()
     inventory_progress = read(INVENTORY_PROGRESS)
     recovery = recovery_status(read(RECOVERY_STATUS), object_report, RECOVERY_ENABLED, gate=gate)
     if RECOVERY_ENABLED:
