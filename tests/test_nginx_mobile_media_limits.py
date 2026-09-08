@@ -5,6 +5,9 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 SITE_TEMPLATE = ROOT / "roles/nginx/templates/aurora-dashboard.nginx.j2"
 ZONE_TEMPLATE = ROOT / "roles/nginx/templates/aurora-dashboard-rate-limits.conf.j2"
+SECURITY_HEADERS_TEMPLATE = (
+    ROOT / "roles/nginx/templates/aurora-dashboard-security-headers.conf.j2"
+)
 
 
 class NginxMobileMediaLimitTests(unittest.TestCase):
@@ -41,3 +44,25 @@ class NginxMobileMediaLimitTests(unittest.TestCase):
 {% endif %}"""
 
         self.assertEqual(site.count(guarded_redirect), 2)
+
+    def test_panel_blob_module_loader_is_allowed_by_csp(self) -> None:
+        headers = SECURITY_HEADERS_TEMPLATE.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:;",
+            headers,
+        )
+
+    def test_panel_presentation_origins_are_explicitly_allowlisted(self) -> None:
+        headers = SECURITY_HEADERS_TEMPLATE.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net;",
+            headers,
+        )
+        self.assertIn(
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net;",
+            headers,
+        )
+        self.assertNotRegex(headers, r"(?:^|[ ;])https:(?:[ ;])")
+        self.assertNotIn("gamb2le.pages.dev", headers)

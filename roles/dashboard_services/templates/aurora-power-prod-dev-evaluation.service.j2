@@ -1,0 +1,39 @@
+[Unit]
+Description=Exact-intersection production/development Power forecast evaluation
+After=aurora-power-v12-candidate.service
+# Input validation belongs to the evaluator so missing sources produce a
+# durable, fail-closed status and history event instead of a silent unit skip.
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+WorkingDirectory={{ aurora_app_dir }}
+EnvironmentFile=/etc/aurora-dashboard.env
+ExecStart={{ aurora_venv }}/bin/python generate_power_prod_dev_evaluation.py --prod-archive-zarr {{ aurora_product_root }}/power/power_soc_forecast_archive.zarr --dev-archive-zarr {{ aurora_zarr.power_soc_forecast_archive }} --power-zarr {{ aurora_zarr.power }} --output-zarr {{ aurora_power_paired_evaluation_output }} --status-json {{ aurora_power_paired_evaluation_status }} --history-jsonl {{ aurora_power_paired_evaluation_history }} --bootstrap-samples {{ aurora_power_paired_evaluation_bootstrap_samples }}
+Nice=19
+CPUQuota=25%
+CPUWeight=5
+MemoryHigh=1G
+MemoryMax=1.5G
+IOSchedulingClass=idle
+OOMPolicy=stop
+TimeoutStartSec=20min
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictNamespaces=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX
+ReadOnlyPaths={{ aurora_app_dir }} {{ aurora_product_root }} {{ aurora_dev_product_root }}
+ReadWritePaths={{ aurora_power_paired_evaluation_root }}

@@ -21,6 +21,45 @@
     - aurora_release_snapshot_enabled | bool
     - not ansible_check_mode
 
+- name: Install explicit development dashboard rollback helper
+  ansible.builtin.template:
+    src: aurora-development-rollback.sh.j2
+    dest: /usr/local/sbin/aurora-development-rollback
+    owner: root
+    group: root
+    mode: "0700"
+  when:
+    - aurora_release_snapshot_enabled | bool
+    - aurora_site_env == 'development'
+    - aurora_failover_role != 'primary'
+    - not ansible_check_mode
+
+- name: Ensure immutable development Power baseline snapshot root exists
+  ansible.builtin.file:
+    path: "{{ aurora_power_baseline_snapshot_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  when:
+    - aurora_power_baseline_snapshot_enabled | bool
+    - aurora_site_env == 'development'
+    - aurora_failover_role != 'primary'
+    - not ansible_check_mode
+
+- name: Install explicit development Power baseline snapshot helper
+  ansible.builtin.template:
+    src: aurora-power-baseline-snapshot.sh.j2
+    dest: /usr/local/sbin/aurora-power-baseline-snapshot
+    owner: root
+    group: root
+    mode: "0700"
+  when:
+    - aurora_power_baseline_snapshot_enabled | bool
+    - aurora_site_env == 'development'
+    - aurora_failover_role != 'primary'
+    - not ansible_check_mode
+
 - name: Preserve current dashboard release and configuration
   ansible.builtin.command:
     argv:
@@ -30,4 +69,5 @@
   changed_when: true
   when:
     - aurora_release_snapshot_enabled | bool
+    - aurora_release_snapshot_capture_on_run | bool
     - not ansible_check_mode

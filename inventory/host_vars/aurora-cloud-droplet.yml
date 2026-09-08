@@ -37,11 +37,29 @@ aurora_dashboard_allowed_origins:
 # These compact display products are generated on development. Keep them
 # outside the mirrored production product tree so the five-minute mirror cannot
 # remove a valid development build that production has not published yet.
-aurora_power_display_summary_path: "{{ aurora_dev_product_root }}/power/power_display_summary.zarr"
-aurora_power_display_energy_path: "{{ aurora_dev_product_root }}/power/power_display_energy.zarr"
-aurora_power_current_display_path: "{{ aurora_dev_product_root }}/power/power_current_display.zarr"
-aurora_power_forecast_display_path: "{{ aurora_dev_product_root }}/power/power_forecast_display.zarr"
-aurora_power_display_manifest_path: "{{ aurora_dev_product_root }}/power/power_display_manifest.json"
+aurora_power_forecast_orchestration_enabled: true
+# Phase-two activation is limited to the checksum-verified, complete v10
+# advisory bundle. Candidate v12 remains isolated, and CL61 actuation remains
+# disabled behind its independent capability and authority gates.
+aurora_power_forecast_publication_active: true
+aurora_power_paired_evaluation_enabled: true
+# Install the explicit one-shot pre-deployment v10 evidence snapshot helper on
+# development. It never runs as part of a normal dashboard release.
+aurora_power_baseline_snapshot_enabled: true
+
+# The v12 hybrid forecast is an unpublished, isolated evaluation lane.  Install
+# its constrained unit on development only.  The manual canary completed with
+# isolated paths and resource checks, so retain the bounded timer as the
+# development evidence collector; it remains an unpublished candidate.
+aurora_power_v12_candidate_enabled: true
+# Candidate generation is chained from a successfully published immutable
+# issue. Never let a wall-clock timer pick up a mutable cached re-anchor.
+aurora_power_v12_candidate_timer_enabled: false
+aurora_power_v12_candidate_root: "{{ aurora_dev_product_root }}/power/candidates/v12"
+
+# Development-only CL61 schedule evidence. This publishes an explicitly
+# non-executable status/intent next to the isolated development power product.
+aurora_cl61_automation_shadow_enabled: true
 
 # The droplet has its own public development hostname. Full public failover is
 # manual and should not be done by changing this development baseline silently.

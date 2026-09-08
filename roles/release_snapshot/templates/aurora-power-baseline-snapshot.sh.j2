@@ -1,0 +1,602 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# One-shot, development-only capture of the exact derived Power products used
+# as the v10 comparison baseline. Raw observations, ECMWF caches/global grids,
+# temporary retrievals, candidates, and forecast-bundle staging are excluded by
+# construction: only the literal allowlist below can be copied.
+
+umask 077
+
+if [[ ${EUID} -ne 0 ]]; then
+  echo "the Power baseline snapshot helper must run as root" >&2
+  exit 77
+fi
+if [[ $# -ne 1 ]]; then
+  echo "usage: $0 <snapshot-name>" >&2
+  exit 64
+fi
+
+snapshot_name=$1
+if [[ ! ${snapshot_name} =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$ ]]; then
+  echo "invalid snapshot name" >&2
+  exit 64
+fi
+
+site_env={{ aurora_site_env | quote }}
+failover_role={{ aurora_failover_role | quote }}
+publication_active={{ ('true' if aurora_power_forecast_publication_active | bool else 'false') | quote }}
+snapshot_root={{ aurora_power_baseline_snapshot_root | quote }}
+allowed_product_root={{ aurora_power_forecast_root | quote }}
+app_dir={{ aurora_app_dir | quote }}
+service_user={{ aurora_service_user | quote }}
+service_group={{ aurora_service_group | quote }}
+generator_lock={{ aurora_power_forecast_generator_lock_path | quote }}
+
+if [[ ${site_env} != development || ${failover_role} == primary || ${publication_active} != false ]]; then
+  echo "refusing Power baseline snapshot outside unpublished development" >&2
+  exit 77
+fi
+if [[ ${snapshot_root} != /var/lib/aurora-power-baseline-snapshots ]]; then
+  echo "refusing unexpected immutable snapshot root: ${snapshot_root}" >&2
+  exit 77
+fi
+
+install -d -o root -g root -m 0700 -- "${snapshot_root}"
+allowed_product_root=$(realpath -e -- "${allowed_product_root}")
+case "${allowed_product_root}" in
+  /data/aurora/dev-products/power) ;;
+  *)
+    echo "refusing unexpected Power evidence root: ${allowed_product_root}" >&2
+    exit 77
+    ;;
+esac
+
+final_dir="${snapshot_root}/${snapshot_name}"
+if [[ -e ${final_dir} || -L ${final_dir} ]]; then
+  echo "snapshot already exists: ${final_dir}" >&2
+  exit 73
+fi
+
+timestamp=$(date -u +%Y%m%dT%H%M%SZ)
+staging_dir="${snapshot_root}/.${snapshot_name}.staging.${timestamp}.$$"
+metadata_dir="${staging_dir}/metadata"
+products_dir="${staging_dir}/products"
+install -d -o root -g root -m 0700 -- "${metadata_dir}" "${products_dir}"
+
+timer_units=(
+  aurora-power-append.timer
+  aurora-pdu-append.timer
+  aurora-dev-live-pull-product-power.timer
+  aurora-power-soc-forecast.timer
+  aurora-power-soc-forecast-learn.timer
+  aurora-power-soc-ensemble.timer
+  aurora-power-soc-planning-forecast.timer
+  aurora-power-operating-scenarios.timer
+  aurora-dev-power-display-refresh.timer
+  aurora-power-quicklooks.timer
+  aurora-power-v12-candidate.timer
+)
+writer_units=(
+  aurora-power-append.service
+  aurora-pdu-append.service
+  aurora-dev-live-pull@product-power.service
+  aurora-power-soc-forecast.service
+  aurora-power-soc-forecast-learn.service
+  aurora-power-soc-ensemble.service
+  aurora-power-soc-planning-forecast.service
+  aurora-power-operating-scenarios.service
+  aurora-dev-power-display-refresh.service
+  aurora-power-quicklooks.service
+  aurora-power-forecast-publish.service
+  aurora-power-v12-candidate.service
+  aurora-power-prod-dev-evaluation.service
+)
+
+# A failed writer may have spawned one or more diagnostic failure handlers.
+# Include any concrete instances in the same quiescence/verification boundary.
+while IFS= read -r failure_unit; do
+  [[ -n ${failure_unit} ]] && writer_units+=("${failure_unit}")
+done < <(
+  systemctl list-units --all --plain --no-legend \
+    'aurora-power-forecast-bundle-failure@*.service' 2>/dev/null \
+    | awk '{print $1}'
+)
+all_units=("${timer_units[@]}" "${writer_units[@]}")
+unit_state_file="${metadata_dir}/service-states.tsv"
+: > "${unit_state_file}"
+declare -A captured_load_state=()
+declare -A captured_enabled_state=()
+declare -A captured_active_state=()
+
+for unit in "${all_units[@]}"; do
+  load_state=$(systemctl show --property=LoadState --value "${unit}" 2>/dev/null || true)
+  [[ -n ${load_state} ]] || load_state=not-found
+  enabled_state=$(systemctl is-enabled "${unit}" 2>/dev/null || true)
+  [[ -n ${enabled_state} ]] || enabled_state=unknown
+  active_state=$(systemctl is-active "${unit}" 2>/dev/null || true)
+  [[ -n ${active_state} ]] || active_state=unknown
+  captured_load_state["${unit}"]=${load_state}
+  captured_enabled_state["${unit}"]=${enabled_state}
+  captured_active_state["${unit}"]=${active_state}
+  printf '%s\t%s\t%s\t%s\n' \
+    "${unit}" "${load_state}" "${enabled_state}" "${active_state}" \
+    >> "${unit_state_file}"
+done
+
+lock_held=false
+snapshot_complete=false
+
+restore_and_quarantine() {
+  exit_status=$?
+  trap - EXIT INT TERM
+  restore_failed=false
+
+  if [[ ${lock_held} == true ]]; then
+    /usr/bin/flock --unlock 9 || restore_failed=true
+    exec 9>&-
+    lock_held=false
+  fi
+
+  # Restore services before timers so a timer cannot race its worker restore.
+  # Use --no-block for services/activating states: a snapshot cleanup must not
+  # wait for (or synchronously rerun) a multi-hour oneshot.
+  for unit in "${writer_units[@]}" "${timer_units[@]}"; do
+      load_state=${captured_load_state["${unit}"]:-not-found}
+      enabled_state=${captured_enabled_state["${unit}"]:-unknown}
+      active_state=${captured_active_state["${unit}"]:-unknown}
+      [[ ${load_state} != not-found ]] || continue
+      if [[ ${active_state} == active || ${active_state} == activating ]]; then
+        if ! systemctl start --no-block "${unit}"; then
+          echo "failed to restore active unit ${unit}" >&2
+          restore_failed=true
+          continue
+        fi
+        restored_active=$(systemctl is-active "${unit}" 2>/dev/null || true)
+        if [[ ${unit} == *.timer && ${restored_active} != active && ${restored_active} != activating ]]; then
+          echo "unit did not return active: ${unit}" >&2
+          restore_failed=true
+        fi
+      fi
+      restored_enabled=$(systemctl is-enabled "${unit}" 2>/dev/null || true)
+      [[ -n ${restored_enabled} ]] || restored_enabled=unknown
+      if [[ ${restored_enabled} != "${enabled_state}" ]]; then
+        echo "unit enable state changed unexpectedly: ${unit}" >&2
+        restore_failed=true
+      fi
+  done
+
+  if [[ ${snapshot_complete} != true && -d ${staging_dir} ]]; then
+    quarantine_root="${snapshot_root}/quarantine"
+    install -d -o root -g root -m 0700 -- "${quarantine_root}"
+    quarantine_dir="${quarantine_root}/${snapshot_name}-${timestamp}-$$"
+    if mv -- "${staging_dir}" "${quarantine_dir}"; then
+      echo "incomplete snapshot preserved at ${quarantine_dir}" >&2
+    else
+      echo "incomplete snapshot remains at ${staging_dir}" >&2
+    fi
+  fi
+
+  if [[ ${restore_failed} == true && ${exit_status} -eq 0 ]]; then
+    exit_status=1
+  fi
+  exit "${exit_status}"
+}
+trap restore_and_quarantine EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# Stop schedulers before their workers. The exact original active/enabled state
+# above is restored on every exit path.
+for unit in "${timer_units[@]}"; do
+  load_state=$(systemctl show --property=LoadState --value "${unit}" 2>/dev/null || true)
+  [[ ${load_state} == not-found || -z ${load_state} ]] || systemctl stop "${unit}"
+done
+for unit in "${writer_units[@]}"; do
+  load_state=$(systemctl show --property=LoadState --value "${unit}" 2>/dev/null || true)
+  [[ ${load_state} == not-found || -z ${load_state} ]] || systemctl stop "${unit}"
+done
+for unit in "${all_units[@]}"; do
+  load_state=$(systemctl show --property=LoadState --value "${unit}" 2>/dev/null || true)
+  [[ ${load_state} == not-found || -z ${load_state} ]] && continue
+  active_state=$(systemctl is-active "${unit}" 2>/dev/null || true)
+  case "${active_state}" in
+    active|activating|deactivating)
+      echo "cannot snapshot while writer remains active: ${unit}" >&2
+      exit 75
+      ;;
+  esac
+done
+
+# All deterministic/ensemble/planning publication paths share this lock. Keep
+# it until the copied bytes and their manifest have been finalized.
+# The snapshot helper runs as root, but the normal forecast writer does not.
+# Preserve one shared inode and explicitly return ownership to the service
+# account before opening it; otherwise the snapshot itself can strand a
+# root-owned 0600 lock and make the next fail-closed forecast unable to start.
+if [[ ${generator_lock} != "${allowed_product_root}/.deterministic-generator.lock" ]]; then
+  echo "refusing unexpected forecast generator lock: ${generator_lock}" >&2
+  exit 77
+fi
+if [[ -L ${generator_lock} || ( -e ${generator_lock} && ! -f ${generator_lock} ) ]]; then
+  echo "forecast generator lock is not a regular file" >&2
+  exit 77
+fi
+if [[ ! -e ${generator_lock} ]]; then
+  install -o "${service_user}" -g "${service_group}" -m 0600 /dev/null "${generator_lock}"
+else
+  chown "${service_user}:${service_group}" -- "${generator_lock}"
+  chmod 0600 -- "${generator_lock}"
+fi
+exec 9>"${generator_lock}"
+/usr/bin/flock --exclusive --wait 300 9
+lock_held=true
+
+source_commit=$(runuser -u "${service_user}" -- git -C "${app_dir}" rev-parse HEAD)
+if [[ ! ${source_commit} =~ ^[0-9a-f]{40}$ ]]; then
+  echo "dashboard checkout did not provide an exact source commit" >&2
+  exit 65
+fi
+source_describe=$(runuser -u "${service_user}" -- git -C "${app_dir}" describe --tags --always --dirty)
+if [[ -n $(runuser -u "${service_user}" -- git -C "${app_dir}" status --porcelain=v1 --untracked-files=all) ]]; then
+  echo "dashboard checkout is dirty; source commit would not identify the generator code" >&2
+  exit 65
+fi
+
+# Preserve the installed unit/drop-in bytes that define effective v10
+# sequencing and cadence. `systemctl cat` exposes definitions, not EnvironmentFile
+# values, so secrets remain excluded.
+unit_definition_dir="${metadata_dir}/unit-definitions"
+unit_definition_index="${metadata_dir}/unit-definitions.tsv"
+install -d -o root -g root -m 0700 -- "${unit_definition_dir}"
+: > "${unit_definition_index}"
+for unit in "${all_units[@]}"; do
+  [[ ${captured_load_state["${unit}"]:-not-found} != not-found ]] || continue
+  definition_name=${unit//\//_}
+  definition_name=${definition_name//@/_at_}
+  definition_path="${unit_definition_dir}/${definition_name}.txt"
+  if ! systemctl cat "${unit}" > "${definition_path}"; then
+    echo "could not capture loaded unit definition: ${unit}" >&2
+    exit 69
+  fi
+  printf '%s\t%s\n' "${unit}" "metadata/unit-definitions/${definition_name}.txt" \
+    >> "${unit_definition_index}"
+done
+
+artifact_source_file="${metadata_dir}/artifact-sources.tsv"
+: > "${artifact_source_file}"
+
+artifact_fingerprint() {
+  /usr/bin/python3 - "$1" <<'PY'
+from __future__ import annotations
+
+import hashlib
+from pathlib import Path
+import sys
+
+
+path = Path(sys.argv[1])
+files = [path] if path.is_file() else sorted(
+    (item for item in path.rglob("*") if item.is_file()),
+    key=lambda item: item.relative_to(path).as_posix(),
+)
+digest = hashlib.sha256()
+byte_count = 0
+for item in files:
+    relative = item.name if path.is_file() else item.relative_to(path).as_posix()
+    digest.update(relative.encode("utf-8") + b"\0")
+    with item.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+            byte_count += len(block)
+    digest.update(b"\0")
+print(f"{digest.hexdigest()}\t{len(files)}\t{byte_count}")
+PY
+}
+
+copy_artifact() {
+  logical_name=$1
+  source_path=$2
+  relative_path=$3
+
+  if [[ -L ${source_path} || ! -e ${source_path} ]]; then
+    echo "required baseline artifact is missing or a symlink: ${logical_name}" >&2
+    exit 66
+  fi
+  resolved_source=$(realpath -e -- "${source_path}")
+  case "${resolved_source}" in
+    "${allowed_product_root}"/*) ;;
+    *)
+      echo "baseline artifact escapes the exact development Power root: ${logical_name}" >&2
+      exit 77
+      ;;
+  esac
+  if [[ -n $(find "${resolved_source}" -type l -print -quit 2>/dev/null) ]]; then
+    echo "baseline artifact contains a symlink: ${logical_name}" >&2
+    exit 66
+  fi
+  if [[ -n $(find "${resolved_source}" ! -type f ! -type d -print -quit 2>/dev/null) ]]; then
+    echo "baseline artifact contains a special filesystem entry: ${logical_name}" >&2
+    exit 66
+  fi
+  source_fingerprint_before=$(artifact_fingerprint "${resolved_source}")
+  destination="${staging_dir}/${relative_path}"
+  install -d -o root -g root -m 0700 -- "$(dirname -- "${destination}")"
+  cp -a --reflink=auto -- "${resolved_source}" "${destination}"
+  source_fingerprint_after=$(artifact_fingerprint "${resolved_source}")
+  destination_fingerprint=$(artifact_fingerprint "${destination}")
+  if [[ ${source_fingerprint_before} != "${source_fingerprint_after}" || \
+        ${source_fingerprint_after} != "${destination_fingerprint}" ]]; then
+    echo "baseline artifact changed during copy or copied bytes differ: ${logical_name}" >&2
+    exit 74
+  fi
+  IFS=$'\t' read -r source_digest source_file_count source_byte_count \
+    <<< "${destination_fingerprint}"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "${logical_name}" "${resolved_source}" "${relative_path}" \
+    "${source_digest}" "${source_file_count}" "${source_byte_count}" \
+    >> "${artifact_source_file}"
+}
+
+copy_optional_artifact() {
+  logical_name=$1
+  source_path=$2
+  relative_path=$3
+  if [[ ! -e ${source_path} && ! -L ${source_path} ]]; then
+    printf '%s\t%s\n' "${logical_name}" "not_present_at_capture" \
+      >> "${metadata_dir}/absent-artifacts.tsv"
+    return 0
+  fi
+  copy_artifact "${logical_name}" "${source_path}" "${relative_path}"
+}
+
+# Exact v10 derived-product allowlist. Do not replace this with a glob.
+copy_artifact deterministicForecast {{ aurora_zarr.power_soc_forecast | quote }} products/power_soc_forecast.zarr
+copy_artifact deterministicState {{ (aurora_power_forecast_root ~ '/power_soc_forecast_state.json') | quote }} products/power_soc_forecast_state.json
+copy_artifact deterministicArchive {{ aurora_zarr.power_soc_forecast_archive | quote }} products/power_soc_forecast_archive.zarr
+copy_artifact deterministicSkill {{ aurora_zarr.power_soc_forecast_skill | quote }} products/power_soc_forecast_skill.zarr
+copy_artifact deterministicHindcast {{ aurora_zarr.power_soc_hindcast | quote }} products/power_soc_hindcast.zarr
+copy_artifact ensembleForecast {{ aurora_zarr.power_soc_ensemble | quote }} products/power_soc_ensemble_forecast.zarr
+copy_artifact ensembleArchive {{ aurora_zarr.power_soc_ensemble_archive | quote }} products/power_soc_ensemble_archive.zarr
+copy_artifact ensembleSkill {{ aurora_zarr.power_soc_ensemble_skill | quote }} products/power_soc_ensemble_skill.zarr
+copy_artifact planningForecast {{ aurora_power_planning_forecast_path | quote }} products/power_soc_planning_forecast.zarr
+copy_artifact planningState {{ aurora_power_planning_forecast_state | quote }} products/power_soc_planning_state.json
+copy_artifact planningArchive {{ aurora_power_planning_forecast_archive | quote }} products/power_soc_planning_archive.zarr
+copy_artifact planningSkill {{ aurora_power_planning_forecast_skill | quote }} products/power_soc_planning_skill.zarr
+copy_artifact planningHindcast {{ aurora_power_planning_hindcast | quote }} products/power_soc_planning_hindcast.zarr
+copy_artifact operatingState {{ aurora_power_operating_state_path | quote }} products/power_operating_state.zarr
+copy_artifact operatingScenarios {{ aurora_power_operating_scenarios_path | quote }} products/power_operating_scenarios.zarr
+copy_artifact operatingModelState {{ aurora_power_operating_model_state_path | quote }} products/power_operating_model_state.json
+copy_artifact operatingRecommendations {{ aurora_power_operating_recommendations_path | quote }} products/power_operating_recommendations.json
+copy_artifact displaySummary {{ aurora_power_display_summary_path | quote }} products/power_display_summary.zarr
+copy_artifact displayEnergy {{ aurora_power_display_energy_path | quote }} products/power_display_energy.zarr
+copy_artifact currentDisplay {{ aurora_power_current_display_path | quote }} products/power_current_display.zarr
+copy_artifact forecastDisplay {{ aurora_power_forecast_display_path | quote }} products/power_forecast_display.zarr
+copy_artifact displayManifest {{ aurora_power_display_manifest_path | quote }} products/power_display_manifest.json
+copy_optional_artifact cl61AutomationIntent {{ aurora_cl61_automation_intent_path | quote }} products/cl61_automation_intent.json
+copy_optional_artifact cl61AutomationStatus {{ aurora_cl61_automation_status_path | quote }} products/cl61_automation_status.json
+copy_optional_artifact cl61AutomationHistory {{ aurora_cl61_automation_history_path | quote }} products/cl61_automation_history.jsonl
+
+prohibited_entry=$(find "${products_dir}" \
+  \( -type f \( -iname '*.grib' -o -iname '*.grib2' -o -iname '*.grb' -o -iname '*.grb2' \) \
+     -o -type d \( -iname 'ecmwf_solar_*' -o -iname 'cache' -o -iname 'tmp' \) \) \
+  -print -quit)
+if [[ -n ${prohibited_entry} ]]; then
+  echo "prohibited cache/global-grid entry reached baseline snapshot: ${prohibited_entry}" >&2
+  exit 66
+fi
+
+# Intent/status are optional historical evidence, but if either is present the
+# pair must be complete and preserve the diagnostic/observe-only boundary.
+/usr/bin/python3 - "${staging_dir}" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+
+root = Path(sys.argv[1]) / "products"
+intent_path = root / "cl61_automation_intent.json"
+status_path = root / "cl61_automation_status.json"
+if intent_path.exists() != status_path.exists():
+    raise RuntimeError("CL61 baseline intent/status evidence is incomplete")
+if intent_path.exists():
+    intent = json.loads(intent_path.read_text(encoding="utf-8"))
+    status = json.loads(status_path.read_text(encoding="utf-8"))
+    safety = intent.get("safety") if isinstance(intent, dict) else None
+    if (
+        intent.get("authority") != "diagnostic"
+        or not isinstance(safety, dict)
+        or safety.get("control_eligible") is not False
+        or status.get("control_authority") != "observe_only"
+        or status.get("mode") != "observe_only"
+        or status.get("capability") is not False
+    ):
+        raise RuntimeError("CL61 baseline evidence unexpectedly permits actuation")
+PY
+
+# Retain only the Power/CL61 keys needed to interpret the baseline. Never copy
+# the full environment file: it also contains unrelated credentials.
+if [[ -L /etc/aurora-dashboard.env || ! -f /etc/aurora-dashboard.env ]]; then
+  echo "required effective dashboard configuration is unavailable" >&2
+  exit 66
+fi
+install -d -o root -g root -m 0700 -- "${staging_dir}/effective-config"
+awk -F= '
+  $1 ~ /^(POWER_SOC_|POWER_OPERATING_|POWER_DISPLAY_|AURORA_POWER_|AURORA_FORECAST_CODE_REVISION$|AURORA_ECMWF_PROVIDER$|AURORA_CL61_|CL61_AUTOMATION_|POWER_ZARR_PATH$|PDU_ZARR_PATH$|ASFS_LOGGER_ZARR_PATH$|UAS_MQTT_LOG_PATH$|POWER_ECMWF_FORECAST_CACHE_DIR$|POWER_ECMWF_ENSEMBLE_TMP_DIR$)/ {
+    print
+  }
+' /etc/aurora-dashboard.env > "${staging_dir}/effective-config/power.env"
+if [[ ! -s ${staging_dir}/effective-config/power.env ]]; then
+  echo "no Power settings found in effective dashboard configuration" >&2
+  exit 66
+fi
+
+# Detect a manually started writer before accepting the copied evidence. Such a
+# run cannot become a complete snapshot; its bytes are retained in quarantine.
+for unit in "${writer_units[@]}"; do
+  active_state=$(systemctl is-active "${unit}" 2>/dev/null || true)
+  case "${active_state}" in
+    active|activating|deactivating)
+      echo "writer became active during snapshot: ${unit}" >&2
+      exit 75
+      ;;
+  esac
+done
+
+# Re-read every source after the complete allowlist has been copied. This
+# catches a direct/manual writer changing an earlier artifact after its own
+# copy, even if that writer bypasses systemd and the shared generator lock.
+while IFS=$'\t' read -r logical_name source_path relative_path \
+  source_digest source_file_count source_byte_count; do
+  final_source_fingerprint=$(artifact_fingerprint "${source_path}")
+  expected_source_fingerprint=$(printf '%s\t%s\t%s' \
+    "${source_digest}" "${source_file_count}" "${source_byte_count}")
+  if [[ ${final_source_fingerprint} != "${expected_source_fingerprint}" ]]; then
+    echo "baseline source changed before manifest finalization: ${logical_name}" >&2
+    exit 74
+  fi
+done < "${artifact_source_file}"
+
+/usr/bin/python3 - \
+  "${staging_dir}" "${snapshot_name}" "$(date -u +%FT%TZ)" \
+  "${source_commit}" "${source_describe}" <<'PY'
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+
+
+root = Path(sys.argv[1])
+snapshot_name, captured_at, source_commit, source_describe = sys.argv[2:]
+source_records = root / "metadata/artifact-sources.tsv"
+
+
+def digest_path(path: Path) -> tuple[str, int, int]:
+    if path.is_symlink():
+        raise RuntimeError(f"snapshot artifact is a symlink: {path}")
+    files = [path] if path.is_file() else sorted(
+        (item for item in path.rglob("*") if item.is_file()),
+        key=lambda item: item.relative_to(path).as_posix(),
+    )
+    digest = hashlib.sha256()
+    byte_count = 0
+    for item in files:
+        if item.is_symlink():
+            raise RuntimeError(f"snapshot artifact contains a symlink: {item}")
+        relative = item.name if path.is_file() else item.relative_to(path).as_posix()
+        digest.update(relative.encode("utf-8") + b"\0")
+        with item.open("rb") as handle:
+            for block in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(block)
+                byte_count += len(block)
+        digest.update(b"\0")
+    return digest.hexdigest(), len(files), byte_count
+
+
+artifacts: dict[str, dict[str, object]] = {}
+for line in source_records.read_text(encoding="utf-8").splitlines():
+    (
+        logical_name,
+        source_path,
+        relative_path,
+        source_digest,
+        source_file_count,
+        source_byte_count,
+    ) = line.split("\t")
+    digest, file_count, byte_count = digest_path(root / relative_path)
+    if (
+        digest != source_digest
+        or file_count != int(source_file_count)
+        or byte_count != int(source_byte_count)
+    ):
+        raise RuntimeError(f"copied artifact changed before manifest: {logical_name}")
+    artifacts[logical_name] = {
+        "relativePath": relative_path,
+        "sourcePath": source_path,
+        "sha256": f"sha256:{digest}",
+        "fileCount": file_count,
+        "byteCount": byte_count,
+        "sourceFingerprintVerified": True,
+    }
+
+metadata: dict[str, dict[str, object]] = {}
+for logical_name, relative_path in (
+    ("effectivePowerConfiguration", "effective-config/power.env"),
+    ("artifactSourceIndex", "metadata/artifact-sources.tsv"),
+    ("serviceState", "metadata/service-states.tsv"),
+    ("unitDefinitionIndex", "metadata/unit-definitions.tsv"),
+    ("unitDefinitions", "metadata/unit-definitions"),
+):
+    digest, file_count, byte_count = digest_path(root / relative_path)
+    metadata[logical_name] = {
+        "relativePath": relative_path,
+        "sha256": f"sha256:{digest}",
+        "fileCount": file_count,
+        "byteCount": byte_count,
+    }
+absent_path = root / "metadata/absent-artifacts.tsv"
+if absent_path.exists():
+    digest, file_count, byte_count = digest_path(absent_path)
+    metadata["absentArtifactIndex"] = {
+        "relativePath": "metadata/absent-artifacts.tsv",
+        "sha256": f"sha256:{digest}",
+        "fileCount": file_count,
+        "byteCount": byte_count,
+    }
+
+combined_material = {
+    "artifacts": artifacts,
+    "metadata": metadata,
+}
+combined_digest = hashlib.sha256(
+    json.dumps(combined_material, sort_keys=True, separators=(",", ":")).encode("utf-8")
+).hexdigest()
+manifest = {
+    "schemaVersion": 1,
+    "status": "complete",
+    "environment": "development",
+    "authority": "read_only_evidence",
+    "snapshotName": snapshot_name,
+    "capturedAtUTC": captured_at,
+    "captureCheckoutCommit": source_commit,
+    "captureCheckoutDescribe": source_describe,
+    "digestAlgorithm": "sha256-relative-path-nul-content-nul-v1",
+    "snapshotContentDigest": f"sha256:{combined_digest}",
+    "artifacts": artifacts,
+    "metadata": metadata,
+    "excludedClasses": [
+        "raw_observations",
+        "ecmwf_global_grids",
+        "ecmwf_caches",
+        "temporary_retrievals",
+        "candidate_products",
+        "forecast_bundle_staging",
+    ],
+}
+manifest_path = root / "manifest.json"
+with manifest_path.open("w", encoding="utf-8") as handle:
+    json.dump(manifest, handle, sort_keys=True, indent=2)
+    handle.write("\n")
+    handle.flush()
+    os.fsync(handle.fileno())
+PY
+
+(
+  cd "${staging_dir}"
+  sha256sum manifest.json > manifest.sha256
+  sha256sum --check --strict manifest.sha256
+)
+
+# Bind the accepted bytes before the atomic rename. The final evidence tree is
+# root-owned and practically immutable; no product data is ever modified.
+chown -R root:root -- "${staging_dir}"
+find "${staging_dir}" -type f -exec chmod 0400 {} +
+find "${staging_dir}" -type d -exec chmod 0500 {} +
+mv -- "${staging_dir}" "${final_dir}"
+snapshot_complete=true
+unit_state_file="${final_dir}/metadata/service-states.tsv"
+
+printf '%s\n' "${final_dir}"

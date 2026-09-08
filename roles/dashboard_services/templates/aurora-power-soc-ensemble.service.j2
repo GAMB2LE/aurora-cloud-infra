@@ -2,6 +2,9 @@
 Description=Aurora 50-member ECMWF power SOC ensemble forecast
 After=network-online.target aurora-power-soc-forecast.service
 Wants=network-online.target
+{% if aurora_power_forecast_orchestration_enabled | bool %}
+OnFailure=aurora-power-forecast-bundle-failure@%n.service
+{% endif %}
 
 [Service]
 Type=oneshot
@@ -9,7 +12,11 @@ User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
 WorkingDirectory={{ aurora_app_dir }}
 EnvironmentFile=/etc/aurora-dashboard.env
+{% if aurora_power_forecast_orchestration_enabled | bool %}
+ExecStart=/usr/local/bin/aurora-power-forecast-runner immutable-ensemble
+{% else %}
 ExecStart={{ aurora_venv }}/bin/python generate_power_soc_ensemble.py --power-zarr {{ aurora_zarr.power }} --deterministic-zarr {{ aurora_zarr.power_soc_forecast }} --output-zarr {{ aurora_zarr.power_soc_ensemble }} --archive-zarr {{ aurora_zarr.power_soc_ensemble_archive }} --skill-zarr {{ aurora_zarr.power_soc_ensemble_skill }} --cache-dir {{ aurora_paths.products_power_ecmwf_solar_ensemble }} --horizon-hours 96
+{% endif %}
 Nice=15
 IOSchedulingClass=idle
-TimeoutStartSec=7200
+TimeoutStartSec={{ '8700' if aurora_power_forecast_orchestration_enabled | bool else '7200' }}

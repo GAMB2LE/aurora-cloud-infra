@@ -3,6 +3,11 @@ Description=Development learned APS operating states and SOC plans
 After=aurora-dev-live-pull.service aurora-power-soc-planning-forecast.service aurora-power-soc-forecast-learn.service
 ConditionPathExists={{ aurora_zarr.power }}
 ConditionPathExists={{ aurora_power_planning_forecast_path }}
+{% if aurora_power_forecast_orchestration_enabled | bool %}
+# Direct/manual legacy runs are allowed only before the first complete bundle.
+# Afterwards the staged publisher is the sole writer beneath `current`.
+ConditionPathExists=!{{ aurora_power_forecast_bundle_current_root }}/generation.json
+{% endif %}
 
 [Service]
 Type=oneshot
@@ -10,7 +15,8 @@ User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
 WorkingDirectory={{ aurora_app_dir }}
 EnvironmentFile=/etc/aurora-dashboard.env
-ExecStart={{ aurora_venv }}/bin/python generate_power_operating_scenarios.py --power-zarr {{ aurora_zarr.power }} --pdu-zarr {{ aurora_zarr.pdu }} --forecast-zarr {{ aurora_power_planning_forecast_path }} --ensemble-zarr {{ aurora_zarr.power_soc_ensemble }} --state-output {{ aurora_power_operating_state_path }} --scenario-output {{ aurora_power_operating_scenarios_path }} --model-state {{ aurora_power_operating_model_state_path }} --bootstrap-state {{ aurora_power_forecast_root }}/power_soc_forecast_state.json --recommendation-archive {{ aurora_power_operating_recommendations_path }} --uas-log {{ uas_source_destination }} --planning-hours 240 --optimization-hours 96 --lookback-days 30 --max-power-age-minutes 20
+ExecStart={{ aurora_venv }}/bin/python generate_power_operating_scenarios.py --power-zarr {{ aurora_zarr.power }} --pdu-zarr {{ aurora_zarr.pdu }} --forecast-zarr {{ aurora_power_planning_forecast_path }} --ensemble-zarr {{ aurora_zarr.power_soc_ensemble }} --state-output {{ aurora_power_operating_state_path }} --scenario-output {{ aurora_power_operating_scenarios_path }} --model-state {{ aurora_power_operating_model_state_path }} --bootstrap-state {{ aurora_power_forecast_root }}/power_soc_forecast_state.json --recommendation-archive {{ aurora_power_operating_recommendations_path }} --uas-log {{ uas_source_destination }} --planning-hours 240 --optimization-hours 96 --lookback-days 30 --max-power-age-minutes 20{% if aurora_cl61_automation_shadow_enabled | bool %} --enable-automation-shadow --automation-intent-output {{ aurora_cl61_automation_intent_path }} --automation-status-output {{ aurora_cl61_automation_status_path }} --automation-history-output {{ aurora_cl61_automation_history_path }} --automation-environment {{ aurora_cl61_automation_environment }}{% endif %}
+
 Nice=15
 CPUQuota=25%
 CPUWeight=10

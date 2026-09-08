@@ -11,6 +11,19 @@ permissions:
   contents: read
 
 jobs:
+  forecast-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install the locked forecast test environment
+        run: uv sync --locked --group test
+      - name: Test forecast publication and orchestration without live data
+        run: uv run --locked --group test python -m pytest -q tests/forecast
+
   ansible:
     runs-on: ubuntu-latest
     timeout-minutes: 15

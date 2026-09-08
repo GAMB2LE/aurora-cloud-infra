@@ -114,10 +114,80 @@ forecast products. Production runs the same advisory jobs in
 MQTT mirror so it can learn effective-tier load evidence. Neither environment
 issues PDU commands.
 
-The development 240-hour planning forecast is advisory. It attempts a bounded
-ECMWF refresh and then a bounded cached re-anchor. If both fail, the service
-retains the last published plan and exits cleanly with an explicit journal
-message; this must not be treated as an acquisition failure.
+When issue-driven Power orchestration is enabled on development, one successful
+archive-eligible deterministic issue captures an immutable issue snapshot and
+starts the ENS and 240-hour planning inputs in that order. Only after both
+inputs have been copied into the same staging tree do the deterministic,
+planning, and ENS snapshots pass explicit generation-age, source-cycle-age,
+90-hour coverage, and cycle-compatibility checks. Scenario, display, and
+checksum work then reads only those staged copies. The complete manifest binds
+the three forecast identities, upstream source-manifest digests, and artifact
+hashes into one `sourceManifestDigest` and
+also covers display-energy, the generation-local recommendation archive, and
+CL61 diagnostic products. The scenario generator seeds recommendation history
+and adaptive load-model state from the checksum-verified previous complete
+bundle (or the legacy files for the first generation) only into staging;
+neither an unpublished run nor a failed bundle mutates the legacy development
+learner state or recommendation archive. Completed issue and generation trees
+have their write bits removed before a pointer can expose them. A failed stage
+retains the prior generation and records a fail-closed status with the first
+detailed failure preserved within a distinct attempt ID; the next deterministic
+or cached attempt clears that failure before doing work, so stale errors cannot
+hide a later run's cause.
+
+The full-cycle and cached deterministic writers share one exclusive file lock.
+The dev full-cycle runner retains that lock across deterministic issue capture,
+ENS generation, planning generation, and complete staged publication. This
+prevents the three-hour timer or a cached re-anchor from replacing the issue or
+mutable source products between stages. A cached run that finds the full runner
+busy is deferred as a false systemd condition and cannot trigger a publisher
+against stale output. Otherwise its generation and complete staged publication
+occur while it still holds the lock. Manually invoked ENS, planning, and
+full-publication services also take the same lock, while the cached path calls
+the publisher directly under its existing lock and never recursively acquires
+it.
+Cached re-anchors are labelled `independentCycle=false` and never advance the
+`latest-independent` pointer used by candidate evidence. Cached rows remain in
+the forecast archive with
+`ForecastVerificationEligible=false`, so operational re-anchor behavior is
+auditable without entering paired skill or adaptive-learning evidence. The
+independent planning, ENS, scenario, candidate, and display timers are disabled
+on development while this chain is active.
+
+Public activation is deliberately two phase. The initial machinery release
+keeps `aurora_power_forecast_publication_active: false`, leaves
+`forecast-bundle/active` absent, and continues serving the established dev
+display without adding a candidate warning to the legacy v10 payload. Once
+`current/generation.json` is a real complete advisory-only bundle, set that
+inventory switch to `true` and re-run the focused release. Only then can a
+missing ready marker report `activation_pending`. Ansible validates the
+manifest from one resolved generation and links `active` directly to that same
+immutable generation; no legacy directory or moving `current` symlink is ever
+presented as the validated activation target. Subsequent successful
+publications advance `current` and
+`active` to the same generation. `current` is internal publisher state; every
+activated consumer resolves its products through the single validated `active`
+pointer so readers cannot mix generations during pointer updates.
+
+The v12 evaluator receives the deterministic and ENS snapshots from one
+checksum-verified `latest-independent` generation. Its launcher rejects cached,
+incomplete, mismatched, or modified bundles before invoking the candidate.
+Candidate forcing comes from the site-level `ECMWFSolarIrradiance` embedded in
+the immutable deterministic artifact; it never reopens or retains the roughly
+50 MB global-grid GRIB named by historical provenance.
+The launcher atomically records preflight start/failure in the candidate status
+and append-only evaluation history, so an identity, digest, or anchor rejection
+is visible to operations and iOS rather than only in the systemd journal.
+It remains constrained by `MemoryMax=1.5G`, defers while the separate AURORA
+model-evaluation service is active, writes only its candidate tree, and is not a
+dependency of the operational Power bundle. CL61 output remains diagnostic
+shadow intent with `cl61ActuationEnabled=false`; intent and current status live
+only inside each validated bundle. The separate CL61 history remains an
+append-only diagnostic evidence stream and cannot actuate or update a PDU.
+The additive development mobile endpoint reads the status from the validated
+`current` bundle even while public forecast-bundle activation remains off; the
+standalone scenario writer keeps a separate mutable output path and can never
+write into that immutable bundle.
 Production remains on `AURORA_ECMWF_PROVIDER=legacy` until the parity and
 resource gates pass.
 
@@ -223,6 +293,51 @@ when a package is absent and would only be installed during the same run.
 Apply archive services independently with `playbooks/archive_services.yml`.
 
 Do not deploy untagged experimental changes directly to production.
+
+Every release snapshot now contains a checksum manifest and the pre-release
+state of the affected dashboard/Power timers. To restore development, pass the
+exact snapshot directory name and the exact previous 40-character dashboard
+commit. The playbook refuses production, requires that commit to equal the
+checksummed snapshot `source_commit`, quiesces and verifies every named Power
+writer/evaluator plus both serving processes, restores configuration, checks
+out the old revision, synchronizes its pinned runtime dependencies, restores
+the captured timer states, and never modifies product data:
+
+```bash
+uv run ansible-playbook playbooks/dev_dashboard_rollback.yml \
+  -e aurora_rollback_snapshot_name=YYYYMMDDTHHMMSSZ \
+  -e aurora_rollback_dashboard_revision=<40-character-commit>
+```
+
+Before the first v12 machinery deployment, freeze the existing development v10
+evidence with a separate, explicit one-shot playbook. The snapshot name is
+immutable and cannot be reused:
+
+```bash
+uv run ansible-playbook playbooks/power_v10_baseline_snapshot.yml \
+  --limit aurora-cloud-droplet --check --diff \
+  -e aurora_power_baseline_snapshot_name=v10-pre-v12-YYYYMMDD
+uv run ansible-playbook playbooks/power_v10_baseline_snapshot.yml \
+  --limit aurora-cloud-droplet \
+  -e aurora_power_baseline_snapshot_name=v10-pre-v12-YYYYMMDD
+```
+
+This operation is accepted only while development publication remains off. It
+temporarily quiesces the Power-derived writers, holds the shared deterministic
+generator lock, copies a literal allowlist of deterministic, ensemble,
+planning, operating, and display evidence, records any available CL61
+diagnostic-only evidence, and restores the exact prior unit state on every exit
+path. It also records checksummed installed unit/drop-in definitions and the
+clean capture-checkout revision; product-internal provenance remains the
+authority for the code that originally generated each artifact. The copied
+source and destination bytes are NUL-framed SHA-256 checked, atomically renamed into
+`/var/lib/aurora-power-baseline-snapshots/<name>/`, and made root-owned and
+non-writable. It excludes raw observations, mirrored Power/PDU input, ECMWF
+caches and global grids, temporary retrievals, candidates, evaluation outputs,
+and forecast-bundle staging. Only allowlisted non-secret Power settings are
+retained; the routine release snapshot separately preserves the full root-only
+configuration. The evidence snapshot is not an automatic rollback source and
+never alters product data.
 
 ## Required Approval
 
