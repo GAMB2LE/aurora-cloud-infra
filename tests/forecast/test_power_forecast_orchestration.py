@@ -899,3 +899,18 @@ def test_cl61_remains_observe_only() -> None:
     assert 'safety.get("control_eligible") is not False' in publisher
     assert 'status.get("capability") is not False' in publisher
     assert "pdu-control" not in publisher.lower()
+
+
+@pytest.mark.parametrize("orchestrated", [False, True])
+def test_planning_live_attempt_selects_long_range_cycle_in_both_modes(orchestrated: bool) -> None:
+    environment = Environment(undefined=StrictUndefined)
+    environment.filters["bool"] = bool
+    context = _template_context()
+    context["aurora_power_forecast_orchestration_enabled"] = orchestrated
+    rendered = environment.from_string(
+        (TEMPLATES / "aurora-power-soc-planning-forecast.service.j2").read_text()
+    ).render(**context)
+    assert rendered.count("--ecmwf-cycle-hour auto") == 1
+    assert "--horizon-hours 240 --ecmwf-cycle-hour auto" in rendered
+    if not orchestrated:
+        assert "--refresh-from-cache --no-archive-forecast" in rendered

@@ -84,3 +84,12 @@ changes.
 The deployed Operations Dashboard is the source of truth for live freshness,
 service health, and deployment identity. Documentation describes the intended
 contract and must not be used as proof of a current host state.
+
+## Installed manual path translator
+
+`scripts/aurora-storage-path.py` is the canonical source of the read-only
+`/usr/local/bin/aurora-storage-path` helper on aurora-cloud. It translates
+corresponding GWS and object-store path prefixes and performs no filesystem
+or network access. The commissioned helper was captured byte-for-byte during
+the September 2026 runtime provenance audit; role application does not install
+or invoke it automatically.
