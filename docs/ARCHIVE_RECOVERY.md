@@ -137,6 +137,15 @@ before atomically replacing only the acceptance module. Leave the collector
 deployment identity and catalogue unchanged; the next scheduled coordinator tick
 loads the correction without restarting workers. Verify the installed hash and
 the next acceptance sample before recording deployment success.
+The focused playbook records a corrective intervention only when module bytes
+change; old unattended credit is not retained across a corrective deployment.
+Acceptance reads retry publication-lock contention ten times at 0.2-second
+intervals, then defer without writing a successful sample, timestamp or credit.
+Known source/coordinator faults and gaps exceeding fifteen minutes still reject
+acceptance. Missing, corrupt, unreadable or mismatched evidence is not contention
+and still fails closed. Rejections retain a bounded `last_failure` reason across
+later healthy samples and emit a sanitized journal event; they never restore
+discarded credit. A deferral cannot manufacture the first acceptance record.
 A task heartbeat should deliver the final evidence report automatically after the
 runtime acceptance record passes; remain quiet while state is unchanged.
 

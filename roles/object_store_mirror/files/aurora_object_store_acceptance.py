@@ -5,6 +5,7 @@ import datetime as dt
 import json
 from pathlib import Path
 import sqlite3
+import sys
 import urllib.request
 
 
@@ -194,6 +195,38 @@ def assess(config, report, gate, gws, public, *, now, previous, observations, ba
     return state
 
 
+def _can_defer_publication(config, previous, coordinator, now):
+    """Only skip a contended read while independently known continuity holds.
+
+    No timestamp, elapsed hours, observation credit or successful sample is
+    written on deferral. A prolonged gap or known source/coordinator fault must
+    still invalidate acceptance, even when the publication lock remains busy.
+    """
+    heartbeat=coordinator.get('heartbeat_at')
+    if not heartbeat or not -300<=now-_time(heartbeat)<=900 or coordinator.get('state')=='blocked':
+        return False
+    jobs=coordinator.get('jobs',{})
+    if isinstance(jobs,dict) and any(isinstance(row,dict) and row.get('error_class')=='source_metadata'
+                                    for row in jobs.values()):
+        return False
+    if not previous:
+        return True  # A first deferred read must not invent an observation.
+    if (previous.get('deployment_id') != config.get('recovery_deployment_id','unversioned') or
+            previous.get('acceptance_policy_version') != ACCEPTANCE_POLICY_VERSION):
+        return False
+    stamp=previous.get('updated_at')
+    if not stamp or not 0<=now-_time(stamp)<=900:
+        return False
+    if previous.get('clean_window_started_at'):
+        intervention=coordinator.get('last_manual_intervention_at')
+        if intervention and _time(intervention)>=_time(previous['clean_window_started_at']):
+            return False
+        old_count=previous.get('manual_intervention_count')
+        if old_count is not None and coordinator.get('manual_intervention_count',old_count)!=old_count:
+            return False
+    return True
+
+
 def observe(config):
     from aurora_object_store_evidence import read_snapshot
     from aurora_object_store_recovery import atomic_json, recovery_root
@@ -212,9 +245,21 @@ def observe(config):
     try:
         resources=check_resources(config)
         coordinator=json.loads((root/'status.json').read_text())
-        with read_snapshot(config) as snapshot:
-            report,gate=snapshot.report,snapshot.gate
-            report_sha256=snapshot.report_sha256
+        for attempt in range(10):
+            try:
+                with read_snapshot(config) as snapshot:
+                    report,gate=snapshot.report,snapshot.gate
+                    report_sha256=snapshot.report_sha256
+                break
+            except BlockingIOError:
+                if attempt<9:
+                    time.sleep(0.2)
+                    continue
+                if _can_defer_publication(config,previous,coordinator,time.time()):
+                    print('acceptance sample deferred: publication lock busy; previous timestamp unchanged',
+                          file=sys.stderr,flush=True)
+                    return previous
+                raise
         gws=json.loads((Path(config['gws_manifest_root'])/'latest/summary.json').read_text())
         url=config.get('recovery_acceptance_api','https://data.gamb2le.co.uk/mobile/v1/operations')
         with urllib.request.urlopen(url,timeout=15) as response:
@@ -230,7 +275,23 @@ def observe(config):
         current_gate=evaluate_current_gate(config,report,gate,gws,report_sha256=report_sha256,now=now)
         state=assess(config,report,current_gate,gws,public,now=now,previous=previous,observations=observations,batches=batches,coordinator=coordinator,resources=resources)
     except Exception as error:
-        state={**previous,'status':'under_validation','clean_window_started_at':None,'updated_at':_iso(time.time()),'failures':['acceptance evidence unavailable: '+type(error).__name__]}
+        count=previous.get('sample_count',0)
+        state={**previous,'status':'under_validation','clean_window_started_at':None,
+               'clean_window_hours':0,'completed_raw_observations':0,'completed_daily_audits':[],
+               'sample_count':(count if type(count) is int and count>=0 else 0)+1,'updated_at':_iso(time.time()),
+               'failures':['acceptance evidence unavailable: '+type(error).__name__]}
         state.pop('accepted_at',None)
+    if state.get('failures'):
+        discarded=previous.get('clean_window_started_at')
+        prior_failure=previous.get('last_failure')
+        if not discarded and previous.get('failures') and isinstance(prior_failure,dict):
+            discarded=prior_failure.get('previous_window_started_at')
+        state['last_failure']={'at':state['updated_at'],'reasons':state['failures'],
+                               'previous_window_started_at':discarded}
+        if discarded or state['failures']!=previous.get('failures'):
+            # Only known reasons/exception classes, never exception messages
+            # containing paths, endpoint query strings or credentials.
+            print(json.dumps({'event':'archive_acceptance_rejected',**state['last_failure']}),
+                  file=sys.stderr,flush=True)
     atomic_json(path,state)
     return state
