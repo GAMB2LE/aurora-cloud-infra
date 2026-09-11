@@ -128,3 +128,28 @@
         mode: '0644'
         unsafe_writes: false
         validate: /usr/bin/python3 -c "import pathlib, sys; compile(pathlib.Path(sys.argv[1]).read_bytes(), sys.argv[1], 'exec')" "%s"
+      register: archive_recovery_acceptance_installed
+
+    - name: Record corrective deployment without changing jobs or confirmations
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - -B
+          - -c
+          - |
+            import json, sys
+            from pathlib import Path
+            sys.path.insert(0, '/usr/local/lib/aurora-object-store')
+            from aurora_object_store_recovery import Queue
+            config = json.loads(Path('/etc/aurora-object-store/catalog.json').read_bytes())
+            queue = Queue(config)
+            try:
+                queue.record_manual_intervention()
+                status = queue.status()
+                print(json.dumps({key: status[key] for key in
+                    ('manual_intervention_count', 'last_manual_intervention_at')}))
+            finally:
+                queue.close()
+      when:
+        - archive_recovery_acceptance_installed.changed
+        - not ansible_check_mode

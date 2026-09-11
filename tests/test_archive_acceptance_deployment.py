@@ -52,6 +52,17 @@ class AcceptanceDeploymentTests(unittest.TestCase):
         self.assertLess(text.index('Verify the saved bytes'),
                         text.index('Atomically install only'))
 
+    def test_corrective_install_records_one_intervention_without_restarting_work(self):
+        text = (Path(__file__).parents[1] / 'playbooks' /
+                'archive_recovery_acceptance.yml').read_text()
+        self.assertIn('queue.record_manual_intervention()', text)
+        self.assertIn('archive_recovery_acceptance_installed.changed', text)
+        self.assertIn('- not ansible_check_mode', text)
+        self.assertLess(text.index('Atomically install only'), text.index('queue.record_manual_intervention()'))
+        self.assertNotIn('queue.retry(', text)
+        self.assertNotIn('queue.enqueue(', text)
+        self.assertNotIn('queue.invalidate(', text)
+
 
 if __name__ == '__main__':
     unittest.main()
