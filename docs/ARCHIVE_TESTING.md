@@ -40,6 +40,7 @@ as the new recovery tests.
 | Health publication contention | Exhausted read-lock retries defer without inventing an empty inventory, rewriting prior health or advancing its timestamp. A first deferred read cannot invent health; missing, corrupt and unreadable evidence still fails closed. |
 | Acceptance publication contention | A real exclusive publication lock preserves the previous acceptance bytes and timestamp; short contention retries into one pinned sample. Prolonged gaps and known source faults still reject acceptance. Rejection reasons survive recovery without restoring credit. |
 | HATPRO path discovery | Old-mtime files and whole-directory relocations are discovered; failed listings/copies/enqueues preserve pending handoffs and cursor safety; source-path moves, explicit fresh-start baselines, corrupt/configuration-mismatched state and shared backfill lock contention are covered. Existing copy flags and timer schedules are preserved. |
+| HATPRO active-path verification | Reproduce 36 false gaps from the old flat-legacy filter. Source-required flat paths survive both cloud and GWS inventories, including GWS-host fallback; unrelated legacy duplicates stay excluded. Exact dated paths remain required after relocation. Real missing, size, mtime and checksum discrepancies remain visible, with unchanged local/GWS grace periods and retention age checks. Reader-only deployment preserves literal live configuration and rejects unrelated code changes. |
 
 ## Live compatibility and acceptance are separate
 

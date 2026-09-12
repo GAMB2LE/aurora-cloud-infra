@@ -81,7 +81,7 @@ jobs:
             -r roles/object_store_mirror/files/aurora-object-store-recovery-requirements.txt
           python -m pip check
       - name: Compile archive programs for the production Python version
-        run: python -m compileall -q roles/object_store_mirror/files roles/source_sync/files scripts/deploy_hatpro_discovery.py
+        run: python -m compileall -q roles/object_store_mirror/files roles/source_sync/files scripts/deploy_hatpro_discovery.py scripts/render_mirror_verifier_patch.py
       - name: Test archive recovery and existing operational contracts
         run: python -m unittest discover -s tests -p 'test_*.py' -v
       - name: Test protected hardlinks across the root and worker UID boundary
