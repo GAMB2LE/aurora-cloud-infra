@@ -1,0 +1,230 @@
+---
+# Correct only the independent reader. No source, archive or timer mutations.
+- name: Preserve active source paths in independent archive verification
+  hosts: aurora-cloud
+  become: true
+  vars:
+    mirror_verifier_target: /usr/local/bin/aurora-mirror-verify
+  tasks:
+    - name: Require a unique rollback label
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname == 'aurora-cloud'
+          - mirror_verifier_release | default('') is match('^[A-Za-z0-9][A-Za-z0-9._-]{0,100}$')
+
+    - name: Read authoritative recovery bindings without changing them
+      ansible.builtin.import_tasks: tasks/archive_recovery_context.yml
+
+    - name: Require active recovery for corrective intervention recording
+      ansible.builtin.assert:
+        that: archive_recovery_live_catalog.recovery_enabled | default(false) | bool
+
+    - name: Read the deployed verifier without exposing its configuration
+      ansible.builtin.slurp:
+        src: "{{ mirror_verifier_target }}"
+      register: mirror_verifier_original
+      no_log: true
+
+    - name: Render the tested reader while preserving its exact live CONFIG
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - -B
+          - -c
+          - "{{ lookup('file', playbook_dir ~ '/../scripts/render_mirror_verifier_patch.py') }}"
+        stdin: "{{ {'deployed_base64': mirror_verifier_original.content, 'template': lookup('file', playbook_dir ~ '/../roles/gws_sync/templates/aurora-mirror-verify.py.j2', rstrip=false)} | to_json }}"
+      register: mirror_verifier_rendered
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Retain the validated candidate and new rollback path
+      ansible.builtin.set_fact:
+        mirror_verifier_candidate: "{{ mirror_verifier_rendered.stdout | from_json }}"
+        mirror_verifier_backup: "/var/lib/aurora-cloud/recovery-rollbacks/mirror-verifier-{{ mirror_verifier_release }}"
+      no_log: true
+
+    - name: Inspect code, parent and rollback paths without following links
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        checksum_algorithm: sha256
+        follow: false
+      loop:
+        - "{{ mirror_verifier_target }}"
+        - /usr/local/bin
+        - /var/lib/aurora-cloud/recovery-rollbacks
+        - "{{ mirror_verifier_backup }}"
+      register: mirror_verifier_before
+
+    - name: Require unchanged root-owned code and a new restricted rollback target
+      ansible.builtin.assert:
+        that:
+          - mirror_verifier_before.results[0].stat.isreg | default(false)
+          - mirror_verifier_before.results[0].stat.uid == 0
+          - mirror_verifier_before.results[0].stat.checksum == mirror_verifier_candidate.before_sha256
+          - mirror_verifier_before.results[1].stat.isdir | default(false)
+          - mirror_verifier_before.results[1].stat.uid == 0
+          - mirror_verifier_before.results[2].stat.isdir | default(false)
+          - mirror_verifier_before.results[2].stat.uid == 0
+          - mirror_verifier_before.results[2].stat.mode == '0700'
+          - not mirror_verifier_before.results[3].stat.exists
+
+    - name: Defer at an active independent verifier boundary without restarting it
+      ansible.builtin.command:
+        argv: [systemctl, show, aurora-mirror-verify.service, '--property=LoadState,ActiveState,MainPID,Job']
+      register: mirror_verifier_idle
+      changed_when: false
+      check_mode: false
+      failed_when: >-
+        mirror_verifier_idle.rc != 0 or
+        'LoadState=loaded' not in mirror_verifier_idle.stdout_lines or
+        'ActiveState=inactive' not in mirror_verifier_idle.stdout_lines or
+        'MainPID=0' not in mirror_verifier_idle.stdout_lines or
+        'Job=' not in mirror_verifier_idle.stdout_lines
+
+    - name: Save and verify restricted rollback evidence before changing code
+      when: not ansible_check_mode
+      block:
+        - name: Exclusively create the release rollback directory
+          ansible.builtin.command:
+            argv: [/usr/bin/mkdir, -m, '0700', "{{ mirror_verifier_backup }}"]
+
+        - name: Preserve the original verifier
+          ansible.builtin.copy:
+            src: "{{ mirror_verifier_target }}"
+            dest: "{{ mirror_verifier_backup }}/aurora-mirror-verify.before"
+            remote_src: true
+            owner: root
+            group: root
+            mode: '0600'
+            force: false
+            unsafe_writes: false
+
+        - name: Hash the rollback copy
+          ansible.builtin.stat:
+            path: "{{ mirror_verifier_backup }}/aurora-mirror-verify.before"
+            checksum_algorithm: sha256
+          register: mirror_verifier_saved
+
+        - name: Verify saved bytes and permissions before publication
+          ansible.builtin.assert:
+            that:
+              - mirror_verifier_saved.stat.checksum == mirror_verifier_candidate.before_sha256
+              - mirror_verifier_saved.stat.mode == '0600'
+              - mirror_verifier_saved.stat.uid == 0
+              - mirror_verifier_saved.stat.gid == 0
+
+        - name: Save restoration metadata
+          ansible.builtin.copy:
+            content: "{{ mirror_verifier_before.results[0].stat | to_nice_json }}\n"
+            dest: "{{ mirror_verifier_backup }}/before.json"
+            owner: root
+            group: root
+            mode: '0600'
+            force: false
+            unsafe_writes: false
+
+    - name: Recheck the live verifier and catalogue before publication
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        checksum_algorithm: sha256
+        follow: false
+      loop:
+        - "{{ mirror_verifier_target }}"
+        - /etc/aurora-object-store/catalog.json
+      register: mirror_verifier_unchanged
+
+    - name: Reject concurrent reader or catalogue changes
+      ansible.builtin.assert:
+        that:
+          - mirror_verifier_unchanged.results[0].stat.isreg | default(false)
+          - mirror_verifier_unchanged.results[0].stat.checksum == mirror_verifier_candidate.before_sha256
+          - mirror_verifier_unchanged.results[1].stat.checksum == (archive_recovery_catalog_bytes.content | b64decode | hash('sha256'))
+      no_log: true
+
+    - name: Recheck that the independent verifier remains idle
+      ansible.builtin.command:
+        argv: [systemctl, show, aurora-mirror-verify.service, '--property=LoadState,ActiveState,MainPID,Job']
+      register: mirror_verifier_commit_idle
+      changed_when: false
+      check_mode: false
+      failed_when: >-
+        mirror_verifier_commit_idle.rc != 0 or
+        'LoadState=loaded' not in mirror_verifier_commit_idle.stdout_lines or
+        'ActiveState=inactive' not in mirror_verifier_commit_idle.stdout_lines or
+        'MainPID=0' not in mirror_verifier_commit_idle.stdout_lines or
+        'Job=' not in mirror_verifier_commit_idle.stdout_lines
+
+    - name: Atomically install only the validated reader
+      ansible.builtin.copy:
+        content: "{{ mirror_verifier_candidate.candidate_base64 | b64decode }}"
+        dest: "{{ mirror_verifier_target }}"
+        owner: "{{ mirror_verifier_before.results[0].stat.uid }}"
+        group: "{{ mirror_verifier_before.results[0].stat.gid }}"
+        mode: "{{ mirror_verifier_before.results[0].stat.mode }}"
+        unsafe_writes: false
+        validate: /usr/bin/python3 -c "import pathlib, sys; compile(pathlib.Path(sys.argv[1]).read_bytes(), sys.argv[1], 'exec')" "%s"
+      register: mirror_verifier_installed
+      no_log: true
+      diff: false
+
+    - name: Record corrective deployment without changing confirmations or jobs
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - -B
+          - -c
+          - |
+            import json, sys
+            from pathlib import Path
+            sys.path.insert(0, '/usr/local/lib/aurora-object-store')
+            from aurora_object_store_recovery import Queue
+            config = json.loads(Path('/etc/aurora-object-store/catalog.json').read_bytes())
+            queue = Queue(config)
+            try:
+                queue.record_manual_intervention()
+                status = queue.status()
+                print(json.dumps({key: status[key] for key in
+                    ('manual_intervention_count', 'last_manual_intervention_at')}))
+            finally:
+                queue.close()
+      when:
+        - mirror_verifier_installed.changed
+        - not ansible_check_mode
+
+    - name: Verify installed bytes
+      ansible.builtin.stat:
+        path: "{{ mirror_verifier_target }}"
+        checksum_algorithm: sha256
+        follow: false
+      register: mirror_verifier_after
+      when: not ansible_check_mode
+
+    - name: Require the installed reader to match the tested candidate
+      ansible.builtin.assert:
+        that:
+          - mirror_verifier_after.stat.isreg | default(false)
+          - mirror_verifier_after.stat.checksum == mirror_verifier_candidate.after_sha256
+          - mirror_verifier_after.stat.uid == mirror_verifier_before.results[0].stat.uid
+          - mirror_verifier_after.stat.gid == mirror_verifier_before.results[0].stat.gid
+          - mirror_verifier_after.stat.mode == mirror_verifier_before.results[0].stat.mode
+      when: not ansible_check_mode
+
+    - name: Preserve the verified deployment receipt
+      ansible.builtin.copy:
+        content: "{{ {'before_sha256': mirror_verifier_candidate.before_sha256, 'after_sha256': mirror_verifier_after.stat.checksum, 'release': mirror_verifier_release} | to_nice_json }}\n"
+        dest: "{{ mirror_verifier_backup }}/installed.json"
+        owner: root
+        group: root
+        mode: '0600'
+        force: false
+        unsafe_writes: false
+      when: not ansible_check_mode
+
+    - name: Show checksums only, never reader configuration
+      ansible.builtin.debug:
+        msg:
+          before_sha256: "{{ mirror_verifier_candidate.before_sha256 }}"
+          after_sha256: "{{ mirror_verifier_candidate.after_sha256 }}"
+          rollback: "{{ mirror_verifier_backup }}"
+          check_mode: "{{ ansible_check_mode }}"

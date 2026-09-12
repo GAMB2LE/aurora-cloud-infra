@@ -82,6 +82,20 @@ evidence is verification overdue, never a clean zero or proof of missing files.
 These presentation checks do not alter the separate retention-age counters or
 claim pruning is paused when independent raw retention evidence remains valid.
 
+HATPRO's `ignore_flat_legacy` rule excludes archive-root duplicates only when
+the same exact flat path is no longer required by the current source observation.
+The instrument can publish at the root before moving files into dated folders;
+both cloud and GWS inventories must retain those active source paths. Verification
+never substitutes a same-basename file from another directory, filters the source
+snapshot, or extends the existing settling/retention intervals to hide a gap.
+Deploy this reader-only correction with `playbooks/mirror_verifier_active_paths.yml`
+and a unique `mirror_verifier_release`. The patch preserves the exact deployed
+literal configuration, rejects changes outside its three audited reader functions,
+requires an idle independent verifier, verifies a restricted rollback copy and
+atomically replaces only that reader. It records a corrective intervention and
+therefore restarts acceptance on the next coordinator tick. No worker, copier,
+source file, service/timer configuration or canonical generation is changed.
+
 Ops evidence age and expiry use the oldest required trusted confirmation from
 the pinned family gate, not the newest check or an in-progress worker timestamp.
 Refreshing another family cannot extend that published evidence deadline.
