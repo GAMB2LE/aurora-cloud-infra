@@ -240,6 +240,24 @@ uv run ansible-playbook playbooks/dashboard_release.yml --limit <host> --check -
 uv run ansible-playbook playbooks/dashboard_release.yml --limit <host>
 ```
 
+For a source-only fix shared by the Panel dashboard and mobile API, use
+`playbooks/dashboard_code_release.yml` with full
+`aurora_code_release_expected_revision` and `aurora_code_release_target_revision`
+values, plus the exact `aurora_app_version` (an annotated production tag or the
+development target SHA). It applies the same clean-checkout and release-tag
+guards as the mobile-only procedure below, compiles changed modules using the
+existing environment, and restarts only `aurora-dashboard.service` and
+`aurora-mobile-api.service`. It verifies both the API and the dashboard's page
+response after release. It does not install packages or apply service units,
+nginx, timers, or data roles; it updates only forecast source-revision metadata
+in the existing environment file. Browser render and interaction checks remain
+required because an HTTP response does not prove that the UI rendered.
+
+When the two hosts intentionally run different revisions, base each fix on its
+host's current SHA. Validate the exact production candidate in a temporary,
+loopback-only process on development before tagging it, so a hotfix never
+implicitly promotes unrelated development code.
+
 For an existing mobile API that needs only a Python source correction, use
 `playbooks/mobile_api_code_release.yml`. It checks out an exact reviewed commit,
 compiles changed Python files in memory with the existing virtual environment,
