@@ -1,0 +1,41 @@
+---
+- name: Ensure BLE product directory exists
+  ansible.builtin.file:
+    path: "{{ aurora_paths.products_blesensors }}"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "02775"
+
+# Preserve all deployed settings; a focused BLE release must not render the
+# complete shared environment from potentially older inventory defaults.
+- name: Configure only the BLE dashboard environment entries
+  ansible.builtin.lineinfile:
+    path: /etc/aurora-dashboard.env
+    regexp: "^{{ item.key }}="
+    line: "{{ item.key }}={{ item.value }}"
+    backup: true
+  loop:
+    - { key: BLESENSORS_DIR, value: "{{ aurora_paths.raw_blesensors }}" }
+    - { key: BLESENSORS_ZARR_PATH, value: "{{ aurora_zarr.blesensors }}" }
+    - { key: BLESENSORS_SOURCE_LABEL, value: "{{ blesensors_source_label }}" }
+
+- name: Install BLE append units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+  loop:
+    - aurora-blesensors-append.service
+    - aurora-blesensors-append.timer
+
+- name: Apply BLE append timer state
+  ansible.builtin.systemd:
+    name: aurora-blesensors-append.timer
+    enabled: "{{ aurora_processing_timers.blesensors_append | default(aurora_writer_timers_enabled) | bool }}"
+    state: "{{ 'started' if aurora_processing_timers.blesensors_append | default(aurora_writer_timers_enabled) | bool else 'stopped' }}"
+    daemon_reload: true
+  when: not ansible_check_mode

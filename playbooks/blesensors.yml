@@ -1,0 +1,103 @@
+---
+- name: Configure only the BLE data stream on existing Aurora hosts
+  hosts: aurora_cloud
+  become: true
+  vars:
+    # Standby transport is a separate explicit step because deployments may
+    # temporarily run field-continuity modes with different mirror settings.
+    blesensors_configure_standby: false
+    blesensors_archive_stream: "{{ aurora_archive_streams | selectattr('name', 'equalto', 'blesensors') | first }}"
+    blesensors_verifier_stream:
+      name: blesensors
+      enabled: "{{ blesensors_source_sync_timer_enabled | bool }}"
+      source_user: "{{ blesensors_source_user }}"
+      source_host: "{{ blesensors_source_host }}"
+      source_port: "{{ blesensors_source_port | int }}"
+      source_root: "{{ blesensors_source_path }}"
+      source_auth: "{{ blesensors_source_auth }}"
+      source_ssh_key: "{{ blesensors_source_ssh_key_path }}"
+      source_pattern: "{{ blesensors_source_patterns }}"
+      recursive: false
+      local_root: "{{ aurora_paths.raw_blesensors }}"
+      gws_relpath: blesensors
+      product_patterns: "{{ blesensors_source_patterns }}"
+      required_services: [aurora-blesensors-append.service]
+  pre_tasks:
+    - name: Validate deployed BLE archive bindings before any writer activation
+      ansible.builtin.command:
+        argv: [/usr/bin/python3, '-', --check]
+        stdin: "{{ lookup('file', playbook_dir ~ '/../scripts/register_blesensors_archive.py') }}"
+      environment:
+        BLESENSORS_ARCHIVE_STREAM_JSON: "{{ blesensors_archive_stream | to_json }}"
+        BLESENSORS_VERIFIER_STREAM_JSON: "{{ blesensors_verifier_stream | to_json }}"
+        BLESENSORS_PRODUCT_ROOT: "{{ aurora_product_root }}"
+      register: blesensors_archive_preflight
+      changed_when: false
+      check_mode: false
+      when: aurora_writer_timers_enabled | bool
+      tags: [blesensors, blesensors_source, blesensors_processing, blesensors_archive]
+
+    - name: Require installed archive exclusions for a partial writer release
+      ansible.builtin.assert:
+        that:
+          - not (blesensors_archive_preflight.stdout | from_json).changed or (ansible_run_tags | intersect(['all', 'blesensors', 'blesensors_archive']) | length > 0)
+        fail_msg: Run the BLE archive registration first; partial writer activation cannot omit missing BLE archive exclusions.
+      when:
+        - aurora_writer_timers_enabled | bool
+        - not ansible_check_mode
+      tags: [blesensors, blesensors_source, blesensors_processing, blesensors_archive]
+
+    - name: Check BLE appender is already deployed before enabling writers
+      ansible.builtin.stat:
+        path: "{{ aurora_app_dir }}/append_new_blesensors_to_zarr.py"
+      register: blesensors_appender
+      tags: [blesensors, blesensors_processing]
+
+    - name: Require appender code before enabling BLE processing
+      ansible.builtin.assert:
+        that:
+          - blesensors_appender.stat.exists or not (aurora_processing_timers.blesensors_append | default(aurora_writer_timers_enabled) | bool) or ansible_check_mode
+        fail_msg: Deploy the reviewed BLE appender code before enabling its production timer.
+      tags: [blesensors, blesensors_processing]
+
+  tasks:
+    - name: Register BLE in live archive bindings without replacing deployed code
+      ansible.builtin.command:
+        argv: "{{ ['/usr/bin/python3', '-'] + (['--check'] if ansible_check_mode else []) }}"
+        stdin: "{{ lookup('file', playbook_dir ~ '/../scripts/register_blesensors_archive.py') }}"
+      environment:
+        BLESENSORS_ARCHIVE_STREAM_JSON: "{{ blesensors_archive_stream | to_json }}"
+        BLESENSORS_VERIFIER_STREAM_JSON: "{{ blesensors_verifier_stream | to_json }}"
+        BLESENSORS_PRODUCT_ROOT: "{{ aurora_product_root }}"
+      register: blesensors_archive_registration
+      changed_when: (blesensors_archive_registration.stdout | from_json).changed
+      check_mode: false
+      when: aurora_writer_timers_enabled | bool
+      tags: [blesensors, blesensors_archive]
+
+    - name: Configure BLE source ingestion
+      ansible.builtin.import_role:
+        name: source_sync
+        tasks_from: blesensors
+      tags: [blesensors, blesensors_source]
+
+    - name: Configure BLE product processing and environment
+      ansible.builtin.import_role:
+        name: dashboard_services
+        tasks_from: blesensors
+      tags: [blesensors, blesensors_processing]
+
+    - name: Show BLE archive registration and rollback location
+      ansible.builtin.debug:
+        msg: "{{ blesensors_archive_registration.stdout | from_json }}"
+      when: aurora_writer_timers_enabled | bool
+      tags: [blesensors, blesensors_archive]
+
+    - name: Configure the two BLE standby mirror stages when requested
+      ansible.builtin.import_role:
+        name: standby_replication
+        tasks_from: blesensors
+      when:
+        - blesensors_configure_standby | bool
+        - aurora_standby_replication_enabled | bool
+      tags: [blesensors, blesensors_standby]

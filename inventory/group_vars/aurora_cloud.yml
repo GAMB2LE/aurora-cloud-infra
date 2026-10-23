@@ -288,6 +288,7 @@ aurora_paths:
   raw_asfs_crd: "{{ aurora_raw_root }}/asfs/crd"
   raw_power: "{{ aurora_raw_root }}/power/level1"
   raw_pdu: "{{ aurora_raw_root }}/pdu"
+  raw_blesensors: "{{ aurora_raw_root }}/blesensors"
   raw_menapia: "{{ aurora_raw_root }}/menapia"
   raw_wxcam: "{{ aurora_raw_root }}/wxcam"
   raw_auroracam: "{{ aurora_raw_root }}/auroracam"
@@ -300,6 +301,7 @@ aurora_paths:
   products_asfs_fast_sonic: "{{ aurora_product_root }}/asfs_fast_sonic"
   products_asfs_fast_gas: "{{ aurora_product_root }}/asfs_fast_gas"
   products_power: "{{ aurora_product_root }}/power"
+  products_blesensors: "{{ aurora_product_root }}/blesensors"
   products_menapia: "{{ aurora_product_root }}/menapia"
   products_power_ecmwf_solar_forecast: "{{ aurora_power_forecast_root }}/ecmwf_solar_forecast"
   products_power_ecmwf_solar_ensemble: "{{ aurora_power_forecast_root }}/ecmwf_solar_ensemble"
@@ -323,6 +325,7 @@ aurora_zarr:
   asfs_fast_gas: "{{ aurora_product_root }}/asfs_fast_gas/asfs_fast_gas.zarr"
   power: "{{ aurora_product_root }}/power/power.zarr"
   pdu: "{{ aurora_product_root }}/power/pdu.zarr"
+  blesensors: "{{ aurora_product_root }}/blesensors/blesensors.zarr"
   power_soc_forecast: "{{ aurora_power_forecast_root }}/power_soc_forecast.zarr"
   power_soc_forecast_archive: "{{ aurora_power_forecast_root }}/power_soc_forecast_archive.zarr"
   power_soc_forecast_skill: "{{ aurora_power_forecast_root }}/power_soc_forecast_skill.zarr"
@@ -387,6 +390,7 @@ aurora_processing_timers:
   asfs_fast_gas_append: "{{ aurora_writer_timers_enabled }}"
   power_append: "{{ aurora_writer_timers_enabled }}"
   pdu_append: "{{ aurora_writer_timers_enabled }}"
+  blesensors_append: "{{ aurora_writer_timers_enabled }}"
   power_soc_forecast: "{{ aurora_writer_timers_enabled }}"
   power_soc_ensemble: "{{ aurora_writer_timers_enabled }}"
   power_quicklooks: "{{ aurora_writer_timers_enabled }}"
@@ -582,6 +586,28 @@ power_source_server_alive_count_max: 2
 power_source_service_timeout_seconds: 90
 # False means the first timer run pulls all existing matching source files.
 power_source_start_fresh: false
+
+blesensors_source_sync_enabled: true
+blesensors_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
+blesensors_source_auth: "{{ edge_source_sync_auth }}"
+blesensors_source_user: aurora
+blesensors_source_host: "{{ edge_source_sync_ass_host }}"
+blesensors_source_port: "{{ edge_source_sync_ass_port }}"
+blesensors_source_ssh_key_path: "{{ edge_source_sync_ssh_key_path }}"
+blesensors_source_path: /home/aurora/data/blesensors
+blesensors_source_label: SwitchBot via ASS
+blesensors_source_patterns: ["*.csv", "ble_temperatures_*.log"]
+blesensors_source_destination: "{{ aurora_paths.raw_blesensors }}"
+blesensors_source_state_file: "{{ aurora_state_root }}/blesensors-sync.last"
+blesensors_source_sync_interval: 2min
+blesensors_source_sync_randomized_delay: 15
+blesensors_source_lookback_days: 10
+blesensors_source_mtime_grace_seconds: 300
+blesensors_source_connect_timeout_seconds: 15
+blesensors_source_server_alive_interval_seconds: 15
+blesensors_source_server_alive_count_max: 2
+blesensors_source_service_timeout_seconds: 90
+blesensors_source_start_fresh: false
 
 pdu_source_sync_enabled: true
 pdu_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
@@ -831,6 +857,11 @@ gws_sync_jobs:
     schedule: "*:03/10"
     exclude:
       - /wxcam/**
+      - blesensors/.blesensors.zarr.staging.tmp/**
+      - blesensors/.blesensors.zarr.previous.tmp/**
+      - blesensors/blesensors.ingest.json
+      - blesensors/blesensors.ingest.tmp
+      - blesensors/blesensors.lock
   - name: products-wxcam
     source: "{{ aurora_paths.products_wxcam }}/"
     destination: "{{ gws_products_root }}/wxcam/"
@@ -918,6 +949,14 @@ aurora_archive_streams:
     archive_relpath: asfs/crd
     retention_days: 7
     prune_enabled: true
+  - name: blesensors
+    site: ass
+    source_sync_stem: blesensors
+    source_root: "{{ blesensors_source_path }}"
+    cloud_root: "{{ blesensors_source_destination }}"
+    archive_relpath: blesensors
+    retention_days: 7
+    prune_enabled: false
   - name: pdu
     site: ass
     source_sync_stem: pdu
@@ -1043,6 +1082,11 @@ object_store_jobs:
     shard_all_prefixes: true
     exclude:
       - wxcam/**
+      - blesensors/.blesensors.zarr.staging.tmp/**
+      - blesensors/.blesensors.zarr.previous.tmp/**
+      - blesensors/blesensors.ingest.json
+      - blesensors/blesensors.ingest.tmp
+      - blesensors/blesensors.lock
   - name: products-wxcam
     source: "{{ aurora_paths.products_wxcam }}/"
     destination: data/output/aurora-cloud/products/wxcam

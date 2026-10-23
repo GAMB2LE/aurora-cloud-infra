@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh non-authoritative BLE direct-field continuity every two minutes
+
+[Timer]
+OnActiveSec=30s
+OnUnitInactiveSec=2min
+RandomizedDelaySec=10
+Persistent=true
+Unit=aurora-blesensors-continuity.service
+
+[Install]
+WantedBy=timers.target

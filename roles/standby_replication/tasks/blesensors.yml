@@ -1,0 +1,51 @@
+---
+# Use a dedicated BLE wrapper so deployed continuity/mirror routing for other
+# products is never replaced by the focused release.
+- name: Select only BLE standby stages
+  ansible.builtin.set_fact:
+    blesensors_mirror_stages: "{{ (aurora_standby_raw_stages + aurora_standby_product_stages) | selectattr('name', 'in', ['raw-blesensors', 'product-blesensors']) | list }}"
+
+- name: Install isolated BLE mirror wrapper
+  ansible.builtin.template:
+    src: aurora-standby-pull.j2
+    dest: /usr/local/bin/aurora-blesensors-mirror
+    owner: root
+    group: root
+    mode: "0755"
+    backup: true
+    validate: /bin/bash -n %s
+  vars:
+    aurora_standby_replication_effective_paths: "{{ blesensors_mirror_stages }}"
+    aurora_standby_replication_delete: false
+    aurora_standby_replication_state_root: "{{ aurora_state_root }}/blesensors-mirror"
+    aurora_dev_live_mirror_stamp: "{{ aurora_data_root }}/internal/blesensors-mirror/last_success.json"
+
+- name: Install BLE-only mirror service
+  ansible.builtin.template:
+    src: aurora-blesensors-mirror@.service.j2
+    dest: /etc/systemd/system/aurora-blesensors-mirror@.service
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+
+- name: Install only the two BLE mirror timers
+  ansible.builtin.template:
+    src: aurora-blesensors-mirror-stage.timer.j2
+    dest: "/etc/systemd/system/aurora-dev-live-pull-{{ item.name }}.timer"
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+  loop: "{{ blesensors_mirror_stages }}"
+  loop_control:
+    index_var: loop_index
+
+- name: Apply only BLE standby timer states
+  ansible.builtin.systemd:
+    name: "aurora-dev-live-pull-{{ item.name }}.timer"
+    enabled: "{{ aurora_standby_replication_timer_enabled | bool }}"
+    state: "{{ 'started' if aurora_standby_replication_timer_enabled | bool else 'stopped' }}"
+    daemon_reload: true
+  loop: "{{ blesensors_mirror_stages }}"
+  when: not ansible_check_mode

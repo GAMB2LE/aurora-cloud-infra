@@ -1,0 +1,8 @@
+---
+# Optional, explicit BLE-only display continuity. No production failover,
+# normal writer, archive, generic runtime, or other continuity roles run here.
+- name: Configure isolated BLE direct-field continuity on development
+  hosts: aurora-cloud-droplet
+  become: true
+  roles:
+    - blesensors_continuity

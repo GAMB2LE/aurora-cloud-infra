@@ -749,3 +749,7 @@
   when:
     - not ansible_check_mode
     - not (aurora_processing_timers[item.key] | default(aurora_enable_processing_timers) | bool)
+
+- name: Configure BLE product processing
+  ansible.builtin.import_tasks: blesensors.yml
+  tags: [blesensors]
