@@ -8,6 +8,8 @@ fi
 
 site_env={{ aurora_site_env | quote }}
 requested_stage="${1:-all}"
+canonical_power_guard_enabled={{ 'true' if aurora_standby_canonical_power_guard_enabled | default(false) | bool else 'false' }}
+power_mirror_held=false
 source_user={{ aurora_standby_primary_user | quote }}
 source_host={{ aurora_standby_primary_host | quote }}
 proxy_jump={{ aurora_standby_primary_proxy_jump | default("") | quote }}
@@ -137,8 +139,12 @@ replicate_path() {
   trap 'rm -f "$output_log"' RETURN
   mkdir -p "$destination_path"
   echo "Replicating $name from ${source_user}@${source_host}:${source_path} to ${destination_path}"
+  local guarded_command=(rsync)
+  if [[ "${canonical_power_guard_enabled:-false}" == true && ( "$name" == product-power-components || "$name" == product-power-planning-cache ) ]]; then
+    guarded_command=(/usr/local/lib/aurora-canonical-power-guard.py -- rsync --bwlimit=8192)
+  fi
   set +e
-  rsync \
+  "${guarded_command[@]}" \
     "${rsync_common[@]}" \
     "$@" \
     --rsync-path="$stage_rsync_path" \
@@ -174,10 +180,41 @@ replicate_path() {
 
 {% for path in aurora_standby_replication_effective_paths %}
 if [[ "$requested_stage" == "all" || "$requested_stage" == {{ path.name | quote }} ]]; then
+{% if aurora_standby_canonical_power_guard_enabled | default(false) | bool and path.name == 'product-power' %}
+# Shared by both all-stage and per-stage invocations; relocation holds this lock.
+exec 8>/run/aurora-canonical-power-mirror.lock
+if flock -n 8; then
+  power_started=$(date +%s)
+  replicate_path product-power-components {{ path.source | quote }} {{ path.destination | quote }} {{ path.source_lock | default('') | quote }} --exclude='/ecmwf_solar_planning/***'{% for exclude in path.exclude | default([]) %} --exclude={{ exclude | quote }}{% endfor %}{{ '\n' }}
+  replicate_path product-power-planning-cache {{ (path.source.rstrip('/') ~ '/ecmwf_solar_planning/') | quote }} {{ (path.destination.rstrip('/') ~ '/ecmwf_solar_planning/') | quote }} {{ path.source_lock | default('') | quote }}{% for exclude in path.exclude | default([]) %} --exclude={{ exclude | quote }}{% endfor %}{{ '\n' }}
+  # Both separate transfers must succeed before advancing the existing stage stamp.
+  python3 - "$state_root" "$power_started" "$source_host" <<'POWER_STAMP'
+from pathlib import Path
+from datetime import datetime, timezone
+import json, os, sys, time
+root = Path(sys.argv[1]); started = int(sys.argv[2])
+parts = [json.loads((root / (name + '.json')).read_text()) for name in ('product-power-components', 'product-power-planning-cache')]
+assert all(datetime.fromisoformat(part['last_success_utc'].replace('Z', '+00:00')).timestamp() >= started for part in parts)
+stamp = {'stage': 'product-power', 'last_success_utc': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'), 'duration_seconds': int(time.time()) - started, 'transferred_bytes': sum(part['transferred_bytes'] for part in parts), 'source_host': sys.argv[3]}
+temporary = root / ('product-power.json.tmp.' + str(os.getpid()))
+temporary.write_text(json.dumps(stamp) + '\n'); os.replace(temporary, root / 'product-power.json')
+POWER_STAMP
+  flock -u 8
+else
+  echo 'Canonical Power mirror held by its scoped writer/relocation lock.'
+  power_mirror_held=true
+fi
+exec 8>&-
+{% else %}
 replicate_path {{ path.name | quote }} {{ path.source | quote }} {{ path.destination | quote }} {{ path.source_lock | default('') | quote }}{% for exclude in path.exclude | default([]) %} --exclude={{ exclude | quote }}{% endfor %}{{ '\n' }}
+{% endif %}
 fi
 {% endfor %}
 
+# A held Power branch must not advertise an all-stage success. Other stages ran.
+if [[ "$power_mirror_held" == true ]]; then
+  exit 75
+fi
 success_utc=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 printf '%s\n' "$success_utc" > "$state_root/last_success_utc"
 # The mirrored internal tree may not contain this development-only directory,
