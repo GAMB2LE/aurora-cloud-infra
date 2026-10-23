@@ -107,7 +107,37 @@ def snapshot_uas(source: Path, destination: Path) -> dict:
     return {"latest_sample_utc": latest.isoformat(), "age_seconds": age, "bytes": before.st_size}
 
 
-def prepare(source_root: Path, input_root: Path, uas_log: Path | None = None) -> Path:
+def prior_selections(input_root: Path, phase: str, previous: Path | None) -> list[dict]:
+    """Read bounded stage provenance before the prior owned snapshot is retired."""
+    if phase not in ("forecast", "planning", "publication"):
+        raise ValueError("unknown input phase")
+    if previous is None:
+        if phase != "forecast":
+            raise ValueError("later input phases require the previous selection")
+        return []
+    if (previous.is_symlink() or previous.name != "selection.json"
+            or previous.parent.is_symlink()
+            or previous.parent.resolve().parent != input_root.resolve()
+            or not previous.parent.name.startswith("run-")
+            or (previous.parent / ".owner").read_text().strip() != OWNER
+            or previous.stat().st_size > 65536):
+        raise ValueError("previous selection must belong to this snapshot root")
+    record = json.loads(previous.read_text())
+    if (record.get("owner") != OWNER or record.get("mode") != "continuity"
+            or Path(record.get("snapshot", "")).resolve() != previous.parent.resolve()):
+        raise ValueError("previous selection ownership mismatch")
+    history = record.get("prior_selections", [])
+    old_phase = record.get("phase")
+    if not isinstance(history, list) or [row.get("phase") for row in history] != ([] if old_phase == "forecast" else ["forecast"]):
+        raise ValueError("invalid previous selection history")
+    if (phase, old_phase) not in (("planning", "forecast"), ("publication", "forecast"), ("publication", "planning")):
+        raise ValueError("invalid input phase transition")
+    record.pop("prior_selections", None)
+    return history + [record]
+
+
+def prepare(source_root: Path, input_root: Path, uas_log: Path | None = None,
+            *, phase: str = "forecast", previous_selection: Path | None = None) -> Path:
     source_root = source_root.resolve(strict=True)
     pointer = source_root / "current"
     if not pointer.is_symlink():
@@ -127,6 +157,7 @@ def prepare(source_root: Path, input_root: Path, uas_log: Path | None = None) ->
     input_root.mkdir(parents=True, exist_ok=True)
     if input_root.resolve().is_relative_to(source_root):
         raise ValueError("forecast snapshots must be outside continuity source")
+    history = prior_selections(input_root, phase, previous_selection)
     # The caller holds the existing forecast producer lock throughout this helper
     # and every consumer. Reclaim only prior snapshots with our exact marker.
     for prior in input_root.glob("run-*"):
@@ -168,7 +199,8 @@ def prepare(source_root: Path, input_root: Path, uas_log: Path | None = None) ->
         stats = os.statvfs(input_root)
         if stats.f_bavail * stats.f_frsize < RESERVE_BYTES:
             raise ValueError("free space fell below the 10 GiB reserve while copying inputs")
-        info = {"owner": OWNER, "mode": "continuity", "selected_at": datetime.now(timezone.utc).isoformat(),
+        info = {"owner": OWNER, "mode": "continuity", "phase": phase,
+                "prior_selections": history, "selected_at": datetime.now(timezone.utc).isoformat(),
                 "source_generation": str(generation), "uas_source": str(uas_log) if uas_log else None,
                 "snapshot": str(target), "bytes": total, "samples": samples}
         (target / "selection.json").write_text(json.dumps(info, indent=2) + "\n")
@@ -188,6 +220,8 @@ def main() -> int:
     command.add_argument("--source-root", type=Path, required=True)
     command.add_argument("--input-root", type=Path, required=True)
     command.add_argument("--uas-log", type=Path)
+    command.add_argument("--phase", choices=("forecast", "planning", "publication"), default="forecast")
+    command.add_argument("--previous-selection", type=Path)
     command = sub.add_parser("cleanup")
     command.add_argument("snapshot", type=Path)
     args = parser.parse_args()
@@ -195,7 +229,8 @@ def main() -> int:
         if args.action == "cleanup":
             cleanup(args.snapshot)
         else:
-            print(prepare(args.source_root, args.input_root, args.uas_log))
+            print(prepare(args.source_root, args.input_root, args.uas_log,
+                          phase=args.phase, previous_selection=args.previous_selection))
         return 0
     except Exception as exc:
         print(f"Power forecast inputs rejected: {type(exc).__name__}: {exc}", file=sys.stderr)

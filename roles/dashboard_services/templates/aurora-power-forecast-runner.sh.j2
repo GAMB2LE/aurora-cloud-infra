@@ -21,12 +21,14 @@ power_input={{ aurora_zarr.power | quote }}
 pdu_input={{ aurora_zarr.pdu | quote }}
 
 # The continuity input mode is explicit and affects only this forecast run.
-# Materialize one Power/PDU pair under the existing producer lock so long
-# forecasts cannot race continuity generation retirement.
+# Freeze deterministic/ENS together; select fresh inputs after those consumers
+# exit for planning and publication. The same producer lock covers every stage.
 input_mode=${AURORA_POWER_INPUT_MODE:-canonical}
 input_helper=${AURORA_POWER_INPUT_HELPER:-/usr/local/lib/aurora-power-forecast-inputs.py}
 input_snapshot=""
 prepare_inputs() {
+  local phase=$1 next_snapshot
+  local -a selection_args=(--phase "$phase")
   case "$input_mode" in
     canonical) return 0 ;;
     continuity)
@@ -34,8 +36,13 @@ prepare_inputs() {
         echo "continuity forecast inputs require explicit source, snapshot and UAS paths" >&2
         return 1
       fi
-      input_snapshot=$("${python}" "$input_helper" prepare \
-        --source-root "$AURORA_POWER_CONTINUITY_ROOT" --input-root "$AURORA_POWER_INPUT_ROOT" --uas-log "$AURORA_POWER_UAS_LOG") || return 1
+      if [[ -n "$input_snapshot" ]]; then
+        selection_args+=(--previous-selection "$input_snapshot/selection.json")
+      fi
+      next_snapshot=$("${python}" "$input_helper" prepare \
+        --source-root "$AURORA_POWER_CONTINUITY_ROOT" --input-root "$AURORA_POWER_INPUT_ROOT" --uas-log "$AURORA_POWER_UAS_LOG" \
+        "${selection_args[@]}") || return 1
+      input_snapshot=$next_snapshot
       power_input="$input_snapshot/power.zarr"
       pdu_input="$input_snapshot/pdu.zarr"
       export AURORA_POWER_SELECTED_POWER_ZARR="$power_input"
@@ -47,7 +54,7 @@ prepare_inputs() {
   esac
 }
 cleanup_inputs() {
-  if [[ -n "$input_snapshot" ]]; then
+  if [[ -n "$input_snapshot" && -d "$input_snapshot" ]]; then
     "${python}" "$input_helper" cleanup "$input_snapshot" || true
   fi
 }
@@ -72,7 +79,7 @@ run_full_cycle() {
     record_failure deterministic_generator_lock_timeout
     return 255
   }
-  prepare_inputs || { begin_attempt ecmwf_cycle || true; record_failure input_selection; return 255; }
+  prepare_inputs forecast || { begin_attempt ecmwf_cycle || true; record_failure input_selection; return 255; }
   begin_attempt ecmwf_cycle || return 255
 
   "${python}" "${publisher}" \
@@ -125,6 +132,7 @@ run_full_cycle() {
     return 255
   fi
 
+  prepare_inputs planning || { record_failure planning_input_selection; return 255; }
   /usr/bin/timeout --signal=TERM --kill-after=30s 15m \
     "${python}" generate_power_soc_forecast.py \
     --power-zarr "${power_input}" \
@@ -145,6 +153,7 @@ run_full_cycle() {
     return 255
   fi
 
+  prepare_inputs publication || { record_failure publication_input_selection; return 255; }
   /usr/bin/timeout --signal=TERM --kill-after=30s 20m \
     "${python}" "${publisher}" --publish
   publisher_status=$?
@@ -170,7 +179,7 @@ run_immutable_ensemble() {
     return 255
   }
 
-  prepare_inputs || { record_failure input_selection; return 255; }
+  prepare_inputs forecast || { record_failure input_selection; return 255; }
 
   # print-issue-anchor verifies the checksum-bound immutable issue, its
   # manifest/pointer binding, and its non-writable tree before returning the
@@ -218,7 +227,7 @@ run_cached_reanchor_condition() {
     record_failure "cached_reanchor_lock_error_${lock_status}"
     return 255
   fi
-  prepare_inputs || { begin_attempt cached_reanchor || true; record_failure input_selection; return 255; }
+  prepare_inputs forecast || { begin_attempt cached_reanchor || true; record_failure input_selection; return 255; }
   begin_attempt cached_reanchor || return 255
 
   cd "${app_dir}" || return 255
@@ -269,6 +278,7 @@ run_cached_reanchor_condition() {
   # Keep the lock until the mutable output has been copied into and published
   # from a complete staging generation. A new full cycle cannot replace the
   # source between generation and capture.
+  prepare_inputs publication || { record_failure publication_input_selection; return 255; }
   "${python}" "${publisher}" \
     --publish \
     --forecast-source {{ aurora_zarr.power_soc_forecast | quote }} \

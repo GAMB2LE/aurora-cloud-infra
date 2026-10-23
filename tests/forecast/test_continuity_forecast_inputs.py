@@ -124,6 +124,68 @@ def test_only_owned_abandoned_snapshots_are_cleaned(generation):
     with pytest.raises(FileNotFoundError): inputs.cleanup(foreign)
 
 
+def test_stage_refresh_keeps_original_provenance_before_retiring_snapshot(generation, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    root, gen, destination = generation
+    uas = root.parent / "uas.log"
+    forecast = inputs.prepare(root, destination, uas)
+    original = json.loads((forecast / "selection.json").read_text())
+    later = datetime.now(timezone.utc) + timedelta(hours=1)
+    class LaterDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None): return later if tz else later.replace(tzinfo=None)
+    monkeypatch.setattr(inputs, "datetime", LaterDatetime)
+    # A long ENS calculation must not make old observations acceptable.
+    with pytest.raises(ValueError, match="stale"):
+        inputs.inspect_samples(forecast / "power.zarr", power=True)
+    fresh_time = pd.Timestamp(later - timedelta(seconds=30)).tz_localize(None)
+    for name, variable in [("power", "BatterySOC"), ("pdu", "Load")]:
+        xr.Dataset({variable: ("time", [83.0])}, coords={"time": [fresh_time]}).to_zarr(
+            gen / "products/power" / f"{name}.zarr", mode="w", consolidated=True)
+    uas.write_text(fresh_time.strftime("%Y-%m-%d %H:%M:%S") + ": 1 2\n")
+    planning = inputs.prepare(root, destination, uas, phase="planning", previous_selection=forecast / "selection.json")
+    assert not forecast.exists()
+    publication = inputs.prepare(root, destination, uas, phase="publication", previous_selection=planning / "selection.json")
+    assert not planning.exists()
+    selected = json.loads((publication / "selection.json").read_text())
+    assert [row["phase"] for row in selected["prior_selections"]] == ["forecast", "planning"]
+    assert selected["prior_selections"][0]["samples"] == original["samples"]
+    assert selected["prior_selections"][0]["selected_at"] == original["selected_at"]
+    assert selected["samples"]["power"]["battery_soc"] == 83
+    assert selected["samples"]["power"]["age_seconds"] == 30
+
+
+def test_stage_failure_does_not_publish_new_selection(generation, monkeypatch):
+    root, _, destination = generation
+    forecast = inputs.prepare(root, destination)
+    before = (destination / "last-selection.json").read_bytes()
+    monkeypatch.setattr(inputs.shutil, "copytree", lambda *a, **kw: (_ for _ in ()).throw(OSError("copy failed")))
+    with pytest.raises(OSError, match="copy failed"):
+        inputs.prepare(root, destination, phase="publication", previous_selection=forecast / "selection.json")
+    assert (destination / "last-selection.json").read_bytes() == before
+    assert not list(destination.glob("run-*"))
+
+
+@pytest.mark.parametrize("phase,previous_kind", [("planning", "missing"), ("publication", "missing"), ("forecast", "same"), ("planning", "foreign"), ("publication", "symlink")])
+def test_stage_history_requires_owned_prior_snapshot_and_valid_transition(generation, phase, previous_kind):
+    root, _, destination = generation
+    forecast = inputs.prepare(root, destination)
+    previous = forecast / "selection.json"
+    if previous_kind == "missing": previous = None
+    if previous_kind == "foreign":
+        foreign = root.parent / "foreign"
+        shutil.copytree(forecast, foreign)
+        previous = foreign / "selection.json"
+    if previous_kind == "symlink":
+        original = previous.read_text()
+        previous.unlink()
+        (forecast / "target.json").write_text(original)
+        previous.symlink_to("target.json")
+    with pytest.raises(ValueError):
+        inputs.prepare(root, destination, phase=phase, previous_selection=previous)
+    assert forecast.exists()
+
+
 def test_uas_snapshot_keeps_both_docks_and_rejects_stale_or_oversized_log(generation, monkeypatch):
     root, _, destination = generation
     uas = root.parent / "uas.log"
@@ -153,8 +215,8 @@ def test_publisher_keeps_canonical_defaults_and_requires_matching_snapshot(gener
 
 
 @pytest.mark.parametrize("action", ["full-cycle", "cached-reanchor-condition", "immutable-ensemble"])
-@pytest.mark.parametrize("mode,fail_inputs", [("canonical", False), ("continuity", False), ("continuity", True)])
-def test_runner_passes_one_pair_to_every_stage_and_cleans_up(generation, tmp_path, action, mode, fail_inputs):
+@pytest.mark.parametrize("mode,fail_phase", [("canonical", ""), ("continuity", ""), ("continuity", "forecast"), ("continuity", "planning"), ("continuity", "publication")])
+def test_runner_freezes_forecast_pair_refreshes_stages_and_cleans_up(generation, tmp_path, action, mode, fail_phase):
     root, _, destination = generation
     bridge = tmp_path / "python-bridge"
     log = tmp_path / "calls.jsonl"
@@ -163,10 +225,11 @@ import json,os,subprocess,sys
 from pathlib import Path
 args=sys.argv[1:]
 if args[0].endswith("aurora-power-forecast-inputs.py"):
-    if args[1] == "prepare" and os.environ.get("FAIL_INPUTS") == "1": sys.exit(1)
+    if args[1] == "prepare" and args[args.index("--phase")+1] == os.environ.get("FAIL_PHASE"): sys.exit(1)
     sys.exit(subprocess.call([sys.executable]+args))
+selection=Path(os.environ.get("AURORA_POWER_INPUT_SELECTION", "missing"))
 with open(os.environ["CALL_LOG"],"a") as f:
-    f.write(json.dumps({{"args":args,"power":os.environ.get("AURORA_POWER_SELECTED_POWER_ZARR"),"pdu":os.environ.get("AURORA_POWER_SELECTED_PDU_ZARR")}})+"\\n")
+    f.write(json.dumps({{"args":args,"power":os.environ.get("AURORA_POWER_SELECTED_POWER_ZARR"),"pdu":os.environ.get("AURORA_POWER_SELECTED_PDU_ZARR"),"selection":json.loads(selection.read_text()) if selection.is_file() else None}})+"\\n")
 if "--power-zarr" in args and os.environ["AURORA_POWER_INPUT_MODE"]=="continuity":
     assert Path(args[args.index("--power-zarr")+1]).is_dir()
 if "--print-issue-anchor" in args or "--print-forecast-anchor" in args:
@@ -182,28 +245,41 @@ if "--print-issue-anchor" in args or "--print-forecast-anchor" in args:
         script = script.replace("/usr/bin/timeout --signal=TERM --kill-after=30s " + duration, "")
     runner = tmp_path / "runner.sh"
     runner.write_text(script)
-    environment = dict(os.environ, AURORA_POWER_INPUT_MODE=mode, AURORA_POWER_CONTINUITY_ROOT=str(root), AURORA_POWER_INPUT_ROOT=str(destination), AURORA_POWER_INPUT_HELPER=str(HELPER), AURORA_POWER_UAS_LOG=str(tmp_path / "uas.log"), CALL_LOG=str(log), FAIL_INPUTS="1" if fail_inputs else "0")
+    environment = dict(os.environ, AURORA_POWER_INPUT_MODE=mode, AURORA_POWER_CONTINUITY_ROOT=str(root), AURORA_POWER_INPUT_ROOT=str(destination), AURORA_POWER_INPUT_HELPER=str(HELPER), AURORA_POWER_UAS_LOG=str(tmp_path / "uas.log"), CALL_LOG=str(log), FAIL_PHASE=fail_phase)
     result = subprocess.run(["bash", str(runner), action], env=environment, capture_output=True, text=True)
     calls = [json.loads(line) for line in log.read_text().splitlines()]
-    if fail_inputs:
+    phases = {"full-cycle": ["forecast", "planning", "publication"], "cached-reanchor-condition": ["forecast", "publication"], "immutable-ensemble": ["forecast"]}[action]
+    commands = [row for row in calls if "--power-zarr" in row["args"]]
+    if fail_phase in phases:
         assert result.returncode == 255
-        assert all("--publish" not in row["args"] and "--power-zarr" not in row["args"] for row in calls)
-        assert not destination.exists()
+        assert all("--publish" not in row["args"] for row in calls)
+        assert len(commands) == {"forecast": 0, "planning": 2, "publication": 3 if action == "full-cycle" else 2}[fail_phase]
+        assert not list(destination.glob("run-*"))
         return
     assert result.returncode == 0, result.stderr
-    commands = [row for row in calls if "--power-zarr" in row["args"]]
     assert len(commands) == {"full-cycle": 3, "cached-reanchor-condition": 2, "immutable-ensemble": 1}[action]
     used = {row["args"][row["args"].index("--power-zarr") + 1] for row in commands}
-    assert len(used) == 1
+    assert len(used) == (2 if mode == "continuity" and action == "full-cycle" else 1)
     for row in commands:
         if "generate_power_soc_forecast.py" in row["args"]:
             expected_pdu = row["pdu"] if mode == "continuity" else "/data/aurora/products/power/pdu.zarr"
             assert row["args"][row["args"].index("--pdu-zarr") + 1] == expected_pdu
-    path = Path(used.pop())
     if mode == "continuity":
-        assert path.parent.parent == destination
-        assert all(row["power"] == str(path) and row["pdu"] == str(path.parent / "pdu.zarr") for row in calls)
-        assert not path.parent.exists()
+        assert all(Path(path).parent.parent == destination for path in used)
+        assert all(row["pdu"] == str(Path(row["power"]).parent / "pdu.zarr") for row in calls)
+        assert commands[0]["selection"]["phase"] == "forecast"
+        if action != "immutable-ensemble":
+            assert commands[0]["power"] == commands[1]["power"]
+            published = next(row for row in calls if "--publish" in row["args"])
+            assert published["selection"]["phase"] == "publication"
+            assert published["power"] not in used
+            chain = published["selection"]["prior_selections"] + [published["selection"]]
+            assert [row["phase"] for row in chain] == phases
+            assert chain[0]["snapshot"] == str(Path(commands[0]["power"]).parent)
+        if action == "full-cycle":
+            assert commands[2]["selection"]["phase"] == "planning"
+            assert commands[2]["power"] != commands[0]["power"]
+        assert not list(destination.glob("run-*"))
     else:
-        assert path == Path("/data/aurora/products/power/power.zarr")
+        assert used == {"/data/aurora/products/power/power.zarr"}
         assert not destination.exists()
