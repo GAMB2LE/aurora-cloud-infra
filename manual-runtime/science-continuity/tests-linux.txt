@@ -1,0 +1,53 @@
+unittest.case.FunctionTestCase (run)
+test_only_seed_serialization_changes ... ok
+unittest.case.FunctionTestCase (run)
+test_reproduces_original_297_300_failure ... ok
+unittest.case.FunctionTestCase (run)
+test_hatpro_first_trim ... ok
+unittest.case.FunctionTestCase (run)
+test_cl61_seed_compatibility ... ok
+unittest.case.FunctionTestCase (run)
+test_radar_seed_compatibility ... ok
+unittest.case.FunctionTestCase (run)
+test_untrimmed_copy_is_byte_identical ... ok
+unittest.case.FunctionTestCase (run)
+test_empty_window_does_not_create_destination ... ok
+unittest.case.FunctionTestCase (run)
+test_real_native_appender_after_trim_then_next_trim ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 34.867s
+
+OK
+[load] *.LWP.NC: 1 files
+[load] *.IWV.NC: 1 files
+[skip] *.IRT.NC: no files found
+[load] T_PROF: 1 files
+[load] T_PROF_CMP: 1 files
+[load] MET: 1 files
+[load] *.LWP.NC: 2 files
+[load] *.IWV.NC: 2 files
+[skip] *.IRT.NC: no files found
+[load] T_PROF: 2 files
+[load] T_PROF_CMP: 2 files
+[load] MET: 2 files
+[dedup] Dropping 20 duplicate time stamps
+[dedup] Dropping 20 duplicate time stamps
+[dedup] Dropping 20 duplicate time stamps
+[dedup] Dropping 20 duplicate time stamps
+[dedup] Dropping 20 duplicate time stamps
+Latest time in Zarr: 2026-10-21T13:31:31+00:00
+[load] *.LWP.NC: 2 files
+[load] *.IWV.NC: 2 files
+[skip] *.IRT.NC: no files found
+[load] T_PROF: 2 files
+[load] T_PROF_CMP: 2 files
+[load] MET: 2 files
+[dedup] Dropping 20 duplicate time stamps
+[dedup] Dropping 20 duplicate time stamps
+[dedup] Dropping 20 duplicate time stamps
+[dedup] Dropping 20 duplicate time stamps
+[dedup] Dropping 20 duplicate time stamps
+[append done]
+
+{"fixtureExitCode": 0, "freeGiBAfter": 54.769554138183594}
