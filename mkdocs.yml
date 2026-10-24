@@ -42,6 +42,7 @@ nav:
       - 23 October Forecast Continuity: POWER_FORECAST_CONTINUITY_INPUTS.md
   - Canonical Power Storage: CANONICAL_POWER_STORAGE.md
   - Closed Radar Storage: RADAR_RAW_RELOCATION.md
+  - Old Radar Quarantine: OLD_RADAR_QUARANTINE_PRESERVATION.md
   - Reverse Tunnels: REVERSE_TUNNELS.md
   - Reverse Tunnel Rollout: REVERSE_TUNNEL_ROLLOUT.md
   - Data Locations: DATA_LOCATIONS.md

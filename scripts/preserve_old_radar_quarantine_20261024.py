@@ -171,7 +171,7 @@ def closure(roots, identities):
     namespaces = {}
     for proc in Path('/proc').glob('[0-9]*'):
         try:
-            namespaces.setdefault((proc / 'ns/mnt').stat().st_ino, proc / 'mountinfo')
+            namespaces.setdefault((proc / 'ns/mnt').stat().st_ino, []).append(proc / 'mountinfo')
             handles = list((proc / 'fd').iterdir()) + [proc / 'cwd', proc / 'root']
         except (FileNotFoundError, ProcessLookupError):
             continue
@@ -192,11 +192,19 @@ def closure(roots, identities):
             except (FileNotFoundError, ProcessLookupError):
                 pass
     host = mount_records(Path('/proc/self/mountinfo'))
-    for path in namespaces.values():
+    for representatives in namespaces.values():
+        reject_mount_aliases(roots, host, namespace_records(representatives))
+
+
+def namespace_records(representatives):
+    for path in representatives:
         try:
-            reject_mount_aliases(roots, host, mount_records(path))
+            return mount_records(path)
         except (FileNotFoundError, ProcessLookupError):
             continue
+    # A later retry can establish that the namespace disappeared. This scan
+    # cannot claim closure merely because its representative exited.
+    raise RuntimeError('Mount namespace disappeared before it could be checked')
 
 
 def reject_mount_aliases(roots, host, records):
@@ -545,6 +553,7 @@ class Preserver:
         require(self.record[key] in (None, name), 'Other removal pending')
         self.record[key] = name; self.save()
         self.event('release-intent' if not directory else 'rmdir-intent')
+        self.private(); self.logical_proof(); self.original(releasing=True)
         path = self.backup / name
         if present(path):
             expected = self.baseline[name]
@@ -560,6 +569,12 @@ class Preserver:
                         'Removal parent changed')
                 actual = os.stat(leaf, dir_fd=fd, follow_symlinks=False)
                 require(signature(actual) == signature(info), 'Original entry changed before unlink')
+                require(signature(self.source.lstat()) == self.record['logical_link'] and
+                        os.readlink(self.source) == str(self.target), 'Logical link changed before unlink')
+                if not directory:
+                    with os.fdopen(os.open(self.source / name, os.O_RDONLY | os.O_NOFOLLOW), 'rb') as logical:
+                        require(signature(os.fstat(logical.fileno())) == self.record['copied'][name]['entry']['identity'],
+                                'Logical target changed before unlink')
                 # No recursive removal: only a manifest name in its pinned backup directory.
                 (os.rmdir if directory else os.unlink)(leaf, dir_fd=fd)
                 os.fsync(fd)

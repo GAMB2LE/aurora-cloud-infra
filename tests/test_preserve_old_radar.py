@@ -298,3 +298,31 @@ def test_linux_root_ownership_setgid_and_xattrs(fixture):
     for name, entry in m.inventory(target).items():
         assert m.attributes(entry) == m.attributes(baseline[name])
         assert entry['identity'][5:7] == [56781, 56781]
+
+
+def test_namespace_retries_a_surviving_representative(monkeypatch):
+    expected = [{'device': 1, 'root': Path('/'), 'path': Path('/')}]
+    def records(path):
+        if path == Path('/proc/first/mountinfo'): raise FileNotFoundError()
+        return expected
+    monkeypatch.setattr(m, 'mount_records', records)
+    assert m.namespace_records([Path('/proc/first/mountinfo'), Path('/proc/second/mountinfo')]) == expected
+
+
+def test_namespace_disappearance_fails_closed(monkeypatch):
+    def records(path): raise FileNotFoundError()
+    monkeypatch.setattr(m, 'mount_records', records)
+    with pytest.raises(RuntimeError, match='namespace disappeared'):
+        m.namespace_records([Path('/proc/first/mountinfo')])
+
+
+def test_logical_link_replaced_after_release_intent_does_not_unlink(fixture, tmp_path):
+    make, source, _, _ = fixture
+    runner = make()
+    def hook(event):
+        if event == 'release-intent':
+            source.unlink(); source.symlink_to(tmp_path)
+    runner.event = hook
+    before = payloads(source)
+    with pytest.raises(RuntimeError, match='Logical link changed'): runner.run()
+    assert payloads(runner.backup) == before
