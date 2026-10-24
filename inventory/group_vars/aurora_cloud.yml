@@ -714,6 +714,8 @@ wxcam_source_sync_randomized_delay: 30
 wxcam_source_lookback_days: 2
 wxcam_source_overlap_seconds: 600
 wxcam_source_mtime_grace_seconds: 300
+# Each JPEG/video phase yields after this budget; unfinished paths persist.
+wxcam_source_transfer_timeout_seconds: 120
 wxcam_full_raw_mirror: false
 wxcam_source_scope_version: final-hdr-media-all-history-v1
 # Keep live ingestion independent from historical recovery. Missing or stale

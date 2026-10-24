@@ -9,6 +9,9 @@ destination={{ wxcam_source_destination | quote }}
 state_file={{ wxcam_source_state_file | quote }}
 source_scope={{ wxcam_source_scope_version | quote }}
 scope_file="${state_file}.scope"
+pending_file="${state_file}.pending"
+transfer_timeout_seconds={{ wxcam_source_transfer_timeout_seconds | default(120) | int }}
+archive_dispatch=/usr/local/bin/aurora-archive-dispatch
 source_auth={{ wxcam_source_auth | default('tailscale') | quote }}
 ssh_key={{ wxcam_source_ssh_key_path | quote }}
 start_fresh={{ '1' if wxcam_source_start_fresh | bool else '0' }}
@@ -46,20 +49,20 @@ initialize_fresh() {
 if [[ -f "$state_file" ]]; then
   last_epoch="$(cat "$state_file")"
 else
-  if [[ "$start_fresh" == "1" ]] && [[ "$full_backfill" == "0" ]]; then
+  if [[ "$start_fresh" == "1" ]] && [[ "$full_backfill" == "0" ]] && [[ ! -s "$pending_file" ]]; then
     initialize_fresh
   fi
   last_epoch="$lookback_epoch"
 fi
 
 if [[ ! "$last_epoch" =~ ^[0-9]+$ ]]; then
-  if [[ "$start_fresh" == "1" ]] && [[ "$full_backfill" == "0" ]]; then
+  if [[ "$start_fresh" == "1" ]] && [[ "$full_backfill" == "0" ]] && [[ ! -s "$pending_file" ]]; then
     initialize_fresh
   fi
   echo "Invalid WXcam sync checkpoint; resetting to the lookback window." >&2
   last_epoch="$lookback_epoch"
 fi
-if [[ "$start_fresh" == "1" ]] && [[ "$full_backfill" == "0" ]] && (( last_epoch < lookback_epoch )); then
+if [[ "$start_fresh" == "1" ]] && [[ "$full_backfill" == "0" ]] && [[ ! -s "$pending_file" ]] && (( last_epoch < lookback_epoch )); then
   initialize_fresh
 fi
 scan_epoch=$(( last_epoch - overlap_seconds ))
@@ -67,8 +70,9 @@ if (( scan_epoch < lookback_epoch )); then
   scan_epoch="$lookback_epoch"
 fi
 
-files_from="$(mktemp)"
-trap 'rm -f "$files_from"' EXIT
+work_dir="$(mktemp -d)"
+files_from="$work_dir/discovered"
+trap 'rm -f "$work_dir"/*; rmdir "$work_dir"' EXIT
 
 if [[ "$source_auth" == "ssh_key" ]]; then
   if [[ ! -f "$ssh_key" ]]; then
@@ -149,20 +153,81 @@ for (( offset = 0; offset < lookback_days; offset++ )); do
 done
 REMOTE_FIND
 
-if [[ ! -s "$files_from" ]]; then
+if [[ ! -s "$files_from" ]] && [[ ! -s "$pending_file" ]]; then
   echo "$now_epoch" > "$state_file"
   printf '%s\n' "$source_scope" > "$scope_file"
   echo "No new WXcam files found."
   exit 0
 fi
 
-"${rsync_base[@]}" --from0 --files-from="$files_from" \
-  -e "ssh ${ssh_opts[*]}" \
-  "${source_user}@${source_host}:${source_path%/}/" \
-  "${destination%/}/"
-if [[ -x /usr/local/bin/aurora-archive-dispatch ]]; then
-  /usr/local/bin/aurora-archive-dispatch enqueue --job raw --base "$destination" --files-from "$files_from" --null
-fi
+# Keep selected work on disk before transfer. An interrupted video must survive
+# the live lookback window, while each retry can still pick up newer JPEGs.
+python3 - "$files_from" "$pending_file" "$work_dir" <<'PHASE_LISTS'
+import os
+import sys
+from pathlib import Path, PurePosixPath
+
+discovered, pending, work = map(Path, sys.argv[1:])
+paths = set(discovered.read_bytes().split(b"\0"))
+if pending.exists():
+    paths.update(pending.read_bytes().split(b"\0"))
+paths.discard(b"")
+for path in paths:
+    parts = PurePosixPath(os.fsdecode(path)).parts
+    if (not parts or parts[0] not in ("FISH", "PANO") or ".." in parts
+            or not path.endswith((b".jpg", b".mp4"))):
+        raise SystemExit("Unexpected WXcam pending path; keeping the checkpoint unchanged")
+
+# Dates and times in these final HDR paths sort in capture order. Separate
+# rsync calls matter: rsync sorts each files-from list internally.
+priority = set()
+for camera in (b"FISH/", b"PANO/"):
+    images = sorted(p for p in paths if p.startswith(camera) and p.endswith(b".jpg"))
+    priority.update(images[-3:])
+phases = {
+    "latest-jpeg": priority,
+    "remaining-jpeg": {p for p in paths if p.endswith(b".jpg")} - priority,
+    "video": {p for p in paths if p.endswith(b".mp4")},
+}
+
+def encoded(items):
+    return b"".join(path + b"\0" for path in sorted(items))
+
+temporary = pending.with_name(pending.name + ".tmp")
+with temporary.open("wb") as output:
+    output.write(encoded(paths))
+    output.flush()
+    os.fsync(output.fileno())
+os.replace(temporary, pending)
+for name, items in phases.items():
+    (work / name).write_bytes(encoded(items))
+PHASE_LISTS
+
+transfer_phase() {
+  local phase="$1"
+  local phase_files="$work_dir/$phase"
+  local transfer_status=0
+  [[ -s "$phase_files" ]] || return 0
+  echo "WXcam ${phase}: transfer budget ${transfer_timeout_seconds}s."
+  timeout --signal=TERM --kill-after=15s "${transfer_timeout_seconds}s" \
+    "${rsync_base[@]}" --from0 --files-from="$phase_files" \
+    -e "ssh ${ssh_opts[*]}" \
+    "${source_user}@${source_host}:${source_path%/}/" \
+    "${destination%/}/" || transfer_status=$?
+  if (( transfer_status != 0 )); then
+    echo "WXcam ${phase} incomplete (status ${transfer_status}); pending paths and checkpoint retained." >&2
+    return "$transfer_status"
+  fi
+  # Queue each completed phase now, even if the next phase runs out of time.
+  if [[ -x "$archive_dispatch" ]]; then
+    "$archive_dispatch" enqueue --job raw --base "$destination" --files-from "$phase_files" --null
+  fi
+}
+
+transfer_phase latest-jpeg
+transfer_phase remaining-jpeg
+transfer_phase video
 echo "$now_epoch" > "$state_file"
 printf '%s\n' "$source_scope" > "$scope_file"
+rm -f "$pending_file"
 echo "WXcam sync checkpoint advanced to $now_epoch."

@@ -13,12 +13,42 @@ retains HDR JPG and MP4 files from both streams locally. `AUTO`/`LONG`/`SHORT`
 files remain on the camera host and are not cataloged, Zarr-appended, or
 archived from this VM.
 
-The operational sync scans only the current and previous UTC date folders. It
-transfers files newer than `/var/lib/aurora-cloud/wxcam-sync.last`, with a
-ten-minute overlap for late writes, and advances that checkpoint only after a
-successful rsync. A missing, invalid, or older-than-window checkpoint resumes
-at the live edge. Historical backfill is a separate manual operation and cannot
-block the two-minute live-data timer.
+The operational sync scans the current and previous UTC date folders, with a
+ten-minute overlap from `/var/lib/aurora-cloud/wxcam-sync.last`. A changed media
+scope also selects the complete settled HDR history. Each run transfers three
+phases: the newest three settled JPEGs from each camera, the remaining JPEGs,
+and then MP4 files. Separate rsync calls preserve that order.
+
+Each phase has a 120-second transfer budget, set by
+`wxcam_source_transfer_timeout_seconds`, with up to 15 seconds to terminate a
+stuck transfer. A timeout returns a nonzero service result; that is unfinished
+work, not a successful sync. Completed phases are queued for raw archiving
+immediately. The global checkpoint advances only after all three phases and
+their queue submissions succeed. Rsync partials are retained for retry.
+
+Selected paths are saved atomically in `wxcam-sync.last.pending` before any
+transfer. The next run merges that debt with newly discovered files, so an old
+video cannot disappear when it ages out of the two-day scan. The pending file
+is removed only after the whole run succeeds. Do not clear it or advance the
+checkpoint to hide a timeout. Missing, invalid or stale checkpoints may resume
+at the live edge only when no pending work exists. Historical gaps outside the
+selected set still need reconciliation or an explicit bounded recovery.
+
+To update only the existing live wrapper, inspect the focused dry run and then
+apply it. The playbook checks shell syntax, keeps a rollback copy, and leaves
+timers, archive configuration, checkpoints and all scientific writers alone.
+An already running sync finishes with its loaded script; the next timer tick
+uses the new wrapper. Do not stop a working bulk copy merely to deploy this.
+
+```bash
+uv run ansible-playbook playbooks/wxcam_live_sync.yml --limit aurora-cloud --check --diff
+uv run ansible-playbook playbooks/wxcam_live_sync.yml --limit aurora-cloud
+```
+
+To roll back, restore the template task's recorded backup to
+`/usr/local/bin/aurora-wxcam-sync`. Keep the pending file and cursor. An older
+wrapper does not consume that pending file, so restore the pending-aware
+wrapper before accepting a later checkpoint as evidence that debt is complete.
 
 An independent six-hour reconciliation pass scans the ten most recently
 completed UTC date folders without consulting the live checkpoint or applying
@@ -75,6 +105,8 @@ evidence.
 
 The catalog, daily-video, and pixel-Zarr timers consume the incrementally
 updated raw mirror. Fresh in-flight media are deferred until they have settled.
+Check source, raw, catalogue and rendered-media times separately: a fresh raw
+JPEG does not prove its thumbnail or daily video has been rebuilt yet.
 
 ## Authentication
 

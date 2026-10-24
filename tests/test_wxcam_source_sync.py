@@ -2,6 +2,7 @@ import os
 import re
 import shlex
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -253,6 +254,116 @@ class WxcamSourceSyncTests(unittest.TestCase):
         self.assertIsNotNone(lookback)
         self.assertIsNotNone(retention)
         self.assertGreater(int(lookback.group(1)), int(retention.group(1)))
+
+
+    def test_live_phases_keep_every_path_and_prioritize_three_jpegs_per_camera(self) -> None:
+        source = LIVE_SYNC.read_text(encoding="utf-8")
+        code = source.split("<<'PHASE_LISTS'", 1)[1].split("\nPHASE_LISTS", 1)[0]
+        images = [f"{camera}/20261024/07/HDR_20261024_07000{i}.jpg".encode()
+                  for camera in ("FISH", "PANO") for i in range(5)]
+        old_video = b"FISH/20261020/01/HDR_20261020_010000.mp4"
+        new_video = b"PANO/20261024/07/HDR_20261024_070000_PANO.mp4"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            found, pending = root / "found", root / "pending"
+            found.write_bytes(b"\0".join(images + [new_video, images[0]]) + b"\0")
+            pending.write_bytes(old_video + b"\0")
+            subprocess.run([sys.executable, "-", str(found), str(pending), str(root)],
+                           input=code, text=True, check=True)
+            phases = {name: set((root / name).read_bytes().split(b"\0")) - {b""}
+                      for name in ("latest-jpeg", "remaining-jpeg", "video")}
+            self.assertEqual(phases["latest-jpeg"], set(images[2:5] + images[7:10]))
+            self.assertEqual(phases["video"], {old_video, new_video})
+            self.assertEqual(set.union(*phases.values()), set(images + [old_video, new_video]))
+            self.assertEqual(sum(map(len, phases.values())), len(images) + 2)
+            self.assertEqual(set(pending.read_bytes().split(b"\0")) - {b""},
+                             set.union(*phases.values()))
+
+    def test_live_pending_rejects_unsafe_paths_without_replacing_debt(self) -> None:
+        source = LIVE_SYNC.read_text(encoding="utf-8")
+        code = source.split("<<'PHASE_LISTS'", 1)[1].split("\nPHASE_LISTS", 1)[0]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            found, pending = root / "found", root / "pending"
+            found.write_bytes(b"FISH/../../escape.jpg\0")
+            debt = b"FISH/20261020/HDR_existing.mp4\0"
+            pending.write_bytes(debt)
+            result = subprocess.run([sys.executable, "-", str(found), str(pending), str(root)],
+                                    input=code, text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(pending.read_bytes(), debt)
+
+    def test_video_timeout_preserves_checkpoint_and_jpeg_queue_then_retries(self) -> None:
+        source = LIVE_SYNC.read_text(encoding="utf-8")
+        tail = source[source.index("transfer_phase() {"):]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for phase in ("latest-jpeg", "remaining-jpeg", "video"):
+                (root / phase).write_bytes(phase.encode() + b"\0")
+            state, scope, pending = root / "state", root / "scope", root / "pending"
+            state.write_text("10\n")
+            scope.write_text("old-scope\n")
+            pending.write_text("all selected paths")
+            dispatcher = root / "dispatch"
+            dispatcher.write_text('#!/bin/bash\nprintf "queue %s\\n" "$(basename "$7")" >> "$LOG"\n')
+            dispatcher.chmod(0o755)
+            # Model GNU timeout returning 124 for an unfinished video. Each
+            # phase must have its own budget; this is not a budget for the run.
+            command = "set -euo pipefail\n" + "\n".join(
+                f"{key}={shlex.quote(str(value))}" for key, value in {
+                    "work_dir": root, "state_file": state, "scope_file": scope,
+                    "pending_file": pending, "archive_dispatch": dispatcher,
+                    "destination": root / "dest", "now_epoch": 20,
+                    "source_scope": "new-scope", "transfer_timeout_seconds": 120,
+                    "source_user": "aurora", "source_host": "source", "source_path": "/raw",
+                }.items()) + "\n" + r'''
+rsync_base=(rsync -a --partial --timeout=120)
+ssh_opts=(-o BatchMode=yes)
+timeout() {
+  [[ "$1" == --signal=TERM && "$2" == --kill-after=15s && "$3" == 120s ]]
+  local arg phase
+  for arg in "$@"; do
+    case "$arg" in --files-from=*) phase="${arg##*/}";; esac
+  done
+  printf 'copy %s\n' "$phase" >> "$LOG"
+  if [[ "$phase" == video ]]; then return "${VIDEO_STATUS:-0}"; fi
+}
+''' + tail
+            environment = dict(os.environ, LOG=str(root / "log"), VIDEO_STATUS="124")
+            failed = subprocess.run(["bash", "-c", command], env=environment,
+                                    text=True, capture_output=True)
+            self.assertEqual(failed.returncode, 124)
+            self.assertEqual(state.read_text(), "10\n")
+            self.assertEqual(scope.read_text(), "old-scope\n")
+            self.assertTrue(pending.exists())
+            self.assertEqual((root / "log").read_text().splitlines(), [
+                "copy latest-jpeg", "queue latest-jpeg", "copy remaining-jpeg",
+                "queue remaining-jpeg", "copy video"])
+            environment["VIDEO_STATUS"] = "0"
+            subprocess.run(["bash", "-c", command], env=environment,
+                           text=True, capture_output=True, check=True)
+            self.assertEqual(state.read_text(), "20\n")
+            self.assertEqual(scope.read_text(), "new-scope\n")
+            self.assertFalse(pending.exists())
+            self.assertEqual((root / "log").read_text().splitlines()[-2:],
+                             ["copy video", "queue video"])
+
+    def test_pending_work_prevents_stale_checkpoint_initialization(self) -> None:
+        source = LIVE_SYNC.read_text(encoding="utf-8")
+        before_discovery = source.split("files_from=", 1)[0]
+        self.assertEqual(before_discovery.count('[[ ! -s "$pending_file" ]]'), 3)
+        self.assertIn('if [[ ! -s "$files_from" ]] && [[ ! -s "$pending_file" ]]; then', source)
+
+    def test_focused_live_release_changes_only_the_existing_wrapper(self) -> None:
+        import yaml
+        play = yaml.safe_load((ROOT / "playbooks/wxcam_live_sync.yml").read_text())[0]
+        tasks = play["tasks"]
+        mutation = [task for task in tasks if "ansible.builtin.template" in task]
+        self.assertEqual(len(mutation), 1)
+        self.assertEqual(mutation[0]["ansible.builtin.template"]["dest"],
+                         "/usr/local/bin/aurora-wxcam-sync")
+        self.assertTrue(mutation[0]["ansible.builtin.template"]["backup"])
+        self.assertFalse(any("ansible.builtin.systemd" in task for task in tasks))
 
 
 if __name__ == "__main__":
