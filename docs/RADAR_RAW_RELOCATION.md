@@ -21,8 +21,12 @@ are a reason to consider them closed, not a substitute for the copy-time checks.
 The destination is `/data/aurora/raw-relocated/rpgfmcw94/<day>`. The temporary
 original is `/project/aurora/recovery/radar-relocation-20261024/<day>`, outside the
 raw archive tree. Archive relative paths and file modification times stay the same.
-The raw GWS rsync, object-store copy, archive dispatch and standby rsync follow
-these directory binds; none uses a one-filesystem restriction.
+The raw GWS rsync, object-store copy and archive dispatch follow these directory
+binds; none uses a one-filesystem restriction. They retain full native archive
+coverage. The DO mirror has a separate, selected scope: its `raw-rpgfmcw94` stage
+excludes `Y2026/**` and `.radar-partials/**`, while the dashboard receives compact
+radar products and quicklooks. Keep those exclusions. This relocation must not
+start a new 343.94 GiB historical radar copy to DO.
 
 The dated plan is `inventory/radar-relocation-20261024.example.yml`. Re-measure both
 volumes after partial-file preservation has finished and before copying. The
@@ -78,7 +82,7 @@ in the host inventory when commissioned.
 
 Record timer and service states before verification. Once full verification is
 complete, pause only the listed radar/raw consumers and their timers; let any
-current raw transfer drain. Coordinate the DO raw-radar stage with its sender lock. Do not stop the product archive jobs during another operator's
+current raw transfer drain. Coordinate the DO `raw-rpgfmcw94` stage with its sender lock. Do not stop the product archive jobs during another operator's
 BLE or product commissioning. The helper refuses a running or queued local
 consumer. Keep retention paused throughout.
 
