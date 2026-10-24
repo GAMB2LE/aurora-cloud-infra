@@ -257,5 +257,3 @@ def test_actual_all_stage_hold_continues_other_stages_without_global_success(tmp
     assert json.loads((state/'product-power.json').read_text())=={'previous':True}
     assert (state/'last_success_utc').read_text()=='previous-global'
     assert public.read_text()=='previous-public'
-
-

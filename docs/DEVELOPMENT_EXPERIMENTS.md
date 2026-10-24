@@ -119,4 +119,3 @@ Development expires unused Panel documents after one minute so backgrounded
 phone sessions stop retaining full server-side documents promptly. Production
 uses two minutes. Both hosts check every 15 seconds and retain a 24-hour
 session-token lifetime.
-
