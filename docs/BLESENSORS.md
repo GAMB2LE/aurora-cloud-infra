@@ -28,6 +28,28 @@ playbook. It changes only BLE units, directories, three environment entries,
 and the BLE entries in the existing archive bindings. It does not restart the
 dashboard, API, archive workers, or unrelated source/processing services.
 
+I keep the BLE code and Python paths separate from the shared writer paths.
+`blesensors_app_dir` defaults to `aurora_app_dir`, and `blesensors_venv` defaults
+to `aurora_venv`, so existing installations keep their current paths. If the
+shared checkout does not have the reviewed BLE appender, pin both BLE variables
+in the production host's inventory after that release and runtime are installed:
+
+```yaml
+# Replace <full-commit> with the reviewed dashboard commit installed on this host.
+blesensors_app_dir: /opt/aurora-presentations/<full-commit>
+blesensors_venv: /opt/aurora-presentations/runtime-<release-date>
+```
+
+Check the installed layout against [the release procedure](RELEASES.md) before
+using those paths. This is a configuration example, not evidence of deployment.
+The focused playbook checks the selected appender file and executable Python
+before enabling the append timer. Keep the pin in host inventory, rather than
+only passing `-e`, so a later full deployment renders the same BLE service.
+Neither variable changes the other writers or the optional development
+continuity service. Runtime dependencies and a successful bounded append still
+need checking during commissioning; path checks alone do not establish that the
+product is current.
+
 ```bash
 uv run ansible-playbook playbooks/blesensors.yml --syntax-check
 uv run ansible-playbook playbooks/blesensors.yml --limit aurora-cloud --check --diff
