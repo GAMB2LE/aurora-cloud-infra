@@ -117,6 +117,9 @@ def test_retirement_is_limited_to_preserved_reader_overlays():
     assert tasks.index(preservation) < tasks.index(retirement)
     assert 'item.stat.checksum' in preservation['ansible.builtin.copy']['dest']
     assert preservation['ansible.builtin.copy']['force'] is False
+    assert preservation['when'] == 'item.stat.exists and not ansible_check_mode'
+    preview = next(task for task in tasks if task['name'].startswith('Preview the recovery'))
+    assert preview['when'] == 'item.stat.exists and ansible_check_mode'
     source = (ROLE / 'tasks/canonical_observations.yml').read_text()
     assert '95-uas-display-continuity.conf' in source
     assert '99-forecast-publication-only.conf' not in source
