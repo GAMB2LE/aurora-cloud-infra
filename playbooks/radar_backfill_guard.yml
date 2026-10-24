@@ -10,6 +10,18 @@
           - aurora_radar_backfill_expected_sha256 | default('') is match('^[0-9a-f]{64}$')
         fail_msg: Read and preserve the installed wrapper before supplying its expected SHA-256.
 
+    - name: Read the backfill timer state
+      ansible.builtin.command: systemctl show aurora-radar-backfill.timer --property=ActiveState,Job
+      register: radar_backfill_timer_state
+      changed_when: false
+      check_mode: false
+
+    - name: Require the backfill timer to remain paused during installation
+      ansible.builtin.assert:
+        that:
+          - "'ActiveState=inactive' in radar_backfill_timer_state.stdout_lines"
+          - "'Job=0' in radar_backfill_timer_state.stdout_lines or 'Job=' in radar_backfill_timer_state.stdout_lines"
+
     - name: Read current radar backfill state
       ansible.builtin.command: systemctl show aurora-radar-backfill.service --property=ActiveState,MainPID,Job
       register: radar_backfill_live_state
