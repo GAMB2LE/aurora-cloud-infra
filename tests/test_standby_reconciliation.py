@@ -103,10 +103,12 @@ def test_transfer_failure_never_advances_success(tmp_path):
 def test_recovery_inventory_keeps_deletion_and_retention_off():
     group = yaml.safe_load((ROOT / 'inventory/group_vars/aurora_cloud.yml').read_text())
     production = yaml.safe_load((ROOT / 'inventory/host_vars/aurora-cloud.yml').read_text())
+    mirror = yaml.safe_load((ROOT / 'inventory/host_vars/aurora-cloud-droplet.yml').read_text())
     assert group['aurora_standby_replication_delete'] is False
     assert group['aurora_standby_replication_reconciling'] is True
     assert group['aurora_standby_replication_delete_stages'] == []
     assert production['ass_retention_timer_enabled'] is False
+    assert mirror['aurora_standby_raw_relocation_guard'] is True
 
 
 def test_radar_sender_holds_relocation_guard_lock_for_entire_transfer(tmp_path):
