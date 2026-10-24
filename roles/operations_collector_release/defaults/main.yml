@@ -1,0 +1,4 @@
+---
+aurora_operations_collector_revision: ""
+aurora_operations_collector_app_dir: "/opt/aurora-presentations/{{ aurora_operations_collector_revision }}"
+aurora_operations_collector_venv: ""

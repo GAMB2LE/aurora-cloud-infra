@@ -1,0 +1,120 @@
+---
+- name: Require a pinned collector release on the production primary
+  ansible.builtin.assert:
+    that:
+      - aurora_site_env == 'production'
+      - aurora_is_primary | bool
+      - aurora_operations_collector_revision is match('^[0-9a-f]{40}$')
+      - aurora_operations_collector_app_dir == '/opt/aurora-presentations/' + aurora_operations_collector_revision
+      - aurora_operations_collector_venv is match('^/opt/aurora-presentations/[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*$')
+      - aurora_operations_collector_app_dir != aurora_app_dir
+      - aurora_operations_collector_venv != aurora_venv
+    fail_msg: Stage the tested main commit and a separate runtime before releasing the primary operations collector.
+
+- name: Read the prepared collector revision
+  ansible.builtin.command:
+    argv: [git, -C, "{{ aurora_operations_collector_app_dir }}", rev-parse, HEAD]
+  become_user: "{{ aurora_service_user }}"
+  register: operations_collector_revision
+  changed_when: false
+  check_mode: false
+
+- name: Check the prepared collector source is clean
+  ansible.builtin.command:
+    argv: [git, -C, "{{ aurora_operations_collector_app_dir }}", status, --porcelain]
+  become_user: "{{ aurora_service_user }}"
+  register: operations_collector_dirty
+  changed_when: false
+  check_mode: false
+
+- name: Require the collector release to be reachable from fetched main
+  ansible.builtin.command:
+    argv: [git, -C, "{{ aurora_operations_collector_app_dir }}", merge-base, --is-ancestor, "{{ aurora_operations_collector_revision }}", origin/main]
+  become_user: "{{ aurora_service_user }}"
+  changed_when: false
+  check_mode: false
+
+- name: Require the exact clean collector source
+  ansible.builtin.assert:
+    that:
+      - operations_collector_revision.stdout == aurora_operations_collector_revision
+      - operations_collector_dirty.stdout | trim == ''
+
+- name: Verify the separate runtime imports the selected collector
+  ansible.builtin.command:
+    argv:
+      - "{{ aurora_operations_collector_venv }}/bin/python"
+      - -c
+      - >-
+        import sys; from pathlib import Path;
+        assert sys.version_info >= (3, 12);
+        assert Path(sys.prefix).resolve() == Path(sys.argv[1]).resolve();
+        assert Path(sys.prefix).resolve() != Path(sys.argv[3]).resolve();
+        assert Path(sys.argv[2]).resolve() != Path(sys.argv[4]).resolve();
+        import collect_operations_snapshot, enclosure_sensors;
+        assert Path(collect_operations_snapshot.__file__).resolve() == Path(sys.argv[2]).resolve() / 'collect_operations_snapshot.py';
+        assert Path(enclosure_sensors.__file__).resolve() == Path(sys.argv[2]).resolve() / 'enclosure_sensors.py'
+      - "{{ aurora_operations_collector_venv }}"
+      - "{{ aurora_operations_collector_app_dir }}"
+      - "{{ aurora_venv }}"
+      - "{{ aurora_app_dir }}"
+    chdir: "{{ aurora_operations_collector_app_dir }}"
+  become_user: "{{ aurora_service_user }}"
+  environment:
+    PYTHONDONTWRITEBYTECODE: '1'
+  changed_when: false
+  check_mode: false
+
+- name: Check that the collector is already commissioned
+  ansible.builtin.command:
+    argv: [systemctl, show, aurora-ops-monitor-collect.service, --property=LoadState, --value]
+  register: operations_collector_load_state
+  changed_when: false
+  check_mode: false
+
+- name: Require the existing collector unit
+  ansible.builtin.assert:
+    that:
+      - operations_collector_load_state.stdout | trim == 'loaded'
+
+- name: Create the collector override directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/aurora-ops-monitor-collect.service.d
+    state: directory
+    mode: '0755'
+
+- name: Override only the collector working directory and command
+  ansible.builtin.template:
+    src: aurora-ops-monitor-collect.conf.j2
+    dest: /etc/systemd/system/aurora-ops-monitor-collect.service.d/zz-operations-collector-release.conf
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+  notify: Reload the collector unit definition
+
+- name: Validate the complete collector unit
+  ansible.builtin.command:
+    argv: [systemd-analyze, verify, aurora-ops-monitor-collect.service]
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Record the selected collector source and runtime
+  ansible.builtin.copy:
+    content: "{{ operations_collector_release_record | to_nice_json }}\n"
+    dest: /etc/aurora-operations-collector-release.json
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+  vars:
+    operations_collector_release_record:
+      revision: "{{ aurora_operations_collector_revision }}"
+      source: "{{ aurora_operations_collector_app_dir }}"
+      runtime: "{{ aurora_operations_collector_venv }}"
+      service: aurora-ops-monitor-collect.service
+      output_root: "{{ aurora_paths.raw_ops_monitor }}"
+      health_output_root: "{{ aurora_paths.products_ops_monitor_health }}"
+
+- name: Load the new command for the next scheduled collector run
+  ansible.builtin.meta: flush_handlers

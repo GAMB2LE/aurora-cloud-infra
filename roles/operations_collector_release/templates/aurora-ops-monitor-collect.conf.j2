@@ -1,0 +1,6 @@
+# Keep the existing environment, sandbox and timer. Only the snapshot collector
+# uses this source and runtime; scientific writers keep their original checkout.
+[Service]
+WorkingDirectory={{ aurora_operations_collector_app_dir }}
+ExecStart=
+ExecStart={{ aurora_operations_collector_venv }}/bin/python collect_operations_snapshot.py --output-root {{ aurora_paths.raw_ops_monitor }} --health-output-root {{ aurora_paths.products_ops_monitor_health }}
