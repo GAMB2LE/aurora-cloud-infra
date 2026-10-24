@@ -1,0 +1,85 @@
+---
+# Install only the reviewed guard and wrapper. Timer restoration is separate.
+- name: Install guarded radar live discovery on JASMIN
+  hosts: aurora-cloud
+  become: true
+  tasks:
+    - name: Require the exact preserved installed wrapper checksum
+      ansible.builtin.assert:
+        that:
+          - aurora_radar_live_expected_sha256 | default('') is match('^[0-9a-f]{64}$')
+        fail_msg: Read and preserve the installed wrapper before supplying its expected SHA-256.
+
+    - name: Read the live source timer state
+      ansible.builtin.command: systemctl show aurora-radar-source-sync.timer --property=ActiveState,Job
+      register: radar_live_timer_state
+      changed_when: false
+      check_mode: false
+
+    - name: Require the live source timer to remain paused during installation
+      ansible.builtin.assert:
+        that:
+          - "'ActiveState=inactive' in radar_live_timer_state.stdout_lines"
+          - "'Job=0' in radar_live_timer_state.stdout_lines or 'Job=' in radar_live_timer_state.stdout_lines"
+
+    - name: Read current radar live source state
+      ansible.builtin.command: systemctl show aurora-radar-source-sync.service --property=ActiveState,MainPID,Job
+      register: radar_live_state
+      changed_when: false
+      check_mode: false
+
+    - name: Require an idle live source worker
+      ansible.builtin.assert:
+        that:
+          - "'MainPID=0' in radar_live_state.stdout_lines"
+          - "'Job=0' in radar_live_state.stdout_lines or 'Job=' in radar_live_state.stdout_lines"
+          - "'ActiveState=inactive' in radar_live_state.stdout_lines or 'ActiveState=failed' in radar_live_state.stdout_lines"
+
+    - name: Read the installed live source wrapper checksum
+      ansible.builtin.stat:
+        path: /usr/local/bin/aurora-radar-sync
+        checksum_algorithm: sha256
+      register: radar_live_installed
+
+    - name: Reject unexpected deployed wrapper changes
+      ansible.builtin.assert:
+        that:
+          - radar_live_installed.stat.checksum | default('') == aurora_radar_live_expected_sha256
+
+    - name: Check the existing mounted destination and minimum reserve
+      ansible.builtin.script:
+        cmd: >-
+          ../roles/source_sync/files/aurora-radar-transfer-guard.py capacity
+          --root {{ radar_source_destination | quote }}
+          --required-mount {{ radar_source_required_mount | quote }}
+          --workers 1 --max-file-bytes 0
+          --reserve-bytes {{ radar_backfill_free_reserve_bytes | int }}
+        executable: /usr/bin/python3
+      changed_when: false
+      check_mode: false
+
+    - name: Install only the radar transfer guard
+      ansible.builtin.copy:
+        src: ../roles/source_sync/files/aurora-radar-transfer-guard.py
+        dest: /usr/local/lib/aurora-radar-transfer-guard.py
+        owner: root
+        group: root
+        mode: '0755'
+        backup: true
+
+    - name: Install only the validated radar live source wrapper
+      ansible.builtin.template:
+        src: ../roles/source_sync/templates/aurora-radar-sync.j2
+        dest: /usr/local/bin/aurora-radar-sync
+        owner: root
+        group: root
+        mode: '0755'
+        backup: true
+        validate: /bin/bash -n %s
+
+    - name: Report the commissioning boundary
+      ansible.builtin.debug:
+        msg: >-
+          Guard and wrapper prepared. No timer or service state was changed.
+          Commission a finite latest-hour recovery window and trace its LV1
+          product before restarting the live timer. Bulk backfill stays paused.
