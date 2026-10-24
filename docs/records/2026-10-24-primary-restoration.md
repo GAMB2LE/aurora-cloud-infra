@@ -229,3 +229,27 @@ The candidate SHA-256 was
 `4d5063247d21651bc56f9ab6dba831e5d93b61d35b43ddfbaa5aebbe2a8a43a9`.
 These checks validate the failure gates; they do not establish that the four
 production days have finished staging or authorize their cutover.
+
+### Consumer guards before cutover, 07:39–07:44 UTC
+
+The reviewed relocation helper was installed from main `ce04c326` at 07:39:09,
+with a backup of the previous helper. The staging process continued unchanged.
+The primary transfer guard was then installed through the narrow release
+playbook. Its SHA-256 is
+`f26cd65d35f89f884b43cb650e26ec10ee0c0a9885aebaf687da7f1cec8ecaef`.
+The check passed with 278,589,865,984 available bytes against the live lane's
+8 GiB reserve. The source wrapper was unchanged, the live timer remained active,
+and native backfill remained inactive.
+
+The mirror inventory now retains the same sender guard on future releases.
+The deployment preview changes only the transport wrapper: it wraps the radar
+sender in the primary's shared relocation lock. The actual mirror SSH route
+successfully ran the helper as `azimuth`, read the disposable manifest, and
+returned the unchanged command while the production active record was absent.
+The canonical Power storage guard also passed. This records a successful
+preflight; mirror wrapper installation and its next scheduled stage still need
+their own receipt. The selected mirror scope and native exclusions are unchanged.
+
+Both guard hooks remain inactive until the production relocation record exists.
+Creating that record still requires completed manifests for all four days,
+fresh capacity checks and review of the cutover evidence.
