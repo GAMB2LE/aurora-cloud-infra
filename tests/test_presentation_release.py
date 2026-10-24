@@ -61,3 +61,13 @@ def test_mirror_paths_do_not_repurpose_shared_writer_variables():
     unit = (mirror / 'templates/aurora-operational-mobile-api.service.j2').read_text()
     assert 'WorkingDirectory={{ aurora_operational_mirror_app_dir }}' in unit
     assert 'ExecStart={{ aurora_operational_mirror_venv }}/bin/uvicorn' in unit
+
+
+def test_primary_api_keeps_one_worker_without_a_host_override():
+    output = Environment(undefined=StrictUndefined).from_string(
+        (ROLE / 'templates/aurora-mobile-api.conf.j2').read_text()).render(
+            aurora_presentation_app_dir='/opt/aurora-presentations/' + 'a' * 40,
+            aurora_presentation_venv='/opt/aurora-presentations/runtime-20261024',
+            aurora_mobile_api_host='127.0.0.1', aurora_mobile_api_port=8010,
+        )
+    assert '--port 8010 --workers 1' in output

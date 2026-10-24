@@ -1,0 +1,10 @@
+---
+# Replace only the transport used by the existing mirror stage timers.
+- name: Release the additive development mirror transport
+  hosts: aurora-cloud-droplet
+  become: true
+  tasks:
+    - name: Apply only the reviewed mirror wrapper
+      ansible.builtin.import_role:
+        name: standby_replication
+        tasks_from: transport_release
