@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import stat
 import subprocess
@@ -295,6 +296,15 @@ def guard(plan, additional_bytes=0):
         options = subprocess.check_output(['findmnt', '--noheadings', '--output', 'OPTIONS', '--mountpoint', str(source)], text=True).strip().split(',')
         if 'ro' not in options:
             raise RuntimeError('Closed relocated day must remain read-only')
+        # systemd can create a missing bind source directory. Mount identity alone
+        # would then accept an empty view. Check the already-hashed file identities
+        # without reading observation bytes on every consumer start.
+        evidence = json.loads(manifest_path(plan, day).read_text())
+        expected = evidence['destination_signature']
+        if (evidence['day'] != day or len(expected) != plan['expected_files_per_day']
+                or set(expected) != set(evidence['files'])
+                or snapshot(target, minimum_age=0) != expected):
+            raise RuntimeError('Relocated destination differs from verified manifest: ' + day)
     if free_bytes(plan['data_mount']) < plan['data_reserve_bytes'] + additional_bytes:
         raise RuntimeError('Relocated raw data reserve is unavailable')
 
@@ -306,7 +316,8 @@ def unit_name(path):
 def unit_text(source, target):
     return ('[Unit]\nDescription=Preserved closed Aurora radar day\n'
             'Requires=project.mount data.mount\nAfter=project.mount data.mount\n'
-            'BindsTo=project.mount data.mount\n\n[Mount]\n'
+            'BindsTo=project.mount data.mount\n'
+            f'AssertPathIsDirectory={target}\n\n[Mount]\n'
             f'What={target}\nWhere={source}\nType=none\nOptions=bind,ro\n'
             'TimeoutSec=30\n\n[Install]\nWantedBy=multi-user.target\n')
 
@@ -380,7 +391,9 @@ def graph(plan):
     for service in plan['consumers']:
         state = subprocess.check_output(['systemctl', 'show', service, '--property=Requires,After,BindsTo,ExecStartPre'], text=True)
         fields = dict(line.split('=', 1) for line in state.splitlines())
-        if any(not mounts.issubset(set(fields.get(prop, '').split())) for prop in ('Requires', 'After', 'BindsTo')) or HELPER not in fields.get('ExecStartPre', ''):
+        # systemctl quotes and escapes unit names containing literal hyphens in
+        # their source paths. Parse one display-escaping layer before comparison.
+        if any(not mounts.issubset(set(shlex.split(fields.get(prop, '')))) for prop in ('Requires', 'After', 'BindsTo')) or HELPER not in fields.get('ExecStartPre', ''):
             raise RuntimeError('Consumer mount dependencies/guard are incomplete: ' + service)
     return {'consumers': len(plan['consumers']), 'mounts': len(mounts)}
 

@@ -112,6 +112,12 @@ mount. Each mount requires both `project.mount` and `data.mount`. The active gua
 record is written before the first rename: an interruption therefore blocks raw
 consumers instead of exposing an empty tree as success. Timers remain paused.
 
+Each bind unit asserts that its destination directory already exists; systemd
+must not create an empty replacement. The consumer guard also compares the exact
+file set and file identities, sizes, times and ownership against the completed
+SHA manifest. These are metadata reads, not another full archive hash. A missing,
+empty or changed destination fails even when the bind itself is mounted read-only.
+
 Before releasing anything, compare every logical path with its destination, run
 `systemd-analyze verify` on the generated mount and consumer units, inspect their
 `Requires`/`After`/`BindsTo` properties, and test missing-mount rejection with a
