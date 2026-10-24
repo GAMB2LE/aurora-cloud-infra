@@ -14,7 +14,10 @@ Keep native backfill paused until the final seven-day capacity check passes.
 
 At 09:29 UTC on 24 October, cutover was deferred after all five days had staged.
 The temporary reader barrier was removed and the recorded schedules restored;
-all original paths and verified staged copies remain intact. See the
+all original paths and verified staged copies remain intact. A separate
+[old-quarantine preservation procedure](OLD_RADAR_QUARANTINE_PRESERVATION.md)
+can restore destination headroom using existing root capacity; it does not
+authorize this cutover. See the
 [dated outcome](records/2026-10-24-archive-follow-up.md).
 
 ## The 24 October plan
