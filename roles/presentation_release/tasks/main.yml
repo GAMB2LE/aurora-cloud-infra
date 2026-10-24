@@ -62,6 +62,10 @@
     - aurora-mobile-api
     - aurora-ops-monitor-collect
 
+- name: Restore development observations from the checked production replica
+  ansible.builtin.include_tasks: canonical_observations.yml
+  when: aurora_presentation_canonical_observations | bool
+
 - name: Set presentation provenance after the existing serving environment
   ansible.builtin.template:
     src: aurora-presentation.env.j2
@@ -127,4 +131,6 @@
     that:
       - presentation_manifest.json.schemaVersion == 3
       - presentation_manifest.json.deployment.revision in [aurora_presentation_revision, aurora_presentation_revision[:12]]
+      - not (aurora_presentation_canonical_observations | bool) or presentation_manifest.json.deployment.dataRole == 'live-mirror'
+      - not (aurora_presentation_canonical_observations | bool) or not (presentation_manifest.json.deployment.operationalMirror | default(false) | bool)
   when: not ansible_check_mode

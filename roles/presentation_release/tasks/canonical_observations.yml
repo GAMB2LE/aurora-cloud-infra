@@ -1,0 +1,122 @@
+---
+- name: Require the commissioned development replica and canonical static roots
+  ansible.builtin.assert:
+    that:
+      - aurora_site_env == 'development'
+      - aurora_failover_role == 'standby'
+      - aurora_operational_mirror_enabled | bool
+      - aurora_presentation_wxcam_media_dir == '/data/aurora/products/wxcam'
+      - aurora_presentation_auroracam_media_dir == '/project/aurora/raw/auroracam'
+
+- name: Check the already commissioned isolated mirror
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ aurora_operational_mirror_port }}/manifest"
+    return_content: true
+  register: canonical_observation_mirror
+  check_mode: false
+
+- name: Require the production replica contract before changing development readers
+  ansible.builtin.assert:
+    that:
+      - canonical_observation_mirror.json.schemaVersion == 3
+      - canonical_observation_mirror.json.deployment.dataRole == 'live-mirror'
+      - canonical_observation_mirror.json.deployment.operationalMirror | bool
+      - canonical_observation_mirror.json.deployment.dashboardURL == 'https://data.gamb2le.co.uk/app'
+
+- name: Require the replicated observations and existing forecast publication overlay
+  ansible.builtin.command:
+    argv: [test, -r, "{{ item }}"]
+  become_user: "{{ aurora_service_user }}"
+  changed_when: false
+  check_mode: false
+  loop:
+    - /data/aurora/products/power/power.zarr
+    - /data/aurora/products/power/pdu.zarr
+    - /data/aurora/products/power/power_current_display.zarr
+    - /data/aurora/products/power/power_display_summary.zarr
+    - /data/aurora/products/blesensors/blesensors.zarr
+    - /data/aurora/products/wxcam/wxcam_catalog.sqlite
+    - /data/aurora/products/dashboard/prewarm
+    - /project/aurora/raw/auroracam
+    - /project/aurora/raw/menapia/menapia_mqtt.log
+    - /project/aurora/raw/ops_monitor/latest.json
+    - /data/aurora/products/ops_monitor/health/latest_health.json
+    - /etc/aurora-power-forecast-serving.env
+
+- name: Install the reader-only observation paths
+  ansible.builtin.copy:
+    src: aurora-canonical-observations.env
+    dest: /etc/aurora-canonical-observations.env
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+  notify: Restart presentation services
+
+- name: Find the two temporary overlays on each reader
+  ansible.builtin.stat:
+    path: "/etc/systemd/system/{{ item.0 }}.service.d/{{ item.1 }}"
+  loop: "{{ ['aurora-dashboard', 'aurora-mobile-api'] | product(['90-direct-field-continuity.conf', '95-uas-display-continuity.conf']) | list }}"
+  register: canonical_observation_old_overlays
+
+- name: Keep a recovery directory for each reader
+  ansible.builtin.file:
+    path: "/etc/aurora-retired-reader-overrides/20261024/{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  loop: [aurora-dashboard, aurora-mobile-api]
+
+- name: Preserve each temporary reader overlay before retiring it
+  ansible.builtin.copy:
+    src: "{{ item.stat.path }}"
+    dest: "/etc/aurora-retired-reader-overrides/20261024/{{ item.item.0 }}/{{ item.item.1 }}.{{ item.stat.checksum }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: '0600'
+    force: false
+  loop: "{{ canonical_observation_old_overlays.results }}"
+  loop_control:
+    label: "{{ item.item | join('/') }}"
+  when: item.stat.exists and not ansible_check_mode
+
+# Check mode does not create the recovery directories. Describe this copy
+# without asking remote_src to use a directory that intentionally is not there.
+- name: Preview the recovery copy for each temporary reader overlay
+  ansible.builtin.debug:
+    msg: "Preserve {{ item.stat.path }} as {{ item.item.1 }}.{{ item.stat.checksum }} before removing the active overlay"
+  loop: "{{ canonical_observation_old_overlays.results }}"
+  loop_control:
+    label: "{{ item.item | join('/') }}"
+  when: item.stat.exists and ansible_check_mode
+  changed_when: true
+
+- name: Verify the saved overlays before removing their active copies
+  ansible.builtin.stat:
+    path: "/etc/aurora-retired-reader-overrides/20261024/{{ item.item.0 }}/{{ item.item.1 }}.{{ item.stat.checksum }}"
+  loop: "{{ canonical_observation_old_overlays.results }}"
+  loop_control:
+    label: "{{ item.item | join('/') }}"
+  when: item.stat.exists and not ansible_check_mode
+  register: canonical_observation_saved_overlays
+
+- name: Require an exact recovery copy of every retired overlay
+  ansible.builtin.assert:
+    that:
+      - item.stat.checksum == item.item.stat.checksum
+  loop: "{{ canonical_observation_saved_overlays.results }}"
+  loop_control:
+    label: "{{ item.item.item | join('/') }}"
+  when: not (item.skipped | default(false))
+
+- name: Retire only the preserved reader overlays
+  ansible.builtin.file:
+    path: "{{ item.stat.path }}"
+    state: absent
+  loop: "{{ canonical_observation_old_overlays.results }}"
+  loop_control:
+    label: "{{ item.item | join('/') }}"
+  when: item.stat.exists
+  notify: Restart presentation services
