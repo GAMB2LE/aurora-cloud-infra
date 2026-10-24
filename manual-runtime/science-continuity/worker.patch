@@ -1,0 +1,16 @@
+--- before.py
++++ aurora-science-continuity.py
+@@ -79,8 +79,12 @@
+         window=ds.sel(time=slice(floor,None))
+         if window.sizes.get("time",0):
+             window=window.chunk({"time":chunk})
++            # The trimmed destination has a new chunk grid. Infer its encoding
++            # from these arrays instead of inheriting the source Zarr grid.
++            for variable in window.variables.values():
++                variable.encoding.pop("chunks",None)
+             with dask.config.set(scheduler="single-threaded"):
+-                window.to_zarr(destination,mode="w",consolidated=True)
++                window.to_zarr(destination,mode="w",consolidated=True,safe_chunks=True)
+ '''
+ 
+ 
