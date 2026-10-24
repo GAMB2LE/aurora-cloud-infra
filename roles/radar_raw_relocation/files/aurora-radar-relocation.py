@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import shlex
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -479,11 +480,50 @@ def rollback(plan):
 
 @contextmanager
 def lock(exclusive):
-    # Installed root-owned, aurora-readable lock; inherited by remote rsync senders.
+    # Installed root-owned, aurora-readable lock; held by the sender supervisor.
     with LOCK.open('r') as stream:
         fcntl.flock(stream, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
-        os.set_inheritable(stream.fileno(), True)
         yield
+
+
+def run_sender(command):
+    """Keep our lock while sudo/rsync runs, even if it closes inherited FDs."""
+    child = None
+    pending = []
+    denied_signal = None
+
+    def forward(signum, _frame):
+        nonlocal denied_signal
+        if child is None:
+            pending.append(signum)
+        else:
+            try:
+                os.killpg(child.pid, signum)
+            except ProcessLookupError:
+                pass  # The child exited before the pending signal was delivered.
+            except PermissionError:
+                # A setuid sender may no longer be signalable by this user.
+                # Keep supervising it; never unlock while it can still read raw.
+                denied_signal = denied_signal or signum
+
+    watched = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
+    previous = {sig: signal.signal(sig, forward) for sig in watched}
+    try:
+        # A separate process group lets us forward termination to sudo and its
+        # sender together. The parent waits for completion before releasing lock.
+        child = subprocess.Popen(command, start_new_session=True)
+        for signum in pending:
+            forward(signum, None)
+        status = child.wait()
+        if denied_signal is not None:
+            return 128 + denied_signal
+        return status if status >= 0 else 128 - status
+    finally:
+        # An unexpected local error must not release the lock over a live sender.
+        if child is not None and child.poll() is None:
+            child.wait()
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
 
 
 def main():
@@ -518,7 +558,7 @@ def main():
             if args.action == 'exec':
                 command = command[1:] if command[:1] == ['--'] else command
                 if not command: raise ValueError('Missing sender command')
-                os.execvp(command[0], command)
+                return run_sender(command)
             print(json.dumps(result, sort_keys=True))
         return 0
     except (OSError, ValueError, KeyError, RuntimeError, subprocess.CalledProcessError) as error:

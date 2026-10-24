@@ -1,7 +1,11 @@
 """Exercise lossless copy and failure gates using small disposable raw days."""
 import importlib.util
+import fcntl
 import json
 import os
+import signal
+import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch
 from contextlib import ExitStack
@@ -309,11 +313,107 @@ def test_graph_accepts_systemctl_quoted_escaped_mount_names(layout):
         assert relocate.graph(plan) == {'consumers': 1, 'mounts': 1}
 
 
-def test_remote_exec_parses_options_and_keeps_lock_until_exec(tmp_path):
+def test_remote_exec_parses_options_and_preserves_sender_status(tmp_path):
     lock = tmp_path / 'lock'; lock.touch()
-    with patch.object(relocate, 'LOCK', lock), patch.object(relocate.sys, 'argv', ['helper', 'exec', '--if-active', '--config', str(tmp_path / 'inactive.json'), '--', '/bin/bash', '-c', 'rsync --server . /raw']), patch.object(relocate.os, 'execvp') as execute:
-        assert relocate.main() == 0
-        execute.assert_called_once_with('/bin/bash', ['/bin/bash', '-c', 'rsync --server . /raw'])
+    with patch.object(relocate, 'LOCK', lock), patch.object(relocate.sys, 'argv', ['helper', 'exec', '--if-active', '--config', str(tmp_path / 'inactive.json'), '--', '/bin/bash', '-c', 'rsync --server . /raw']), patch.object(relocate, 'run_sender', return_value=23) as execute:
+        assert relocate.main() == 23
+        execute.assert_called_once_with(['/bin/bash', '-c', 'rsync --server . /raw'])
+
+
+def sender_process(lock, command, *, deny_signal=False):
+    launcher = '''import importlib.util,sys
+from pathlib import Path
+spec=importlib.util.spec_from_file_location('helper',sys.argv[1])
+helper=importlib.util.module_from_spec(spec);spec.loader.exec_module(helper)
+helper.LOCK=Path(sys.argv[2])
+if sys.argv[3]=='deny':
+ def deny(*args):
+  print('denied',flush=True)
+  raise PermissionError('setuid sender')
+ helper.os.killpg=deny
+sys.argv=['helper','exec','--if-active','--config',str(helper.LOCK.parent/'inactive.json'),'--']+sys.argv[4:]
+sys.exit(helper.main())
+'''
+    return subprocess.Popen([sys.executable, '-c', launcher, str(SPEC.origin), str(lock), 'deny' if deny_signal else 'allow', *command],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+
+def assert_lock_held(lock):
+    with lock.open('r') as stream:
+        with pytest.raises(BlockingIOError):
+            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def test_remote_sender_closing_inherited_descriptors_cannot_release_lock(tmp_path):
+    lock = tmp_path / 'lock'; lock.touch()
+    child = "import os,sys;os.closerange(3,256);print('ready',flush=True);sys.stdin.readline();sys.exit(23)"
+    process = sender_process(lock, [sys.executable, '-c', child])
+    try:
+        assert process.stdout.readline() == 'ready\n'
+        assert_lock_held(lock)
+        stdout, stderr = process.communicate('finish\n', timeout=10)
+        assert process.returncode == 23
+        assert stdout == stderr == ''  # No JSON/status text may enter the rsync protocol.
+        with lock.open('r') as stream:
+            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    finally:
+        if process.poll() is None:
+            process.communicate('finish\n', timeout=10)
+
+
+@pytest.mark.parametrize('signum', [signal.SIGTERM, signal.SIGINT, signal.SIGHUP])
+def test_sender_signal_forwarding_waits_for_cleanup_before_unlocking(tmp_path, signum):
+    lock = tmp_path / 'lock'; lock.touch()
+    child = '''import os,signal,sys
+os.closerange(3,256)
+def stop(signum,frame):
+    print('cleaning',flush=True)
+    sys.stdin.readline()
+    sys.exit(19)
+for sig in (signal.SIGTERM,signal.SIGINT,signal.SIGHUP):signal.signal(sig,stop)
+print('ready',flush=True)
+signal.pause()
+'''
+    process = sender_process(lock, [sys.executable, '-c', child])
+    try:
+        assert process.stdout.readline() == 'ready\n'
+        process.send_signal(signum)
+        assert process.stdout.readline() == 'cleaning\n'
+        assert_lock_held(lock)
+        stdout, stderr = process.communicate('finish\n', timeout=10)
+        assert process.returncode == 19
+        assert stdout == stderr == ''
+    finally:
+        if process.poll() is None:
+            process.send_signal(signal.SIGTERM)
+            process.communicate('finish\n', timeout=10)
+
+
+def test_sender_signal_exit_and_missing_command_are_reported(tmp_path):
+    lock = tmp_path / 'lock'; lock.touch()
+    process = sender_process(lock, [sys.executable, '-c', 'import os,signal;os.kill(os.getpid(),signal.SIGTERM)'])
+    assert process.communicate(timeout=10) == ('', '')
+    assert process.returncode == 128 + signal.SIGTERM
+    process = sender_process(lock, [str(tmp_path / 'absent-command')])
+    stdout, stderr = process.communicate(timeout=10)
+    assert process.returncode == 75 and stdout == '' and 'No such file' in stderr
+
+
+def test_denied_signal_keeps_supervising_until_sender_exits(tmp_path):
+    lock = tmp_path / 'lock'; lock.touch()
+    child = "import sys;print('ready',flush=True);sys.stdin.readline();sys.exit(0)"
+    process = sender_process(lock, [sys.executable, '-c', child], deny_signal=True)
+    try:
+        assert process.stdout.readline() == 'ready\n'
+        process.send_signal(signal.SIGTERM)
+        assert process.stdout.readline() == 'denied\n'
+        assert_lock_held(lock)
+        stdout, stderr = process.communicate('finish\n', timeout=10)
+        assert process.returncode == 128 + signal.SIGTERM
+        assert stdout == stderr == ''
+    finally:
+        if process.poll() is None:
+            process.communicate('finish\n', timeout=10)
 
 
 @pytest.mark.parametrize('action', ['stage', 'verify'])
