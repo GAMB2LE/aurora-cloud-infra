@@ -1,0 +1,16 @@
+[Unit]
+Description=Aurora BLE direct-field continuity display (non-authoritative)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+WorkingDirectory={{ aurora_app_dir }}
+ExecStart=/usr/local/bin/aurora-blesensors-continuity-sync
+ExecStart=/usr/bin/flock --nonblock {{ blesensors_continuity_state_root }}/append.lock {{ aurora_venv }}/bin/python append_new_blesensors_to_zarr.py --root {{ blesensors_continuity_raw_root }} --zarr {{ blesensors_continuity_zarr }}
+TimeoutStartSec=10min
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6

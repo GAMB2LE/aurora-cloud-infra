@@ -107,7 +107,16 @@ replicate_path() {
   local name="$1"
   local source_path="$2"
   local destination_path="$3"
-  shift 3
+  local source_lock="$4"
+  shift 4
+  local stage_rsync_path="$rsync_path"
+  if [[ -n "$source_lock" ]]; then
+    # Only stages declaring a source lock opt in. Hold the producer's shared
+    # lock throughout the remote sender so a directory swap cannot mix stores.
+    local quoted_source_lock
+    printf -v quoted_source_lock '%q' "$source_lock"
+    stage_rsync_path="/usr/bin/flock --shared --timeout 30 $quoted_source_lock $rsync_path"
+  fi
 
   local clean_destination="${destination_path%/}"
   case "$clean_destination" in
@@ -132,13 +141,13 @@ replicate_path() {
   rsync \
     "${rsync_common[@]}" \
     "$@" \
-    --rsync-path="$rsync_path" \
+    --rsync-path="$stage_rsync_path" \
     -e "$ssh_wrapper" \
     "${source_user}@${source_host}:${source_path}" \
     "$destination_path" | tee "$output_log"
   local rsync_status=${PIPESTATUS[0]}
   set -e
-  if [[ "$rsync_status" -eq 24 ]]; then
+  if [[ "$rsync_status" -eq 24 && -z "$source_lock" ]]; then
     # Source-side SQLite WAL/SHM rotation can make an already transferred file
     # vanish during rsync's final scan. The next pull will reconcile it.
     echo "Replication $name completed with transient vanished source files (rsync 24)."
@@ -165,7 +174,7 @@ replicate_path() {
 
 {% for path in aurora_standby_replication_effective_paths %}
 if [[ "$requested_stage" == "all" || "$requested_stage" == {{ path.name | quote }} ]]; then
-replicate_path {{ path.name | quote }} {{ path.source | quote }} {{ path.destination | quote }}{% for exclude in path.exclude | default([]) %} --exclude={{ exclude | quote }}{% endfor %}{{ '\n' }}
+replicate_path {{ path.name | quote }} {{ path.source | quote }} {{ path.destination | quote }} {{ path.source_lock | default('') | quote }}{% for exclude in path.exclude | default([]) %} --exclude={{ exclude | quote }}{% endfor %}{{ '\n' }}
 fi
 {% endfor %}
 

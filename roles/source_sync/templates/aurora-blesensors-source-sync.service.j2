@@ -1,0 +1,14 @@
+[Unit]
+Description=Aurora pull ASS BLE sensor CSV and legacy log files
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+ExecStart=/usr/local/bin/aurora-blesensors-sync
+TimeoutStartSec={{ blesensors_source_service_timeout_seconds | int }}
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
