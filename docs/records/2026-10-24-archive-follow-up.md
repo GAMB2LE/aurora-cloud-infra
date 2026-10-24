@@ -87,3 +87,28 @@ paths and rechecks their source evidence, but its service allows up to 12 hours
 and has no independent byte or file-count cap. Do not launch every old reported
 product gap as an assumed bounded repair. Correct the metadata blocker, obtain
 fresh evidence, and use the existing family queue before considering further work.
+
+## ASFS storage estimate is stale, 07:41–07:46 UTC
+
+The collector's exact read-only SSH route to ASS succeeded. The source file
+`/home/aurora/data/asfs/logger_storage_health.json` was generated at
+`2026-10-21T13:31:32.424153+00:00`, so it is outside the collector's two-hour
+freshness limit. Its old estimate of 65,256 directory slots is not a current card
+measurement or evidence of today's capacity. The ASS data filesystem had about
+2.61 TB free during this check; SSH access and Linux disk quota did not cause the
+missing estimate.
+
+The current `/home/aurora/scripts/asfs/asfssync.py` is a 3,240-byte FTP mirror with
+mtime `2026-10-21T14:58:42.143040+00:00` and SHA-256
+`967a5a9b9b0b05324025bc677cfc66bb606b582d8e0c12dfdafe478f9226814d`.
+It has no storage-health writer. The old `asfssync.service` and timer were not
+loaded, and their journal had no entries for this morning. Updating the cloud
+collector cannot refresh a file its source no longer produces.
+
+Current source observations were still arriving: science file
+`aurora_asfs_data_sci_202610240730.dat` contained 25,167 bytes, fast gas
+`aurora_asfs_data_fast_gas_202610240730.dat` contained 1,950,930 bytes, and fast
+sonic `aurora_asfs_data_fast_sonic_202610240701.dat` contained 331,961 bytes. Their
+source mtimes were 07:31:00–07:31:05 on 24 October. These are collection evidence,
+not a replacement storage estimate. I left field acquisition and current data
+untouched. Restoring the estimate producer is separate follow-up work.

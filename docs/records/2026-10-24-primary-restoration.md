@@ -253,3 +253,23 @@ their own receipt. The selected mirror scope and native exclusions are unchanged
 Both guard hooks remain inactive until the production relocation record exists.
 Creating that record still requires completed manifests for all four days,
 fresh capacity checks and review of the cutover evidence.
+
+### Mirror guard installed, 07:46 UTC
+
+Infrastructure PR80 merged as main `458ea0a`. The final preview again changed
+only the mirror transport wrapper and passed its checksum and canonical Power
+storage checks. Installation completed at 07:46:15 with a preserved backup at
+`/usr/local/bin/aurora-dev-live-pull.2946643.2026-10-24@07:46:15~`.
+The installed SHA-256 is
+`0640f4897ecfdbc72cd58f16fcb861de03836650db8efe73cfca5476b36eb958`.
+The existing scheduled `raw-rpgfmcw94` stage then succeeded at 07:46:21 in one
+second, with zero bytes needing transfer. No timer, producer or mount was
+reconfigured. The production active relocation record remained absent.
+
+D02 completed staging at 07:44:20: all 96 files and 93,041,524,863 logical bytes
+were verified. Its manifest at
+`/var/lib/aurora-cloud/radar-relocation-20261024/Y2026-M05-D02.json` has SHA-256
+`019ecca979f5acda2a60e9f95e93550504e92bee38a3c824c2551d5f941d8338`.
+D03 started next. This first receipt does not stand in for the remaining three
+days; cutover and release remain held until all four receipts and the final
+capacity checks have been reviewed.
