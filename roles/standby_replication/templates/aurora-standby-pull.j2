@@ -21,6 +21,7 @@ rsync_path={{ aurora_standby_replication_rsync_path | quote }}
 delete_enabled={{ 'true' if aurora_standby_replication_delete | default(false) | bool else 'false' }}
 reconciling={{ 'true' if aurora_standby_replication_reconciling | default(true) | bool else 'false' }}
 delete_stages={{ (aurora_standby_replication_delete_stages | default([]) | join(' ')) | quote }}
+raw_relocation_guard={{ 'true' if aurora_standby_raw_relocation_guard | default(false) | bool else 'false' }}
 
 # Guard before even the public-stamp directory is created on a missing mount.
 if ! mountpoint -q /data || ! mountpoint -q /project; then
@@ -185,6 +186,11 @@ replicate_path() {
       return 75
     fi
     stage_rsync_args+=(--delete-delay)
+  fi
+  if [[ "${raw_relocation_guard:-false}" == true && ( "$source_path" == /project/aurora/raw/ || "$source_path" == /project/aurora/raw/rpgfmcw94/ ) ]]; then
+    # Keep a shared relocation lock for the entire remote sender. A missing
+    # nested day bind must fail the stage without advancing its success stamp.
+    stage_rsync_path="/usr/local/lib/aurora-radar-relocation.py exec --if-active --config /etc/aurora/radar-relocation-active.json -- $stage_rsync_path"
   fi
   stage_rsync_path="$source_check && $stage_rsync_path"
 

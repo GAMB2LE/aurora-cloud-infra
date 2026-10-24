@@ -1,0 +1,50 @@
+---
+# Preparation only: copying days, changing mounts and releasing originals are explicit.
+- name: Require a complete reviewed capacity plan
+  ansible.builtin.assert:
+    that:
+      - aurora_radar_relocation_plan.project_required_free_bytes | int > 0
+      - aurora_radar_relocation_plan.data_reserve_bytes | int >= 42949672960
+      - aurora_radar_relocation_plan.days | length > 0
+      - aurora_radar_relocation_plan.raw_root == '/project/aurora/raw/rpgfmcw94'
+      - aurora_radar_relocation_plan.destination_root == '/data/aurora/raw-relocated/rpgfmcw94'
+      - aurora_radar_relocation_plan.quarantine_root is match('^/project/aurora/recovery/radar-relocation-[0-9]+$')
+
+- name: Prepare relocation configuration directory
+  ansible.builtin.file:
+    path: /etc/aurora
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install reviewed relocation plan without activating it
+  ansible.builtin.copy:
+    content: "{{ aurora_radar_relocation_plan | to_nice_json }}\n"
+    dest: /etc/aurora/radar-relocation-plan.json
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+
+- name: Install bounded relocation helper
+  ansible.builtin.copy:
+    src: aurora-radar-relocation.py
+    dest: /usr/local/lib/aurora-radar-relocation.py
+    owner: root
+    group: root
+    mode: '0755'
+    backup: true
+
+- name: Persist shared reader and exclusive cutover lock after reboot
+  ansible.builtin.copy:
+    content: "f /run/lock/aurora-radar-relocation.lock 0644 root root -\n"
+    dest: /etc/tmpfiles.d/aurora-radar-relocation.conf
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Create relocation lock without changing services or mounts
+  ansible.builtin.command: systemd-tmpfiles --create /etc/tmpfiles.d/aurora-radar-relocation.conf
+  changed_when: false
+  when: not ansible_check_mode

@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import stat
+import subprocess
 import sys
 import time
 
@@ -30,6 +31,13 @@ def check_capacity(root, required_mount, workers, max_file_bytes, reserve_bytes)
     available = os.statvfs(root)
     free_bytes = available.f_bavail * available.f_frsize
     required_bytes = reserve_bytes + workers * max_file_bytes
+    # Closed days may live on /data behind read-only binds. Check those mounts
+    # as well as /project whenever the separately commissioned layout is active.
+    relocation = Path('/etc/aurora/radar-relocation-active.json')
+    if relocation.exists() or relocation.is_symlink():
+        subprocess.run(['/usr/local/lib/aurora-radar-relocation.py', 'guard',
+                        '--config', str(relocation), '--additional-bytes',
+                        str(workers * max_file_bytes)], check=True)
     if free_bytes < required_bytes:
         raise RuntimeError(f'Radar capacity hold: available={free_bytes}, required={required_bytes}, workers={workers}, largest_file={max_file_bytes}')
     return {'available_bytes': free_bytes, 'required_bytes': required_bytes}
@@ -118,7 +126,7 @@ def main():
         else:
             print(json.dumps({'reclaimed_bytes': retire_duplicates(args.root, args.relative, args.workers, args.audit)}))
         return 0
-    except (OSError, ValueError, RuntimeError) as error:
+    except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         print(str(error), file=sys.stderr)
         return 75
 
