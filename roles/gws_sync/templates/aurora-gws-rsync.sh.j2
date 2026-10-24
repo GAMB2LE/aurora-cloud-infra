@@ -69,9 +69,34 @@ for host in "${hosts[@]}"; do
     continue
   fi
   set +e
+{% if item.name == 'raw' %}
+  # Discovery can be slow. Only bounded, freshly read batches share the lock
+  # with newest-first delivery; neither writer can commit over the other.
+  /usr/local/lib/aurora-gws-transfer bulk \
+    --lock-root {{ gws_raw_delivery_lock_root | quote }} \
+    --max-files {{ gws_raw_batch_files | int }} \
+    --max-bytes {{ gws_raw_batch_bytes | int }} \
+    --source "$source_dir" \
+    --destination "${gws_user}@${host}:${destination_dir}" \
+    --ssh-command "ssh ${ssh_opts[*]}" \
+{% if item.copy_links | default(false) %}
+    --copy-links \
+{% endif %}
+{% for pattern in item.exclude | default([]) %}
+    --exclude={{ pattern | quote }} \
+{% endfor %}
+    --wait-seconds {{ gws_raw_delivery_wait_seconds | int }}
+{% else %}
   RSYNC_RSH="ssh ${ssh_opts[*]}" rsync "${rsync_opts[@]}" "${source_dir%/}/" "${gws_user}@${host}:${destination_dir%/}/"
+{% endif %}
   rc=$?
   set -e
+{% if item.name == 'raw' %}
+  if [[ $rc -eq 75 || $rc -ge 128 ]]; then
+    echo "[$(date -u +%FT%TZ)] sync deferred or interrupted for ${job_name} (exit ${rc}); keep the next timer retry"
+    exit "$rc"
+  fi
+{% endif %}
   if [[ $rc -eq 0 ]]; then
     duration="$(( $(date +%s) - start_epoch ))"
     echo "[$(date -u +%FT%TZ)] sync succeeded via ${host} in ${duration}s"
