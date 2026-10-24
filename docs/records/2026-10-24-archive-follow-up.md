@@ -344,3 +344,76 @@ no queue error. Products' second confirmation was still running without an error
 The persistent retention hold remained present. No production relocation hold,
 active mount record, cutover or duplicate-original release had occurred. Fresh
 capacity, consumer-state and mounted-verification gates still apply.
+
+## Five days staged; cutover deferred and schedules restored, 09:17–09:32 UTC
+
+D13 finished successfully at 09:17:40. Its 64-file SHA/metadata proof has manifest
+SHA-256 `6012c1d719a1c6e558811af2a849ff83b3d4f665bf42dd2e3a4f71c2fea49e9f`.
+All five days are staged: 448 files, with 430,711,452,160 allocated bytes still
+present at their original paths. Fresh identity checks passed for every source
+and destination. The closure scan included descriptors, mappings, working
+directories and process roots, matching both paths and device/inode aliases.
+It found no open user or incomplete scan.
+
+The 09:22:53 check measured 60,023,238,656 bytes available on `/data` and
+278,258,515,968 on `/project`. Native delivery debt had grown to 58,263,009,908
+bytes. Releasing all five verified duplicate originals would leave
+650,706,958,220 bytes on `/project` after that debt, above the separate
+617,088,629,797-byte future seven-day target. The 110-minute verification/drain
+allowance at 2.3 GB/hour also passed the immediate 50 GiB `/data` floor.
+
+That short window did not establish durable `/data` headroom. The 2.3 GB/hour
+allowance was conservative recovery planning, not a measured long-term baseline.
+The newly active relocation guard would make twelve consumers depend on that
+reserve, while releasing the originals frees `/project` only. The 09:28 block
+check found that `/data` already used the whole 999 GiB `/dev/vdb` device: there
+was no allocated but unexpanded filesystem space. Ext4's reserved blocks were
+left unchanged and were not counted as spare capacity. I therefore deferred
+cutover pending a sustained capacity plan for both volumes.
+
+Operation `cutover-20261024T092315Z` had created its temporary launch barrier at
+09:23:15 and paused only eight previously active primary timers, followed by
+the recorded DO raw-radar timer at 09:23:22. Existing services were allowed to
+finish naturally. Product workers continued. No active relocation record,
+quarantine rename, bind mount, mounted-verification receipt or original release
+was created.
+
+Before restoring the schedules, the helper and plan checksums, all five stage
+identities, absent mount/quarantine paths and exact owned hold identity/content
+were checked again. The durable receipt recorded deferral before the owned hold
+was removed and its directory fsynced. The eight primary timers were restored
+at 09:29:52 and the DO timer at 09:31:26. The normal recovery coordinator and
+shared repair replayed successfully. No service was force-stopped and no failed
+state was reset. Native backfill and retention stayed disabled/inactive; the
+separate persistent retention service hold stayed present.
+
+The next ordinary primary live sync completed at 09:29:53, appender at 09:29:56
+and quicklooks at 09:30:13. The Zarr frontier remained 08:59:52.150 UTC; there
+were no newer complete candidate samples in that cycle. The DO selected-scope
+sender completed at 09:31:28 with zero deletions or changed bytes. These are
+restored-cycle receipts, not evidence that native backlog has been delivered.
+
+The raw object-store copy completed successfully at 09:27:21. GWS raw transfer
+was still retrying: its first endpoint returned exit 23 at 09:17:17 after receiver
+`.~tmp~` rename failures affecting current ASFS/WXcam files. The fallback began
+at 09:17:18 and reported further auroracam rename failures at 09:30:28. It was
+still active at the 09:32 readback. That current transfer issue remains open;
+the earlier clean settled archive evidence does not prove this retry complete.
+
+At 09:32:35, raw verification remained idle with two clean confirmations and no
+queue error. Its latest completed comparison was still the 08:39 report above.
+Products' second confirmation was progressing through object-store inventory,
+838 of 920 shards, with no error and one confirmation remaining. Unattended
+acceptance remained under validation. The persistent retention hold is an
+operator inventory decision and cannot be cleared by those dynamic readiness
+results.
+
+The durable host receipts are
+`/var/lib/aurora-cloud/radar-relocation-20261024/cutover-20261024T092315Z-barrier.json`
+on primary and the matching `cutover-20261024T092315Z-ocean.json` on DO. Local
+evidence under `output/primary-cleanup-20261024/` includes
+`radar-cutover-deferred-restoration.json`, `ocean-cutover-deferred-restoration.json`,
+`primary-after-deferred-cycles.txt`, `ocean-after-deferred-cycle.txt` and
+`archive-summary-cutover-deferred.json`. Keep the originals and all staged copies.
+Any later cutover needs fresh capacity, closure and stage-proof admission, and
+full mounted verification remains mandatory before duplicate-original release.

@@ -12,6 +12,11 @@ Preparation installs inert launch conditions and reloads systemd; it does not cr
 the temporary operator hold.
 Keep native backfill paused until the final seven-day capacity check passes.
 
+At 09:29 UTC on 24 October, cutover was deferred after all five days had staged.
+The temporary reader barrier was removed and the recorded schedules restored;
+all original paths and verified staged copies remain intact. See the
+[dated outcome](records/2026-10-24-archive-follow-up.md).
+
 ## The 24 October plan
 
 The first reviewed candidates are `Y2026/M05/D02` through `D05`: 96 regular files per day,
@@ -71,6 +76,15 @@ selected day remains unmounted on the original `/project` filesystem. After rele
 use actual free space without adding the moved bytes again. If the time allowance
 would cross the reserve, hold the next stage or cutover and report the shortfall.
 Do not weaken the floor or assume future cache cleanup.
+
+The operation window is only one capacity check. Before activating the mounts,
+also establish sustained headroom on both volumes, including restored writers,
+native delivery debt and continuing product growth. The active relocation guard
+would block the twelve named consumers below the destination reserve. Passing
+the `/project` seven-day calculation while `/data` is close to its floor is not
+enough. ASS retention affects the edge system; enabling it does not create primary
+`/data` capacity. If this longer-term gate is unresolved, defer cutover, preserve
+both copies and restore only the schedules recorded by the temporary barrier.
 
 `expected_files_by_day` permits a positive exact count only for an explicitly
 listed day. The reviewed D13 override leaves all other days at 96. No other older
