@@ -1,15 +1,41 @@
 ---
-- name: Ensure BLE ingestion directories exist
+- name: Ensure BLE raw directory exists
   ansible.builtin.file:
-    path: "{{ item }}"
+    path: "{{ aurora_paths.raw_blesensors }}"
     state: directory
     owner: "{{ aurora_service_user }}"
     group: "{{ aurora_service_group }}"
     mode: "02775"
-  loop:
-    - "{{ aurora_paths.raw_blesensors }}"
-    - "{{ aurora_state_root }}"
   when: blesensors_source_sync_enabled | bool
+
+# Existing hosts share this directory with other streams. Keep their deployed
+# ownership and permissions; only create it during a first installation.
+- name: Check the shared state directory
+  ansible.builtin.stat:
+    path: "{{ aurora_state_root }}"
+  register: blesensors_state_directory
+  when: blesensors_source_sync_enabled | bool
+
+- name: Create state directory only when absent
+  ansible.builtin.file:
+    path: "{{ aurora_state_root }}"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "02775"
+  when:
+    - blesensors_source_sync_enabled | bool
+    - not blesensors_state_directory.stat.exists
+
+- name: Check BLE can use the deployed state directory
+  ansible.builtin.command:
+    argv: [test, -w, "{{ aurora_state_root }}"]
+  become_user: "{{ aurora_service_user }}"
+  changed_when: false
+  check_mode: false
+  when:
+    - blesensors_source_sync_enabled | bool
+    - blesensors_state_directory.stat.exists
 
 - name: Install BLE source sync script
   ansible.builtin.template:
