@@ -42,6 +42,14 @@ outage reconciliation, deletion can be enabled only for explicitly named
 `product-dashboard` or `product-quicklooks` replicas. Their mounted source must
 also be nonempty. Raw, Power, internal and state paths cannot opt into deletion.
 
+For an existing host, `playbooks/mirror_transport_release.yml` replaces only
+the transport used by the installed stage timers. Preserve the old wrapper and
+supply its SHA-256 as `aurora_mirror_transport_expected_sha256`; review with
+`--check --diff` first. The playbook requires additive reconciliation settings,
+the existing planning-cache bind and its exact reviewed guard. It does not
+alter schedules or credentials. A process already running finishes with its
+old wrapper; verify the next scheduled stages before calling this deployed.
+
 `--partial` and `--delay-updates` reduce exposure to incomplete files; they do
 not make a whole multi-file Zarr transfer atomic. BLE holds its producer lock.
 Always validate complete products and observation times before routing clients.

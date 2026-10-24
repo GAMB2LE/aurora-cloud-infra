@@ -1,0 +1,60 @@
+---
+- name: Require the preserved deployed mirror checksum and additive settings
+  ansible.builtin.assert:
+    that:
+      - inventory_hostname == 'aurora-cloud-droplet'
+      - aurora_standby_replication_enabled | bool
+      - not (aurora_standby_replication_delete | bool)
+      - aurora_standby_replication_reconciling | bool
+      - aurora_mirror_transport_expected_sha256 | default('') is match('^[0-9a-f]{64}$')
+      - aurora_standby_canonical_power_guard_enabled | bool
+
+- name: Check the installed mirror wrapper
+  ansible.builtin.stat:
+    path: /usr/local/bin/aurora-dev-live-pull
+    checksum_algorithm: sha256
+  register: mirror_transport_installed
+
+- name: Reject unexpected deployed wrapper changes
+  ansible.builtin.assert:
+    that:
+      - mirror_transport_installed.stat.checksum | default('') == aurora_mirror_transport_expected_sha256
+
+- name: Retain the existing bounded mirror stage layout
+  ansible.builtin.set_fact:
+    aurora_standby_replication_effective_paths: "{{ (aurora_standby_replication_paths | rejectattr('name', 'equalto', 'raw') | rejectattr('name', 'equalto', 'products') | list) + aurora_standby_raw_stages + aurora_standby_product_stages }}"
+
+- name: Validate existing Power storage protection before replacing transport
+  ansible.builtin.script:
+    cmd: aurora-canonical-power-guard.py --check
+    executable: /usr/bin/python3
+  check_mode: false
+  changed_when: false
+
+- name: Verify the installed guard matches the reviewed implementation
+  ansible.builtin.stat:
+    path: /usr/local/lib/aurora-canonical-power-guard.py
+    checksum_algorithm: sha256
+  register: mirror_power_guard
+
+- name: Require the reviewed Power guard
+  ansible.builtin.assert:
+    that:
+      - mirror_power_guard.stat.checksum | default('') == lookup('file', role_path ~ '/files/aurora-canonical-power-guard.py', rstrip=false) | hash('sha256')
+
+- name: Install only the additive mirror transport
+  ansible.builtin.template:
+    src: aurora-standby-pull.j2
+    dest: /usr/local/bin/aurora-dev-live-pull
+    owner: root
+    group: root
+    mode: '0755'
+    backup: true
+    validate: /bin/bash -n %s
+
+- name: Explain when the new transport takes effect
+  ansible.builtin.debug:
+    msg: >-
+      Existing stage timers use this wrapper on their next run. No service,
+      timer, credentials, mount, data directory or success marker was changed.
+      Verify completed scheduled stages and their observation timestamps.
