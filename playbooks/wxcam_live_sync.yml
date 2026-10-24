@@ -1,0 +1,27 @@
+---
+- name: Update only the existing WXcam live source wrapper
+  hosts: aurora_cloud
+  become: true
+  tasks:
+    - name: Require an existing commissioned WXcam source wrapper
+      ansible.builtin.stat:
+        path: /usr/local/bin/aurora-wxcam-sync
+      register: wxcam_live_wrapper
+
+    - name: Validate the bounded WXcam transfer policy
+      ansible.builtin.assert:
+        that:
+          - wxcam_source_sync_enabled | bool
+          - wxcam_live_wrapper.stat.isreg | default(false)
+          - wxcam_source_transfer_timeout_seconds | int > 0
+        fail_msg: This focused update requires an existing WXcam source wrapper and a positive phase budget.
+
+    - name: Install the reviewed WXcam source wrapper with a rollback copy
+      ansible.builtin.template:
+        src: ../roles/source_sync/templates/aurora-wxcam-sync.j2
+        dest: /usr/local/bin/aurora-wxcam-sync
+        owner: root
+        group: root
+        mode: "0755"
+        backup: true
+        validate: /bin/bash -n %s
