@@ -211,7 +211,7 @@ def stage(plan, day):
     target.mkdir(parents=True, exist_ok=True)
     if set(p.name for p in target.iterdir()) - set(before):
         raise RuntimeError('Unknown or interrupted files in staging; preserve and inspect them')
-    evidence = {'day': day, 'source_signature': before, 'files': {}}
+    evidence = {'day': day, 'source_signature': before, 'destination_signature': {}, 'files': {}}
     for name, expected in before.items():
         src, dst = source / name, target / name
         source_hash = hash_file(src)
@@ -230,8 +230,11 @@ def stage(plan, day):
                 os.fsync(out.fileno())
             os.rename(temporary, dst)
             sync_dir(target)
-        if hash_file(dst) != source_hash or attributes(src) != attributes(dst):
+        destination_before = signature(dst.lstat())
+        if (hash_file(dst) != source_hash or attributes(src) != attributes(dst)
+                or signature(dst.lstat()) != destination_before):
             raise RuntimeError('Copy differs from source: ' + name)
+        evidence['destination_signature'][name] = destination_before
         evidence['files'][name] = {'sha256': source_hash, **attributes(src)}
     if snapshot(source) != before:
         raise RuntimeError('Source day changed during copy')
@@ -239,7 +242,8 @@ def stage(plan, day):
     shutil.copystat(source, target)
     sync_dir(target)
     evidence['verified_at'] = time.time()
-    evidence['destination_signature'] = snapshot(target)
+    if snapshot(target) != evidence['destination_signature']:
+        raise RuntimeError('Destination changed during staging')
     save(manifest_path(plan, day), evidence)
     return {'day': day, 'files': len(before), 'bytes': sum(row[2] for row in before.values())}
 
@@ -249,6 +253,7 @@ def verify_day(plan, day, mounted=False):
     evidence = json.loads(manifest_path(plan, day).read_text())
     origin = quarantine if mounted else source
     before = original_snapshot(plan, day, origin, evidence)
+    destination_before = snapshot(target, minimum_age=0)
     if set(p.name for p in target.iterdir()) != set(evidence['files']):
         raise RuntimeError('Destination file set changed: ' + day)
     for name, record in evidence['files'].items():
@@ -257,7 +262,9 @@ def verify_day(plan, day, mounted=False):
                 raise RuntimeError('SHA-256 or metadata mismatch: ' + str(path))
     if original_snapshot(plan, day, origin, evidence) != before:
         raise RuntimeError('Original changed during verification')
-    evidence['destination_signature'] = snapshot(target)
+    if snapshot(target, minimum_age=0) != destination_before:
+        raise RuntimeError('Destination changed during verification')
+    evidence['destination_signature'] = destination_before
     evidence['verified_at'] = time.time()
     save(manifest_path(plan, day), evidence)
     return evidence
