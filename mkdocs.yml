@@ -30,7 +30,15 @@ nav:
   - Operator Quickstart: OPERATOR_QUICKSTART.md
   - Historical Rebuild Plan: PLAN.md
   - Production and Development: PRODUCTION_DEVELOPMENT.md
+  - Releases from Main: RELEASES.md
+  - Operational Mobile Mirror: OPERATIONAL_MOBILE_MIRROR.md
   - Failover: FAILOVER.md
+  - Development Experiments: DEVELOPMENT_EXPERIMENTS.md
+  - Recovery Records:
+      - Index: records/index.md
+      - 24 October Primary Restoration: records/2026-10-24-primary-restoration.md
+      - 23 October Forecast Continuity: POWER_FORECAST_CONTINUITY_INPUTS.md
+  - Canonical Power Storage: CANONICAL_POWER_STORAGE.md
   - Reverse Tunnels: REVERSE_TUNNELS.md
   - Reverse Tunnel Rollout: REVERSE_TUNNEL_ROLLOUT.md
   - Data Locations: DATA_LOCATIONS.md
@@ -39,6 +47,7 @@ nav:
   - Archive Recovery Tests: ARCHIVE_TESTING.md
   - ASS Backup and Retention: ASS_BACKUP_AND_RETENTION.md
   - Source Syncs:
+      - BLE Enclosure Sensors: BLESENSORS.md
       - CL61: CL61_SOURCE_SYNC.md
       - Cloud Radar: RADAR_SOURCE_SYNC.md
       - HATPRO: HATPRO_SOURCE_SYNC.md

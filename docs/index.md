@@ -1,195 +1,41 @@
-# Aurora Cloud Infrastructure
+# AURORA operations
 
-This repo contains the Ansible configuration used to build and operate the
-Aurora cloud data and presentation hosts on JASMIN Cloud and the DigitalOcean
-droplet.
+I start with [JASMIN](https://data.gamb2le.co.uk/app), check Operations, and then
+follow the affected stream from its source to the displayed observation.
+[Data-ocean](https://data-ocean.gamb2le.co.uk/app) is the development mirror.
+A page response or a recent transfer stamp is not enough to call a stream healthy.
 
-## What this repo covers
+## Start here
 
-- source sync timers and services for the instrument hosts
-- deployment of the dashboard systemd services
-- observe-only operations health-sentinel outputs
-- GWS transfer and mirror-verification jobs
-- optional edge reverse-tunnel server configuration for ASS/APS access through
-  data-ocean
-- WXcam HDR mirroring policy and downstream processing support
-- host-level operational configuration for the Aurora stack
+| I need to… | Guide |
+| --- | --- |
+| Check the system and collect useful evidence | [Operator quickstart](OPERATOR_QUICKSTART.md) |
+| Understand host ownership and app routing | [Production and development](PRODUCTION_DEVELOPMENT.md) |
+| Merge and release reviewed work | [Releases from main](RELEASES.md) |
+| Recover service or transfer writer ownership | [Failover](FAILOVER.md) |
+| Commission the read-only app fallback | [Operational mobile mirror](OPERATIONAL_MOBILE_MIRROR.md) |
+| Find raw data, products and archive evidence | [Data locations](DATA_LOCATIONS.md) |
+| Interpret or repair archive status | [Archive services](ARCHIVE_SERVICES.md) and [recovery](ARCHIVE_RECOVERY.md) |
+| Check what was actually verified | [Dated recovery records](records/index.md) |
 
-## Current deployment contract
+## Keep the boundaries clear
 
-- Production public hostname: `data.gamb2le.co.uk` on JASMIN
-- Development public hostname: `data-ocean.gamb2le.co.uk` on DigitalOcean
-- Production is the authoritative live writer.
-- Development stays live through independently scheduled
-  `aurora-dev-live-pull-<stage>.timer` units. Most stages run about every five
-  minutes; latency-sensitive AURORACam stages run every two minutes.
-- Raw mirror root: `/project/aurora/raw`
-- Product root: `/data/aurora/products`
-- Development experiment roots: `/project/aurora/dev-raw` and
-  `/data/aurora/dev-products`
-- Dashboard app checkout: `/opt/aurora-cloud-dashboard`
-- Iceland model-evaluation science executes separately on data-ocean from the
-  units owned by `aurora-model-evaluation`; the dashboard role only reads the
-  approved campaign tree and never runs the retired Leeds/ERA5 workflow.
-- Public frontend: `nginx` on `80/443`
-- Private Panel backend: `127.0.0.1:5006`
-- Dashboard sessions use a `15 s` websocket keepalive and cleanup check.
-  Unused documents expire after `2 min` on Production and `1 min` on
-  Development; session tokens expire after `24 h`.
-- Both public mobile API endpoints run in bounded `public_read_only` mode.
-  Administrative artifact inventory remains token-protected.
-- `/wxcam-media` is served from `/data/aurora/products/wxcam` so WXcam MP4s
-  stream over normal HTTP with byte-range support.
-- `/auroracam-media` is served from `/project/aurora/raw/auroracam` so MX4
-  JPEGs load over normal HTTP image requests.
-- Operations health reports are written under
-  `/data/aurora/products/ops_monitor/health` by the observe-only collector.
-- Operations email alerts are evaluated by `aurora-ops-monitor-alerts.timer`
-  from `/project/aurora/raw/ops_monitor/latest.json`. The alert service uses
-  `mailx` backed by `msmtp`/`msmtp-mta` or another sendmail-compatible relay and
-  keeps alert state under `/data/aurora/products/ops_monitor/alerts`.
-  `mailx` is only the script-facing command line interface; `msmtp` is the
-  lightweight outbound SMTP delivery layer.
-  Configure `ops_alert_smtp_host` and related variables to install the Aurora
-  service user's `.msmtprc`; without a relay, alert evaluation still works but
-  real email delivery cannot complete. The dashboard alert script treats the
-  msmtp-backed `mailx` path as ready only after an msmtp config is present.
+JASMIN owns normal ingestion, products, archives and alerts. Data-ocean mirrors
+those products and keeps its experiments in separate paths. A client using the
+mirror does not transfer those responsibilities.
 
-## Storage model
+The production raw area is `/project/aurora/raw`, with products under
+`/data/aurora/products`. Check the actual mounts and quotas: on data-ocean,
+`/project` and `/data` share storage. Archives are separate additive copies on
+JASMIN GWS and the object store. The development mirror is not retention proof.
 
-The deployed host separates raw mirrored inputs from derived products:
+Use the stream guides in the navigation for source-specific details, including
+[BLE enclosure sensors](BLESENSORS.md), [AURORACam](AURORACAM_SOURCE_SYNC.md),
+[Power](POWER_SOURCE_SYNC.md) and [Menapia flights](MENAPIA_FLIGHT_SOURCE_SYNC.md).
+[Development experiments](DEVELOPMENT_EXPERIMENTS.md) describes isolated science
+and presentation work. The [original rebuild plan](PLAN.md) and dated recovery
+records are history, not evidence of the current host state.
 
-- `/project/aurora` is the raw landing and mirror area on the shared Ceph
-  filesystem
-- `/data/aurora` is the local product, work, and output area for Zarrs,
-  quicklooks, catalogs, videos, and logs
-
-This lets us rebuild products without touching the source mirror and keeps the
-dashboard-serving artifacts on local disk.
-
-## Source streams
-
-The deployed syncs currently cover:
-
-- CL61, pulled from the ASS Linux data path over Tailscale SSH
-- Cloud Radar
-- HATPRO
-- Vaisala MET
-- ASFS Logger
-- ASFS Fast Sonic
-- ASFS Fast Gas
-- ASS PDU
-- Power
-- WXcam
-- MX4 camera FTP ingest on the ASS Linux data volume
-- AURORACam cloud mirror and metadata Zarr
-
-WXcam is mirrored locally as FISH HDR and PANO HDR JPG/MP4 files only;
-AUTO/LONG/SHORT assets remain on the source host.
-
-The MX4 camera ingest is source-side FTP on `ass-proxmox-linux`: four MOBOTIX
-M24 cameras upload one QXGA JPEG per minute under
-`/home/aurora/data/mx4/<camera>/YYYY-MM-DD/` using
-`<camera>_YYYY-MM-DD_HH-MM.jpg` filenames. A separate AURORACam source sync
-mirrors that tree to `/project/aurora/raw/auroracam` and rebuilds
-`/data/aurora/products/auroracam/auroracam.zarr`. It is intentionally separate
-from the CL61 SSH/SFTP path.
-
-ASFS science and fast-sonic syncs use the current CRD source directory
-(`/home/aurora/data/asfs/raw/crd`) and the May 2 onward retained data window.
-
-## Archive transfer model
-
-The current backup design uses independent additive writers from the
-production Aurora VM to both:
-
-- JASMIN GWS under `/gws/ssde/j25b/gamb2le`; and
-- the configured `gamb2le-o` object-store bucket.
-
-GWS transfer uses systemd timers plus rsync-over-SSH failover across:
-
-1. `xfer-vm-03.jasmin.ac.uk`
-2. `xfer-vm-01.jasmin.ac.uk`
-3. `xfer-vm-02.jasmin.ac.uk`
-
-Verification manifests are generated for source, local raw, GWS, and object
-copies. Raw object parity remains strict for files older than six hours. Live
-derived products and quicklooks receive a 30-hour settle window and appear as
-`pending_upload` while they are still too new to be archive evidence. Pending
-files do not reset the clean streak; settled gaps do. Product sync is split
-into core products and WXcam products so the large WXcam media tree cannot
-delay smaller product artifacts, and verification lists bounded
-source-derived shards instead of one unbounded product-tree request.
-
-The fail-closed stability gate requires two complete, distinct clean reports.
-ASS files are retained for at least seven days and are deleted only by exact,
-signed permits after cloud, GWS, and object-store proof. APS Power is archived
-but non-prunable. The dashboard only reads the resulting
-infrastructure-owned health contract; it does not run archive writers, probes,
-verification, repair, or retention. The development live mirror and weekly
-PBS guest backups do not count as science-data archive parity.
-
-See [Backups and Archive Services](ARCHIVE_SERVICES.md) for the complete flow,
-status meanings, schedules, and evidence paths.
-
-## Production and development state
-
-`aurora-cloud` on JASMIN is the production endpoint for
-`data.gamb2le.co.uk`. It is the only host that should run normal source-sync,
-append, quicklook, Operations, alert, and GWS writer timers after cutover.
-
-`aurora-cloud-droplet` on DigitalOcean is the public development endpoint for
-`data-ocean.gamb2le.co.uk`. It should not run normal production-path writer
-timers. Independent staged timers mirror production raw and product families,
-the site displays the development banner, and Operations reports the public
-dashboard-product mirror lag.
-
-Unattended Tailscale SSH from the droplet to `ass-proxmox-linux` and
-`aps-proxmox-linux` must use an `accept` policy for Linux user `aurora`, not an
-interactive `check` policy. CL61 source sync now uses the ASS Linux data path
-at `100.124.55.22:/home/aurora/data/cl61`.
-
-The active droplet data disk is shared by `/data` and `/project`. Use the live
-Operations and host metrics before making a capacity decision; historical VM
-sizes in this documentation are not a scaling recommendation.
-
-Docs are published through the central `GAMB2LE/mkdocs-portal` build only. This
-repo keeps `trigger-docs.yml` for portal dispatch and no longer deploys a
-standalone repo-local Pages site.
-
-## Key docs in this site
-
-- **Operator Quickstart** for the concise, read-only login and system-health
-  check used during an incident
-- **Historical Rebuild Plan** for the original build record; do not use it as a
-  current operations runbook
-- **Production and Development** for host roles, release policy, mirror checks,
-  and rollback rules
-- **Failover** for the current manual promotion and failback gates
-- **Reverse Tunnels** for cloud-side source access and staged rollout checks
-- **Data Locations** for source, local raw, local product, GWS, object-store,
-  evidence, and active Zarr paths
-- **Backups and Archive Services** for the authoritative copy, verification,
-  repair, status, and retention contract
-- **Source Syncs** for per-instrument sync behavior and deployment details
-- **MX4 Camera FTP Ingest** for the MOBOTIX camera FTP endpoint and camera-side
-  exposure/upload settings
-- **AURORACam Source Sync** for the cloud mirror, metadata Zarr, and dashboard
-  media route
-
-## Safe working pattern
-
-Typical first checks:
-
-```bash
-uv run ansible-galaxy collection install -r requirements.yml
-uv run ansible-playbook playbooks/audit.yml
-uv run ansible-playbook playbooks/site.yml --check --diff
-```
-
-Avoid applying `playbooks/site.yml` directly until secrets, auth, and any
-production drift have been checked carefully.
-
-## Source repository
-
-- GitHub: <https://github.com/GAMB2LE/aurora-cloud-infra>
+This documentation is built by `GAMB2LE/mkdocs-portal`. A local strict build
+checks links and navigation; a successful portal deployment and a rendered page
+check establish publication.

@@ -55,6 +55,34 @@ not be treated as an independent production writer.
    cat /data/aurora/internal/dev-live-mirror/last_success.json
    ```
 
+## Check storage before restarting jobs
+
+On each named host, these commands only read the actual backing filesystem:
+
+```bash
+findmnt -T /project/aurora/raw
+findmnt -T /data/aurora/products
+df -hT /project/aurora/raw /data/aurora/products
+df -i /project/aurora/raw /data/aurora/products
+quota -s
+```
+
+Check the service account's quota and any Ceph/project quota as well. A missing
+`quota` command or a blank report is not proof that there is no quota. Record
+that limit as unverified until the storage-specific report is checked. Shared
+mounts must not be counted as separate free capacity. Check binds with `findmnt`
+before treating a relocated cache as safe.
+
+I keep enough space for the largest relevant job reservation plus seven days
+of measured net growth. Record free bytes at consistent UTC intervals and use
+the recent sustained growth, including pending catch-up. If that record is
+missing, measure it and keep the storage gate open; do not invent a rate.
+
+Remove only verified disposable material. A relocation needs a closed data
+set, copied bytes, checksum verification and a tested access path before the
+old copy can be removed. Preserve raw observations and archive evidence. Do not
+run a recursive delete to make a full filesystem look healthy.
+
 ## Read archive status correctly
 
 The development mirror is not a backup gate. Archive authority comes from the
@@ -104,6 +132,17 @@ Configured paths and stream-specific commands are in [Data Locations](DATA_LOCAT
 and the **Source Syncs** pages. Use the Operations Dashboard as the source of
 truth for *current* freshness and service health; repository documentation is
 the intended operating contract.
+
+## Release or recover
+
+Use [Releases](RELEASES.md) for tested commits on `main`, exact deployment pins
+and rollback. Presentation recovery may use a separate checkout so scheduled
+scientific writers keep their existing code. Use [Failover](FAILOVER.md) for
+outage reconciliation and any deliberate ownership transfer.
+
+The iOS and Android repositories own their build/signing procedures. Record
+build, upload, processing, tester availability and device checks separately;
+an upload alone is not a usable beta release.
 
 ## Escalate with useful evidence
 

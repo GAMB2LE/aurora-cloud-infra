@@ -6,6 +6,15 @@
   serial: 1
   any_errors_fatal: true
   tasks:
+    - name: Require review of the shared scientific writer checkout change
+      ansible.builtin.assert:
+        that:
+          - aurora_shared_writer_source_change_reviewed | default(false) | bool
+        fail_msg: >-
+          This checkout is also used by scheduled scientific writers. Set
+          aurora_shared_writer_source_change_reviewed=true only after reviewing
+          that impact. Use an isolated presentation checkout for UI-only recovery.
+
     - name: Require exact current and target source revisions
       ansible.builtin.assert:
         that:
