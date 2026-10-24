@@ -77,3 +77,20 @@ This is BLE acquisition/product commissioning, not evidence that all archive
 queues are drained or that the operational mobile mirror has passed its full
 acceptance gate. The development direct-field continuity service remains a
 separate path. Current procedures are in [BLE enclosure data](../BLESENSORS.md).
+
+## Archive verifier refresh
+
+The normal verifier completed a new full pass at 07:20:36 (its summary records
+07:10:56 as the run start). The BLE section now contains 25 source files, 25
+local files and 23 GWS files, with zero missing or mismatched files in the
+settled local and GWS windows. The product gate passed and the appender had a
+successful exit at 07:19:19. The two newest files were outside the settled GWS
+window; the total GWS coverage was 92%, not complete all-file coverage.
+
+The archive health snapshot at 07:21:28 no longer reported invalid BLE source
+evidence. All four BLE settled-source missing/mismatch counts were zero, the
+source timer was active and enabled, and the source service was healthy. The
+BLE prune-ready state was still zero. Verification used size and modification
+time (`checksum_mode=none`); this does not establish independent object-store
+parity. Other archive failures remained, and retention stayed disabled. No
+archive policy change or separate verifier run was needed.
