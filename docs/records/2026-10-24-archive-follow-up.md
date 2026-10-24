@@ -264,3 +264,46 @@ helper and completed successfully. Its existing timer remained active, and the
 stage receipt recorded two seconds and zero changed bytes. This confirms the
 inactive-guard sender path after installation; mount acceptance still awaits the
 reviewed cutover and full mounted verification.
+
+
+## Fresh archive confirmations and storage gate, 08:35–08:53 UTC
+
+D04 completed its 96-file SHA/metadata proof at 08:35:06, with manifest SHA-256
+`96ee0384d6611784b413f556c8071c111fa09810fb42f3a6e116a19ae3c5cb7b`.
+D05 then continued under the original stage process. After the user resumed work,
+the 08:53 readback found D02–D04 manifests unchanged, D05 at 52.295 GB allocated
+and D13 unstarted. The production active record and temporary hold were absent.
+
+The products observation completed at 08:26:02: all 1,384,637 settled local objects
+matched both GWS and S3, with zero missing, size or checksum differences. GWS's
+137,474 and S3's 108,927 additional entries were retained. Its unsettled window
+contained 2,302 missing and 935 size-different objects. This supersedes the older
+27,523 settled missing-product count; it is not permission to discard extra objects.
+
+The second raw observation completed at 08:39:03. All 893,307 settled local objects
+matched S3, with zero missing or mismatched entries and 1,907 retained extras.
+The separate canonical-source/GWS comparison matched 318,046 of 318,088 entries;
+42 native radar files remained missing, with zero size or checksum differences.
+The pending window contained 21 missing and two size-different entries.
+
+At 08:53, the raw queue was idle with no confirmation remaining or error, and its
+independent retention gate was ready. The persistent service hold still blocked
+pruning: retention had MainPID zero and its previous failed state, with both loaded
+conditions present. Retention and bulk-backfill timers remained disabled/inactive.
+Products still needed its second confirmation; unattended acceptance remained
+under validation, including native delivery debt and the existing Operations alert.
+
+The fresh five-day capacity projection included 54,622,066,409 bytes of native debt.
+It left 654,477,925,143 bytes on `/project` after that backlog, above the separate
+617,088,629,797-byte future seven-day target. `/data` projected 58,282,516,480 bytes
+after copying, only 4,595,425,280 above archive recovery's existing 50 GiB floor.
+The earlier relocation-only 40 GiB reserve was insufficient as the shared floor;
+the reviewed plan and preparation guard now preserve the stricter requirement.
+
+Other `/data` usage had grown about 1.591 GB since staging started, after excluding
+allocated stage bytes. It had peaked near 2.284 GB and then fallen as existing
+archive work completed. The recent 08:38–08:53 interval grew about 0.123 GB. Keeping
+the initial conservative 2.3 GB/hour allowance for the remaining copy, a 100-minute
+mounted verification and ten-minute drain exceeded the 08:53 spare margin by about
+0.65–0.81 GB. D13 remained held pending a fresh admissible projection. No reserve
+was lowered, no observation was removed and no cache cleanup was assumed.

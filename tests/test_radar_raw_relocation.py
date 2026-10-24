@@ -171,8 +171,8 @@ def test_prepare_never_starts_mounts_or_services_and_plan_preserves_paths():
     plan = yaml.safe_load((ROOT / 'inventory/radar-relocation-20261024.example.yml').read_text())['aurora_radar_relocation_plan']
     assert len(plan['days']) == 5 and plan['expected_files_per_day'] == 96
     assert plan['expected_files_by_day'] == {'Y2026/M05/D13': 64}
-    assert plan['project_required_free_bytes'] == 617088629797 + 51015441637
-    assert plan['data_reserve_bytes'] == 40 * relocate.GIB
+    assert plan['project_required_free_bytes'] == 617088629797 + 54622066409
+    assert plan['data_reserve_bytes'] == 50 * relocate.GIB
     unit = relocate.unit_text('/project/aurora/raw/rpgfmcw94/Y2026/M05/D02', '/data/aurora/raw-relocated/rpgfmcw94/Y2026/M05/D02')
     assert 'Requires=project.mount data.mount' in unit
     assert 'After=project.mount data.mount' in unit
@@ -638,3 +638,24 @@ def test_active_record_changed_during_read_does_not_replace_proof(layout):
         with pytest.raises(RuntimeError, match='active cutover changed'):
             relocate.verify_day(plan, plan['days'][0], mounted=True)
     assert relocate.manifest_path(plan, plan['days'][0]).read_bytes() == before
+
+
+@pytest.mark.parametrize('enabled, configured_gib, plan_gib, passes', [
+    (True, 50, 40, False), (True, 50, 50, True),
+    (True, 60, 50, False), (True, 60, 60, True),
+    (False, 50, 40, True),
+])
+def test_prepare_enforces_active_archive_reserve(tmp_path, enabled, configured_gib, plan_gib, passes):
+    """Run the actual preparation assertions without installing files or services."""
+    tasks = yaml.safe_load((ROOT / 'roles/radar_raw_relocation/tasks/main.yml').read_text())
+    plan = yaml.safe_load((ROOT / 'inventory/radar-relocation-20261024.example.yml').read_text())['aurora_radar_relocation_plan']
+    plan['data_reserve_bytes'] = plan_gib * relocate.GIB
+    play = tmp_path / 'capacity-assertions.yml'
+    play.write_text(yaml.safe_dump([{'hosts': 'all', 'gather_facts': False,
+        'vars': {'aurora_radar_relocation_plan': plan,
+                 'object_store_recovery_enabled': enabled,
+                 'object_store_recovery_free_reserve_bytes': configured_gib * relocate.GIB},
+        'tasks': tasks[:2]}]))
+    result = subprocess.run(['ansible-playbook', '-i', 'localhost,', '--connection', 'local', str(play)],
+                            cwd=ROOT, capture_output=True, text=True)
+    assert (result.returncode == 0) == passes, result.stdout + result.stderr
