@@ -110,6 +110,14 @@ def progress_path(plan, day):
     return Path(plan['state_root']) / (day.replace('/', '-') + '-release.json')
 
 
+def require_not_withdrawn(plan):
+    # A partial withdrawal is permanent evidence too. Never refill or publish a
+    # withdrawn stage using old receipts; a future relocation needs a new plan.
+    marker = Path(plan['state_root']) / 'stage-withdrawal.json'
+    if os.path.lexists(marker):
+        raise RuntimeError('Staging withdrawal recorded; use a separately reviewed new plan')
+
+
 def original_snapshot(plan, day, origin, evidence):
     """A missing original is valid only after its durable release intent exists."""
     progress_file = progress_path(plan, day)
@@ -221,6 +229,7 @@ def inspect(plan):
 
 def stage(plan, day):
     """Copy into a separate tree; every source byte and metadata stay in place."""
+    require_not_withdrawn(plan)
     inspect(plan)
     source, target, quarantine = paths(plan, day)
     if quarantine.exists() or os.path.ismount(source):
@@ -304,6 +313,7 @@ def require_mounted_verification(plan, day, evidence):
 
 
 def verify_day(plan, day, mounted=False, quarantine_origin=False):
+    require_not_withdrawn(plan)
     source, target, quarantine = paths(plan, day)
     evidence = json.loads(manifest_path(plan, day).read_text())
     origin = quarantine if mounted or quarantine_origin else source
@@ -440,6 +450,7 @@ def write_text(path, text):
 
 
 def cutover(plan):
+    require_not_withdrawn(plan)
     """Keep originals in quarantine; an interrupted cutover stays fail closed."""
     assert_paused(plan)
     inspect(plan)
