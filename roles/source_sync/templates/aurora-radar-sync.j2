@@ -8,7 +8,7 @@ source_user={{ radar_source_user | quote }}
 source_host={{ radar_source_host | quote }}
 source_port={{ radar_source_port | int }}
 source_path={{ radar_source_path | quote }}
-source_pattern={{ radar_source_pattern | quote }}
+source_pattern={{ radar_live_source_pattern | quote }}
 destination={{ radar_source_destination | quote }}
 state_file={{ radar_source_state_file | quote }}
 bootstrap_lookback_seconds={{ radar_source_bootstrap_lookback_seconds | int }}
@@ -73,7 +73,7 @@ import sys
 from pathlib import Path
 
 workdir, maximum = Path(sys.argv[1]), int(sys.argv[2])
-files, priority, total = [], [], 0
+files, total = [], 0
 for record in (workdir / 'records').read_bytes().split(b'\0'):
     if not record:
         continue
@@ -83,12 +83,9 @@ for record in (workdir / 'records').read_bytes().split(b'\0'):
         raise SystemExit('Invalid radar source record')
     total += int(raw_size)
     files.append(relative)
-    if relative.endswith(b'.LV1.NC'):
-        priority.append(relative)
 if total > maximum:
     raise SystemExit(f'Radar live batch hold: selected={total}, maximum={maximum}; use a bounded recovery window')
-for name, rows in [('files', files), ('priority', priority)]:
-    (workdir / name).write_bytes(b''.join(row + b'\0' for row in rows))
+(workdir / 'files').write_bytes(b''.join(row + b'\0' for row in files))
 print(total)
 PY
 )"
@@ -97,12 +94,8 @@ PY
 echo "Radar live selection: $selected_bytes bytes; recovery=$recovery."
 
 if [[ -s "$files_from" ]]; then
-  # Publish the small LV1 inputs before the much larger LV0 history. Both passes
-  # share the full uncompressed capacity reservation; compression changes no data.
-  if [[ -s "$workdir/priority" ]]; then
-    rsync -az --partial --timeout=120 --from0 --files-from="$workdir/priority" \
-      -e "ssh ${ssh_opts[*]}" "${source_user}@${source_host}:${source_path%/}/" "${destination%/}/"
-  fi
+  # The live lane carries LV1 NetCDF for freshness. The independent bounded
+  # backfill retains responsibility for every native class and its archive debt.
   rsync -az --partial --timeout=120 --from0 --files-from="$files_from" \
     -e "ssh ${ssh_opts[*]}" "${source_user}@${source_host}:${source_path%/}/" "${destination%/}/"
   if [[ -x /usr/local/bin/aurora-archive-dispatch ]]; then

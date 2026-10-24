@@ -470,6 +470,8 @@ radar_backfill_workers: 4
 radar_source_required_mount: /project
 # A stale live checkpoint must not turn a short source job into bulk backfill.
 radar_source_max_batch_bytes: 8589934592
+# Keep large native/LV0 files in bounded backfill; never delay fresh LV1 inputs.
+radar_live_source_pattern: "*.LV1.NC"
 radar_backfill_free_reserve_bytes: 8589934592
 radar_backfill_partial_audit: "{{ aurora_state_root }}/radar-partial-reclamation.jsonl"
 radar_backfill_batch_files: 24
