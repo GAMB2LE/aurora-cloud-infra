@@ -160,9 +160,15 @@ def test_failed_evidence_fsync_keeps_all_originals(layout):
 
 def test_prepare_never_starts_mounts_or_services_and_plan_preserves_paths():
     tasks = yaml.safe_load((ROOT / 'roles/radar_raw_relocation/tasks/main.yml').read_text())
-    assert not any('ansible.builtin.systemd' in task or 'ansible.builtin.systemd_service' in task for task in tasks)
+    assert all(set(task.get('ansible.builtin.systemd', {})) <= {'daemon_reload'} for task in tasks)
+    helper = next(i for i,t in enumerate(tasks) if t['name'] == 'Install bounded relocation helper')
+    config = next(i for i,t in enumerate(tasks) if t['name'] == 'Install reviewed relocation plan without activating it')
+    assert helper < config  # Staging may load the next day between these tasks.
+    assert not any(t.get('ansible.builtin.copy', {}).get('dest') == '/etc/aurora/radar-relocation.hold' for t in tasks)
     plan = yaml.safe_load((ROOT / 'inventory/radar-relocation-20261024.example.yml').read_text())['aurora_radar_relocation_plan']
-    assert len(plan['days']) == 4 and plan['expected_files_per_day'] == 96
+    assert len(plan['days']) == 5 and plan['expected_files_per_day'] == 96
+    assert plan['expected_files_by_day'] == {'Y2026/M05/D13': 64}
+    assert plan['project_required_free_bytes'] == 617088629797 + 51015441637
     assert plan['data_reserve_bytes'] == 40 * relocate.GIB
     unit = relocate.unit_text('/project/aurora/raw/rpgfmcw94/Y2026/M05/D02', '/data/aurora/raw-relocated/rpgfmcw94/Y2026/M05/D02')
     assert 'Requires=project.mount data.mount' in unit
@@ -206,11 +212,12 @@ def test_mount_start_failure_preserves_originals_for_rollback(layout, tmp_path):
         with pytest.raises(RuntimeError, match='not mounted'): relocate.guard(plan)
 
 
-def test_active_or_queued_consumer_blocks_cutover(layout):
+def test_active_or_queued_consumer_blocks_cutover(layout, tmp_path):
     plan, _, _, _ = layout
-    for state in ('LoadState=loaded\nActiveState=active\nMainPID=0\nJob=0',
-                  'LoadState=loaded\nActiveState=inactive\nMainPID=0\nJob=123'):
-        with patch.object(relocate.subprocess, 'check_output', return_value=state):
+    install_test_barrier(plan, tmp_path)
+    for state in ('LoadState=loaded\nActiveState=active\nMainPID=0\nJob=0\nNeedDaemonReload=no',
+                  'LoadState=loaded\nActiveState=inactive\nMainPID=0\nJob=123\nNeedDaemonReload=no'):
+        with patch.object(relocate, 'SYSTEMD_ROOT', tmp_path / 'systemd'), patch.object(relocate.subprocess, 'check_output', return_value=state):
             with pytest.raises(RuntimeError, match='Pause and drain'): relocate.assert_paused(plan)
 
 
@@ -437,3 +444,66 @@ def test_late_change_to_already_hashed_destination_never_becomes_valid_proof(lay
     proof = relocate.manifest_path(plan, plan['days'][0])
     if old_proof is None: assert not proof.exists()
     else: assert proof.read_bytes() == old_proof
+
+
+def install_test_barrier(plan, tmp_path):
+    plan['launch_hold'] = str(tmp_path / 'relocation.hold')
+    plan['launchers'] = ['aurora-object-store-recovery.service']
+    Path(plan['launch_hold']).write_text('owned test hold')
+    for service in plan['consumers']:
+        path = tmp_path / 'systemd' / (service + '.d') / '50-radar-relocation-hold.conf'
+        path.parent.mkdir(parents=True)
+        path.write_text(relocate.launch_hold_text(plan))
+
+
+def test_launch_barrier_required_loaded_and_launcher_drained(layout, tmp_path):
+    plan, _, _, _ = layout
+    with pytest.raises(RuntimeError, match='Activate'):
+        relocate.assert_paused(plan)
+    install_test_barrier(plan, tmp_path)
+    state = 'LoadState=loaded\nActiveState=inactive\nMainPID=0\nJob=0\nNeedDaemonReload=no'
+    with patch.object(relocate, 'SYSTEMD_ROOT', tmp_path / 'systemd'):
+        with patch.object(relocate.subprocess, 'check_output', return_value=state) as check:
+            relocate.assert_paused(plan)
+            assert any('aurora-object-store-recovery.timer' in call.args[0] for call in check.call_args_list)
+        with patch.object(relocate.subprocess, 'check_output', return_value=state.replace('Reload=no', 'Reload=yes')):
+            with pytest.raises(RuntimeError, match='Reload'):
+                relocate.assert_paused(plan)
+        barrier = tmp_path / 'systemd' / (plan['consumers'][0] + '.d') / '50-radar-relocation-hold.conf'
+        barrier.write_text('[Unit]\n')
+        with pytest.raises(RuntimeError, match='Missing or changed'):
+            relocate.assert_paused(plan)
+
+
+@pytest.mark.parametrize('unit', ['aurora-object-store-recovery-worker@products.service', 'aurora-worker@raw.service', 'aurora-worker@raw.service\nOther=bad'])
+def test_only_explicit_raw_worker_instance_is_allowed(layout, tmp_path, unit):
+    plan, _, _, _ = layout
+    config = tmp_path / 'config.json'
+    config.write_text(json.dumps({**plan, 'consumers': [unit]}))
+    with pytest.raises(ValueError, match='consumer'):
+        relocate.load(config)
+    config.write_text(json.dumps({**plan, 'consumers': ['aurora-object-store-recovery-worker@raw.service']}))
+    assert relocate.load(config)['consumers'] == ['aurora-object-store-recovery-worker@raw.service']
+
+
+@pytest.mark.parametrize('override', [{'Y2026/M05/D13': 64}, {'Y2026/M05/D02': 0}, {'Y2026/M05/D02': True}, {'Y2026/M05/D02': '2'}])
+def test_count_override_requires_reviewed_day_and_positive_integer(layout, tmp_path, override):
+    plan, _, _, _ = layout
+    config = tmp_path / 'config.json'
+    config.write_text(json.dumps({**plan, 'expected_files_by_day': override}))
+    with pytest.raises(ValueError, match='explicitly reviewed'):
+        relocate.load(config)
+
+
+def test_named_count_override_does_not_weaken_other_days(layout, tmp_path):
+    plan, source, target, _ = layout
+    plan['expected_files_per_day'] = 96
+    plan['expected_files_by_day'] = {plan['days'][0]: 2}
+    config = tmp_path / 'config.json'
+    config.write_text(json.dumps(plan))
+    checked = relocate.load(config)
+    assert relocate.expected_files(checked, 'Y2026/M05/D03') == 96
+    assert relocate.stage(checked, plan['days'][0])['files'] == 2
+    del checked['expected_files_by_day']
+    with pytest.raises(RuntimeError, match='file count'):
+        relocate.inspect(checked)

@@ -340,6 +340,28 @@ class QueueTests(unittest.TestCase):
         new=self.q.claim('raw')
         self.assertEqual(old['verification_id'],new['verification_id'])
 
+    def test_condition_skipped_launch_preserves_durable_debt_and_epoch(self):
+        self.q.enqueue(['raw'])
+        epoch=self.q.claim('raw')
+        self.q.fail(epoch,RuntimeError('interrupted transfer'))
+        self.now=self.q.row('raw')['next_retry_at']+1
+        before=self.q.row('raw')
+        # systemctl succeeds for a condition-skipped start, but no worker claims it.
+        self.assertEqual(self.q.launch_ready(lambda name: None),['raw'])
+        self.assertEqual(self.q.row('raw')['state'],'launching')
+        self.q.close()
+        self.q=recovery.Queue(self.config,clock=lambda:self.now)
+        self.now+=121
+        self.q.recover_workers(lambda name:False)
+        after=self.q.row('raw')
+        self.assertEqual(after['state'],'retry_wait')
+        for key in ('remaining','generation','verification_id','evidence_started_at','attempt_count'):
+            self.assertEqual(after[key],before[key],key)
+        self.assertEqual(self.q.launch_ready(lambda name: None),['raw'])
+        replay=self.q.claim('raw')
+        self.assertEqual(replay['verification_id'],epoch['verification_id'])
+        self.assertEqual(replay['generation'],epoch['generation'])
+
     def test_auth_failure_blocks_until_operator_change(self):
         class AuthError(Exception):
             error_class='auth'

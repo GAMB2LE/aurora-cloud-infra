@@ -6,9 +6,22 @@
       - aurora_radar_relocation_plan.project_required_free_bytes | int > 0
       - aurora_radar_relocation_plan.data_reserve_bytes | int >= 42949672960
       - aurora_radar_relocation_plan.days | length > 0
+      - aurora_radar_relocation_plan.launch_hold == '/etc/aurora/radar-relocation.hold'
+      - aurora_radar_relocation_plan.launchers == ['aurora-object-store-recovery.service']
       - aurora_radar_relocation_plan.raw_root == '/project/aurora/raw/rpgfmcw94'
       - aurora_radar_relocation_plan.destination_root == '/data/aurora/raw-relocated/rpgfmcw94'
       - aurora_radar_relocation_plan.quarantine_root is match('^/project/aurora/recovery/radar-relocation-[0-9]+$')
+
+- name: Inspect existing temporary operator barrier
+  ansible.builtin.stat:
+    path: "{{ aurora_radar_relocation_plan.launch_hold }}"
+  register: radar_relocation_hold
+
+- name: Keep preparation separate from an active cutover
+  ansible.builtin.assert:
+    that:
+      - not radar_relocation_hold.stat.exists
+    fail_msg: Finish or recover the owned relocation hold before changing its plan.
 
 - name: Prepare relocation configuration directory
   ansible.builtin.file:
@@ -18,15 +31,6 @@
     group: root
     mode: '0755'
 
-- name: Install reviewed relocation plan without activating it
-  ansible.builtin.copy:
-    content: "{{ aurora_radar_relocation_plan | to_nice_json }}\n"
-    dest: /etc/aurora/radar-relocation-plan.json
-    owner: root
-    group: root
-    mode: '0644'
-    backup: true
-
 - name: Install bounded relocation helper
   ansible.builtin.copy:
     src: aurora-radar-relocation.py
@@ -34,6 +38,15 @@
     owner: root
     group: root
     mode: '0755'
+    backup: true
+
+- name: Install reviewed relocation plan without activating it
+  ansible.builtin.copy:
+    content: "{{ aurora_radar_relocation_plan | to_nice_json }}\n"
+    dest: /etc/aurora/radar-relocation-plan.json
+    owner: root
+    group: root
+    mode: '0644'
     backup: true
 
 - name: Persist shared reader and exclusive cutover lock after reboot
@@ -48,3 +61,30 @@
   ansible.builtin.command: systemd-tmpfiles --create /etc/tmpfiles.d/aurora-radar-relocation.conf
   changed_when: false
   when: not ansible_check_mode
+
+- name: Prepare inert launch barrier directories for every raw reader
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ item }}.d"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ aurora_radar_relocation_plan.consumers }}"
+
+- name: Install launch barriers without creating the operator hold
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      # Block new raw readers while a reviewed relocation is in progress.
+      ConditionPathExists=!{{ aurora_radar_relocation_plan.launch_hold }}
+    dest: "/etc/systemd/system/{{ item }}.d/50-radar-relocation-hold.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ aurora_radar_relocation_plan.consumers }}"
+  register: radar_relocation_barriers
+
+- name: Load inert launch barriers without starting or stopping services
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: radar_relocation_barriers.changed
