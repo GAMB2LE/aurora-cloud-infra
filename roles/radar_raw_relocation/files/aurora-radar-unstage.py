@@ -109,13 +109,17 @@ def stage_idle():
             fail('Stage process or queued start remains: ' + unit)
 
 
-def mounted_paths():
+def mount_records():
     mounts = []
     for line in Path('/proc/self/mountinfo').read_text().splitlines():
         fields = line.split()
         if len(fields) < 10 or '-' not in fields:
             fail('Incomplete mount inventory')
-        mounts.append(Path(re.sub(r'\\([0-7]{3})', lambda m: chr(int(m[1], 8)), fields[4])))
+        def decoded(value):
+            return Path(re.sub(r'\\([0-7]{3})', lambda m: chr(int(m[1], 8)), value))
+        major, minor = (int(value) for value in fields[2].split(':'))
+        mounts.append({'path': decoded(fields[4]), 'root': decoded(fields[3]),
+                       'device': os.makedev(major, minor)})
     if not mounts:
         fail('Empty mount inventory')
     return mounts
@@ -127,7 +131,7 @@ def check_topology(module, plan):
     if plan.get('launch_hold') and present(plan['launch_hold']):
         fail('Cutover launch barrier remains')
     module.mount_roots(plan)
-    mounts = mounted_paths()
+    mounts = mount_records()
     for day in plan['days']:
         source, target, quarantine = module.paths(plan, day)
         if present(quarantine) or present(module.progress_path(plan, day)):
@@ -135,12 +139,26 @@ def check_topology(module, plan):
         for root, volume in ((source, Path(plan['project_mount'])),
                              (target, Path(plan['data_mount'])),
                              (quarantine, Path(plan['project_mount']))):
+            base = [mount for mount in mounts if mount['path'] == volume]
+            if len(base) != 1:
+                fail('Ambiguous or missing volume mount identity: ' + str(volume))
+            selected_root = base[0]['root'] / root.relative_to(volume)
             for mount in mounts:
-                if mount == volume:
+                if mount == base[0]:
                     continue
-                if (mount == root or root in mount.parents
-                        or (mount in root.parents and volume in mount.parents)):
-                    fail('Selected tree has an unexpected mount: ' + str(mount))
+                point = mount['path']
+                if (point == root or root in point.parents
+                        or (point in root.parents and volume in point.parents)):
+                    fail('Selected tree has an unexpected mount: ' + str(point))
+                # A bind outside the selected paths can still expose these same
+                # bytes. Compare the kernel filesystem device and internal root,
+                # including aliases of a whole ancestor or any selected subtree.
+                alias = mount['root']
+                if (mount['device'] == base[0]['device']
+                        and (alias == selected_root or alias in selected_root.parents
+                             or selected_root in alias.parents)):
+                    fail('Selected tree has an external mount alias: ' + str(point))
+
 
 
 def closed_users(roots, identities):

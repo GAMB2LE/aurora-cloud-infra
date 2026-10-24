@@ -30,7 +30,9 @@ def staged(layout, monkeypatch):
                'manifests': {day: unstage.digest(relocate.manifest_path(plan, day).read_bytes()) for day in plan['days']}}
     monkeypatch.setattr(unstage, 'OWNER', os.geteuid())
     monkeypatch.setattr(unstage, 'stage_idle', lambda: None)
-    monkeypatch.setattr(unstage, 'mounted_paths', lambda: [Path('/')])
+    monkeypatch.setattr(unstage, 'mount_records', lambda: [
+        {'path': Path(plan[key]), 'root': Path(plan[key]), 'device': source.stat().st_dev}
+        for key in ('project_mount', 'data_mount')])
     monkeypatch.setattr(unstage, 'closed_users', lambda *_: None)
     monkeypatch.setattr(relocate, 'ACTIVE', config.parent / 'active.json')
     lock = config.parent / 'lock'
@@ -113,7 +115,8 @@ def test_cutover_and_release_state_forbid_withdrawal(staged, state):
 def test_bind_mounts_and_submounts_rejected_even_on_same_device(staged, mount_kind):
     source, target = staged[1:3]
     mount = {'source': source, 'target': target, 'nested': target / 'one.LV0', 'ancestor': target.parent}[mount_kind]
-    with patch.object(unstage, 'mounted_paths', return_value=[Path('/'), mount]):
+    records = unstage.mount_records() + [{'path': mount, 'root': mount, 'device': source.stat().st_dev}]
+    with patch.object(unstage, 'mount_records', return_value=records):
         with pytest.raises(RuntimeError, match='unexpected mount'):
             run(staged, apply=True)
     assert not journal(staged).exists()
@@ -311,3 +314,17 @@ def test_incomplete_withdrawal_cannot_resume_after_proof_expires(staged):
         with pytest.raises(RuntimeError, match='expired'):
             run(staged, apply=True, resume=True)
     assert len(list(staged[2].iterdir())) == 2
+
+
+@pytest.mark.parametrize('side', [1, 2])
+@pytest.mark.parametrize('extent', ['day', 'ancestor', 'file'])
+def test_external_bind_alias_refuses_without_open_users(staged, side, extent):
+    tree = staged[side]
+    alias_root = {'day': tree, 'ancestor': tree.parent, 'file': tree / 'one.LV0'}[extent]
+    records = unstage.mount_records() + [{'path': Path('/unrelated/external-alias'),
+                                         'root': alias_root, 'device': tree.stat().st_dev}]
+    with patch.object(unstage, 'mount_records', return_value=records):
+        with pytest.raises(RuntimeError, match='external mount alias'):
+            run(staged, apply=True)
+    assert len(list(staged[2].iterdir())) == 2
+    assert not journal(staged).exists()
