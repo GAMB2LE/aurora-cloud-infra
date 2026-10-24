@@ -273,3 +273,21 @@ were verified. Its manifest at
 D03 started next. This first receipt does not stand in for the remaining three
 days; cutover and release remain held until all four receipts and the final
 capacity checks have been reviewed.
+
+### Sender lock lifetime checked before cutover
+
+A final process check found that `sudo` closes the inherited relocation lock
+descriptor. The helper now retains the lock in a supervising parent until the
+sender exits. It forwards TERM, INT and HUP, preserves the sender's status and
+waits even if a privileged child cannot be signalled. In that denied-signal case,
+it reports cancellation only after the child finishes.
+
+The candidate SHA-256
+`b971a69e63011866a1a8515a9f31ea0226b37eed6676820579212aea2be0360d`
+passed 58 focused tests, including a sender that closes inherited descriptors,
+signal cleanup, denied signals and exit status. A disposable test used the actual
+DO SSH route to `azimuth` and `sudo` on JASMIN. A separate exclusive-lock probe was
+blocked while the sender ran and succeeded after ordinary exit 23 and TERM exit
+143. It used a separate test lock because the production staging process already
+holds its own shared lock. These are candidate results; installation still needs
+its own receipt. Production relocation remained inactive throughout.

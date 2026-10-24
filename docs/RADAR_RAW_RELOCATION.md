@@ -74,9 +74,17 @@ playbook while its source timer is paused. Enable
 `aurora_standby_raw_relocation_guard: true` for the DO transport, using the exact
 installed wrapper checksum with `playbooks/mirror_transport_release.yml`. Prepare
 the primary helper first. That remote guard is harmless before activation and
-holds a shared lock through each raw radar sender. A missing nested mount then
+holds a shared lock in its parent process until each raw radar sender exits.
+This includes privileged senders: `sudo` closes inherited file descriptors, so
+passing the lock into `sudo` is insufficient. The parent forwards termination
+signals to the sender group, waits for completion and returns its status without
+adding output to the rsync protocol. A missing nested mount then
 fails the transfer without advancing a mirror success stamp. Persist the setting
 in the host inventory when commissioned.
+
+If a sender supervisor is killed forcibly or crashes, inspect and drain any
+remaining remote rsync processes before cutover; an unlocked file alone is not
+proof that an orphaned reader has stopped.
 
 ## Cut over with the originals still present
 
