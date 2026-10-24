@@ -44,7 +44,7 @@ volumes before copying and cutover. The recorded arrival rate was 84,856,499,251
 bytes/day; seven future days plus 8 GiB and four largest in-flight files require
 617,088,629,797 free bytes on `/project` after delivery of existing debt. The fresh
 08:06 source comparison found 44 missing native files totalling 51,015,441,637
-bytes. The plan therefore requires 668,104,071,434 bytes before native backfill.
+bytes. That first plan required 668,104,071,434 bytes before native backfill.
 The four original days alone would not meet this post-backlog headroom gate.
 
 At 08:06, the five-day projection left 709,263,569,408 bytes on `/project`, or
@@ -55,6 +55,22 @@ subtracted once, including partial D03. These are dated estimates, not permissio
 to spend future free space. Recheck allocation, arrival rate, debt, quota and actual
 available bytes before D13 staging, cutover and backfill. Keep backfill held until
 its fresh post-backlog capacity calculation passes.
+
+The 08:53 refresh found 54,622,066,409 bytes of native debt, raising the dated
+primary minimum to 671,710,696,206 bytes. The active archive recovery has a stricter
+50 GiB `/data` floor, so the plan now uses that instead of the earlier 40 GiB.
+Preparation rejects a lower reserve when archive recovery is enabled. Re-read its
+actual configured reserve and use the stricter requirement before any copy or cutover.
+
+Also reserve measured non-staging growth for the remaining copy, consumer drain
+and full mounted-verification window. Track `/data` free bytes plus the actual
+allocated stage bytes to distinguish other growth from copying. Sample free space
+after counting pending copy bytes; a concurrent completed copy must not be credited
+against an older free-space reading. Credit source allocation only while every
+selected day remains unmounted on the original `/project` filesystem. After release,
+use actual free space without adding the moved bytes again. If the time allowance
+would cross the reserve, hold the next stage or cutover and report the shortfall.
+Do not weaken the floor or assume future cache cleanup.
 
 `expected_files_by_day` permits a positive exact count only for an explicitly
 listed day. The reviewed D13 override leaves all other days at 96. No other older

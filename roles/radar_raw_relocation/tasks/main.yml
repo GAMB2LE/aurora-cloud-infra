@@ -12,6 +12,13 @@
       - aurora_radar_relocation_plan.destination_root == '/data/aurora/raw-relocated/rpgfmcw94'
       - aurora_radar_relocation_plan.quarantine_root is match('^/project/aurora/recovery/radar-relocation-[0-9]+$')
 
+- name: Preserve the existing archive recovery capacity floor
+  ansible.builtin.assert:
+    that:
+      - aurora_radar_relocation_plan.data_reserve_bytes | int >= object_store_recovery_free_reserve_bytes | int
+    fail_msg: The relocation reserve must cover the existing archive recovery reserve.
+  when: object_store_recovery_enabled | default(false) | bool
+
 - name: Inspect existing temporary operator barrier
   ansible.builtin.stat:
     path: "{{ aurora_radar_relocation_plan.launch_hold }}"
