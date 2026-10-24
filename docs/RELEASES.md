@@ -66,6 +66,11 @@ the website. This does not change the collector command or the scientific writer
 checkout. I keep those separate so an older writer pin is not mistaken for the
 public dashboard version.
 
+Use the separate [operations collector release](OPERATIONS_COLLECTOR_RELEASE.md)
+when its snapshot code needs an update. That role changes only the primary
+collector command and working directory, then waits for its existing timer.
+It keeps the scientific writers and development continuity in place.
+
 Before releasing, preserve dirty files and deployed-only fixes in a reviewed
 branch. Build integration worktrees from current `origin/main`. Merge completed
 work through the repository checks, preserve unfinished experiments on named

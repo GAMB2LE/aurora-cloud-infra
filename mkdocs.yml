@@ -31,12 +31,14 @@ nav:
   - Historical Rebuild Plan: PLAN.md
   - Production and Development: PRODUCTION_DEVELOPMENT.md
   - Releases from Main: RELEASES.md
+  - Operations Collector Release: OPERATIONS_COLLECTOR_RELEASE.md
   - Operational Mobile Mirror: OPERATIONAL_MOBILE_MIRROR.md
   - Failover: FAILOVER.md
   - Development Experiments: DEVELOPMENT_EXPERIMENTS.md
   - Recovery Records:
       - Index: records/index.md
       - 24 October Primary Restoration: records/2026-10-24-primary-restoration.md
+      - 24 October SSH Wrapper Cleanup: records/2026-10-24-ssh-wrapper-cleanup.md
       - 23 October Forecast Continuity: POWER_FORECAST_CONTINUITY_INPUTS.md
   - Canonical Power Storage: CANONICAL_POWER_STORAGE.md
   - Closed Radar Storage: RADAR_RAW_RELOCATION.md
