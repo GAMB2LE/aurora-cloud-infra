@@ -1,0 +1,48 @@
+---
+# A stopped timer cannot block starts from archive workers' ExecStopPost hooks.
+- name: Prepare the persistent retention hold directory
+  ansible.builtin.file:
+    path: /etc/aurora
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Hold retention unless the coordinator and its schedule are enabled
+  ansible.builtin.copy:
+    content: "Retention is paused by inventory. Re-enable only after its separate archive and capacity gates pass.\n"
+    dest: /etc/aurora/ass-retention.hold
+    owner: root
+    group: root
+    mode: '0644'
+  when: not ((ass_retention_enabled | bool) and (ass_retention_timer_enabled | bool))
+
+- name: Prepare the retention condition directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/aurora-ass-retention.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Apply the persistent hold to every retention start
+  ansible.builtin.copy:
+    src: aurora-ass-retention-hold.conf
+    dest: /etc/systemd/system/aurora-ass-retention.service.d/50-operator-hold.conf
+    owner: root
+    group: root
+    mode: '0644'
+  register: retention_hold_condition
+
+- name: Release the hold only when both inventory switches are enabled
+  ansible.builtin.file:
+    path: /etc/aurora/ass-retention.hold
+    state: absent
+  when: (ass_retention_enabled | bool) and (ass_retention_timer_enabled | bool)
+
+- name: Load the retention condition without starting or resetting a service
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when:
+    - retention_hold_condition.changed
+    - not ansible_check_mode

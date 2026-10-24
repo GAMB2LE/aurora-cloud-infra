@@ -291,3 +291,23 @@ blocked while the sender ran and succeeded after ordinary exit 23 and TERM exit
 143. It used a separate test lock because the production staging process already
 holds its own shared lock. These are candidate results; installation still needs
 its own receipt. Production relocation remained inactive throughout.
+
+### Sender helper installed and holds persisted, 07:55 UTC
+
+PR83 merged as main `dd6e661` after all four checks passed. A helper-only release
+required the installed checksum `4d506324...a8a43a9` before replacement and changed
+exactly one file. The installed helper now matches the tested candidate
+`b971a69e63011866a1a8515a9f31ea0226b37eed6676820579212aea2be0360d`.
+The previous helper remains at
+`/usr/local/lib/aurora-radar-relocation.py.3884714.2026-10-24@07:55:08~`.
+The staging process kept PID 3753660, and the production active record stayed
+absent. The normal DO `raw-rpgfmcw94` stage then succeeded at 07:56:24 in
+one second, with zero bytes needing transfer, using the installed helper.
+
+A separate check found that the stopped native-backfill and retention timers
+were still enabled, so a reboot could re-arm them. I disabled only
+`aurora-radar-backfill.timer` and `aurora-ass-retention.timer`; both are now
+disabled and inactive. Their services retain their failed states, exit-code
+results and zero PIDs. The live LV1 timer remains enabled and active. This matches
+the existing main inventory settings `radar_backfill_timer_enabled: false` and
+`ass_retention_timer_enabled: false`. I did not mask or reset either service.
