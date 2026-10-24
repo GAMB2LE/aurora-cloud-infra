@@ -8,6 +8,8 @@ fi
 
 site_env={{ aurora_site_env | quote }}
 requested_stage="${1:-all}"
+canonical_power_guard_enabled={{ 'true' if aurora_standby_canonical_power_guard_enabled | default(false) | bool else 'false' }}
+power_mirror_held=false
 source_user={{ aurora_standby_primary_user | quote }}
 source_host={{ aurora_standby_primary_host | quote }}
 proxy_jump={{ aurora_standby_primary_proxy_jump | default("") | quote }}
@@ -16,6 +18,9 @@ known_hosts=/home/{{ aurora_service_user }}/.ssh/known_hosts
 state_root={{ aurora_standby_replication_state_root | quote }}
 public_stamp={{ aurora_dev_live_mirror_stamp | quote }}
 rsync_path={{ aurora_standby_replication_rsync_path | quote }}
+delete_enabled={{ 'true' if aurora_standby_replication_delete | default(false) | bool else 'false' }}
+reconciling={{ 'true' if aurora_standby_replication_reconciling | default(true) | bool else 'false' }}
+delete_stages={{ (aurora_standby_replication_delete_stages | default([]) | join(' ')) | quote }}
 
 mkdir -p "$state_root" "$(dirname "$known_hosts")" "$(dirname "$public_stamp")"
 touch "$known_hosts"
@@ -87,6 +92,7 @@ ssh_wrapper_tmp="${ssh_wrapper}.tmp.$$"
 } > "$ssh_wrapper_tmp"
 mv -f "$ssh_wrapper_tmp" "$ssh_wrapper"
 chmod 0700 "$ssh_wrapper"
+trap 'rm -f "$ssh_wrapper" "$ssh_wrapper_tmp"' EXIT
 
 rsync_common=(
   -aHAX
@@ -97,17 +103,22 @@ rsync_common=(
   --stats
   --timeout=120
   --delay-updates
-{% if aurora_standby_replication_delete | bool %}
-  --delete
-  --delete-delay
-{% endif %}
 )
 
 replicate_path() {
   local name="$1"
   local source_path="$2"
   local destination_path="$3"
-  shift 3
+  local source_lock="$4"
+  shift 4
+  local stage_rsync_path="$rsync_path"
+  if [[ -n "$source_lock" ]]; then
+    # Only stages declaring a source lock opt in. Hold the producer's shared
+    # lock throughout the remote sender so a directory swap cannot mix stores.
+    local quoted_source_lock
+    printf -v quoted_source_lock '%q' "$source_lock"
+    stage_rsync_path="/usr/bin/flock --shared --timeout 30 $quoted_source_lock $rsync_path"
+  fi
 
   local clean_destination="${destination_path%/}"
   case "$clean_destination" in
@@ -119,6 +130,59 @@ replicate_path() {
       ;;
   esac
 
+  # A missing mount can look like a valid empty directory. Refuse the pull
+  # before creating destinations or advancing a success stamp in that case.
+  local source_mount destination_mount quoted_source source_check
+  case "$source_path" in
+    /project/aurora/*) source_mount=/project ;;
+    /data/aurora/*) source_mount=/data ;;
+    /var/lib/aurora-cloud/*) source_mount=/ ;;
+    *) echo "Refusing unexpected mirror source: $source_path" >&2; return 2 ;;
+  esac
+  case "$destination_path" in
+    /project/aurora/*) destination_mount=/project ;;
+    /data/aurora/*) destination_mount=/data ;;
+    /var/lib/aurora-cloud/*) destination_mount=/ ;;
+    *) echo "Refusing unexpected mirror destination: $destination_path" >&2; return 2 ;;
+  esac
+  if ! mountpoint -q "$destination_mount"; then
+    echo "Missing destination mount: $destination_mount" >&2
+    return 75
+  fi
+  printf -v quoted_source '%q' "$source_path"
+  source_check="test -d $quoted_source && mountpoint -q $source_mount"
+  if ! "$ssh_wrapper" "${source_user}@${source_host}" "$source_check"; then
+    echo "Missing production source directory or mount: $source_path" >&2
+    return 75
+  fi
+
+  # A raw or state mirror must never remove an outage-only file. Deletion is
+  # restricted to these disposable presentation trees and an explicit opt-in.
+  local stage_rsync_args=("${rsync_common[@]}")
+  if [[ "${delete_enabled:-false}" == true && "${reconciling:-true}" == false && " ${delete_stages:-} " == *" $name "* ]]; then
+    case "$name:$source_path:$destination_path" in
+      product-dashboard:/data/aurora/products/dashboard/:/data/aurora/products/dashboard/|product-quicklooks:/data/aurora/products/quicklooks/:/data/aurora/products/quicklooks/)
+        ;;
+      *)
+        echo "Refusing deletion outside a disposable product replica: $name" >&2
+        return 2
+        ;;
+    esac
+    # Check both mounted volumes before starting. Repeat the source check in
+    # the remote sender so a preflight success cannot mask an empty mount.
+    if ! mountpoint -q /data || [[ ! -d "$destination_path" || -L "${destination_path%/}" ]]; then
+      echo "Refusing deletion without the destination data mount and existing product directory" >&2
+      return 75
+    fi
+    source_check="$source_check && test -n \"\$(find $quoted_source -mindepth 1 -maxdepth 1 -print -quit)\""
+    if ! "$ssh_wrapper" "${source_user}@${source_host}" "$source_check"; then
+      echo "Refusing deletion without a mounted, nonempty production source: $name" >&2
+      return 75
+    fi
+    stage_rsync_args+=(--delete-delay)
+  fi
+  stage_rsync_path="$source_check && $stage_rsync_path"
+
   local started_epoch
   local completed_epoch
   local output_log
@@ -128,17 +192,21 @@ replicate_path() {
   trap 'rm -f "$output_log"' RETURN
   mkdir -p "$destination_path"
   echo "Replicating $name from ${source_user}@${source_host}:${source_path} to ${destination_path}"
+  local guarded_command=(rsync)
+  if [[ "${canonical_power_guard_enabled:-false}" == true && ( "$name" == product-power-components || "$name" == product-power-planning-cache ) ]]; then
+    guarded_command=(/usr/local/lib/aurora-canonical-power-guard.py -- rsync --bwlimit=8192)
+  fi
   set +e
-  rsync \
-    "${rsync_common[@]}" \
+  "${guarded_command[@]}" \
+    "${stage_rsync_args[@]}" \
     "$@" \
-    --rsync-path="$rsync_path" \
+    --rsync-path="$stage_rsync_path" \
     -e "$ssh_wrapper" \
     "${source_user}@${source_host}:${source_path}" \
     "$destination_path" | tee "$output_log"
   local rsync_status=${PIPESTATUS[0]}
   set -e
-  if [[ "$rsync_status" -eq 24 ]]; then
+  if [[ "$rsync_status" -eq 24 && -z "$source_lock" ]]; then
     # Source-side SQLite WAL/SHM rotation can make an already transferred file
     # vanish during rsync's final scan. The next pull will reconcile it.
     echo "Replication $name completed with transient vanished source files (rsync 24)."
@@ -165,14 +233,45 @@ replicate_path() {
 
 {% for path in aurora_standby_replication_effective_paths %}
 if [[ "$requested_stage" == "all" || "$requested_stage" == {{ path.name | quote }} ]]; then
-replicate_path {{ path.name | quote }} {{ path.source | quote }} {{ path.destination | quote }}{% for exclude in path.exclude | default([]) %} --exclude={{ exclude | quote }}{% endfor %}{{ '\n' }}
+{% if aurora_standby_canonical_power_guard_enabled | default(false) | bool and path.name == 'product-power' %}
+# Shared by both all-stage and per-stage invocations; relocation holds this lock.
+exec 8>/run/aurora-canonical-power-mirror.lock
+if flock -n 8; then
+  power_started=$(date +%s)
+  replicate_path product-power-components {{ path.source | quote }} {{ path.destination | quote }} {{ path.source_lock | default('') | quote }} --exclude='/ecmwf_solar_planning/***'{% for exclude in path.exclude | default([]) %} --exclude={{ exclude | quote }}{% endfor %}{{ '\n' }}
+  replicate_path product-power-planning-cache {{ (path.source.rstrip('/') ~ '/ecmwf_solar_planning/') | quote }} {{ (path.destination.rstrip('/') ~ '/ecmwf_solar_planning/') | quote }} {{ path.source_lock | default('') | quote }}{% for exclude in path.exclude | default([]) %} --exclude={{ exclude | quote }}{% endfor %}{{ '\n' }}
+  # Both separate transfers must succeed before advancing the existing stage stamp.
+  python3 - "$state_root" "$power_started" "$source_host" <<'POWER_STAMP'
+from pathlib import Path
+from datetime import datetime, timezone
+import json, os, sys, time
+root = Path(sys.argv[1]); started = int(sys.argv[2])
+parts = [json.loads((root / (name + '.json')).read_text()) for name in ('product-power-components', 'product-power-planning-cache')]
+assert all(datetime.fromisoformat(part['last_success_utc'].replace('Z', '+00:00')).timestamp() >= started for part in parts)
+stamp = {'stage': 'product-power', 'last_success_utc': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'), 'duration_seconds': int(time.time()) - started, 'transferred_bytes': sum(part['transferred_bytes'] for part in parts), 'source_host': sys.argv[3]}
+temporary = root / ('product-power.json.tmp.' + str(os.getpid()))
+temporary.write_text(json.dumps(stamp) + '\n'); os.replace(temporary, root / 'product-power.json')
+POWER_STAMP
+  flock -u 8
+else
+  echo 'Canonical Power mirror held by its scoped writer/relocation lock.'
+  power_mirror_held=true
+fi
+exec 8>&-
+{% else %}
+replicate_path {{ path.name | quote }} {{ path.source | quote }} {{ path.destination | quote }} {{ path.source_lock | default('') | quote }}{% for exclude in path.exclude | default([]) %} --exclude={{ exclude | quote }}{% endfor %}{{ '\n' }}
+{% endif %}
 fi
 {% endfor %}
 
+# A held Power branch must not advertise an all-stage success. Other stages ran.
+if [[ "$power_mirror_held" == true ]]; then
+  exit 75
+fi
 success_utc=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 printf '%s\n' "$success_utc" > "$state_root/last_success_utc"
-# The mirrored internal tree may not contain this development-only directory,
-# so --delete can remove the empty directory created before replication.
+# This public stamp describes the dashboard transfer, not every instrument's
+# observation age. Read each stage stamp and the API observation times as well.
 mkdir -p "$(dirname "$public_stamp")"
 if [[ "$requested_stage" == "all" || "$requested_stage" == "product-dashboard" ]]; then
   stamp_tmp="${public_stamp}.tmp.$$"

@@ -1,0 +1,36 @@
+---
+- name: Require the existing TLS certificate
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ aurora_domain }}/fullchain.pem"
+  register: operational_mirror_tls
+
+- name: Keep this focused release on the existing HTTPS site
+  ansible.builtin.assert:
+    that:
+      - operational_mirror_tls.stat.exists
+      - inventory_hostname == 'aurora-cloud-droplet'
+
+- name: Render the existing HTTPS site with the reviewed mirror route
+  ansible.builtin.template:
+    src: aurora-dashboard.nginx.j2
+    dest: "/etc/nginx/sites-available/{{ aurora_domain }}"
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+  vars:
+    aurora_tls_available: true
+  register: operational_mirror_nginx
+
+- name: Validate nginx before reloading the route
+  ansible.builtin.command: nginx -t
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Reload the validated nginx configuration
+  ansible.builtin.systemd:
+    name: nginx
+    state: reloaded
+  when:
+    - operational_mirror_nginx.changed
+    - not ansible_check_mode

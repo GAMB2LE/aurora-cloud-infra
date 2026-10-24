@@ -1,0 +1,43 @@
+---
+- name: Require the reviewed development Power layout
+  ansible.builtin.assert:
+    that:
+      - inventory_hostname == 'aurora-cloud-droplet'
+      - aurora_site_env == 'development'
+      - aurora_standby_replication_effective_paths | selectattr('name', 'equalto', 'product-power') | list | length == 1
+      - (aurora_standby_replication_effective_paths | selectattr('name', 'equalto', 'product-power') | first).source == '/data/aurora/products/power/'
+      - (aurora_standby_replication_effective_paths | selectattr('name', 'equalto', 'product-power') | first).destination == '/data/aurora/products/power/'
+    fail_msg: Canonical Power protection is limited to the reviewed droplet layout.
+
+# This read-only validation runs before any persistent guard/mirror/unit writes,
+# including during --check. Relocation and mount creation are separate actions.
+- name: Validate the existing canonical Power bind and free-space reserves
+  ansible.builtin.script:
+    cmd: aurora-canonical-power-guard.py --check
+    executable: /usr/bin/python3
+  check_mode: false
+  changed_when: false
+
+- name: Install canonical Power mirror storage guard
+  ansible.builtin.copy:
+    src: aurora-canonical-power-guard.py
+    dest: /usr/local/lib/aurora-canonical-power-guard.py
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Ensure the Power mirror instance drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/aurora-dev-live-pull@product-power.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install only the Power mirror instance storage precheck
+  ansible.builtin.copy:
+    src: 90-canonical-planning-cache.conf
+    dest: /etc/systemd/system/aurora-dev-live-pull@product-power.service.d/90-canonical-planning-cache.conf
+    owner: root
+    group: root
+    mode: "0644"

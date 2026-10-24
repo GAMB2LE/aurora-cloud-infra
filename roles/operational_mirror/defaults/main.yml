@@ -1,0 +1,4 @@
+---
+aurora_operational_mirror_enabled: false
+aurora_operational_mirror_port: 8011
+aurora_operational_mirror_expected_revision: ""

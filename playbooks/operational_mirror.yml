@@ -1,0 +1,13 @@
+---
+# This installs one read-only API and its nginx route. It never changes source
+# checkouts, dependencies, writer timers, archive jobs or experiment services.
+- name: Configure the isolated operational mirror API
+  hosts: aurora-cloud-droplet
+  become: true
+  roles:
+    - operational_mirror
+  tasks:
+    - name: Apply only the operational mirror nginx route
+      ansible.builtin.include_role:
+        name: nginx
+        tasks_from: operational_mirror.yml

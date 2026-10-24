@@ -1,0 +1,8 @@
+---
+blesensors_continuity_action: install
+blesensors_continuity_root: "{{ aurora_dev_product_root }}/blesensors-continuity"
+blesensors_continuity_raw_root: "{{ blesensors_continuity_root }}/raw"
+blesensors_continuity_zarr: "{{ blesensors_continuity_root }}/blesensors.zarr"
+blesensors_continuity_state_root: "{{ blesensors_continuity_root }}/state"
+blesensors_continuity_environment_state: "{{ aurora_state_root }}/blesensors-continuity/environment.json"
+blesensors_continuity_source_label: SwitchBot via ASS - direct-field continuity

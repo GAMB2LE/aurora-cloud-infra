@@ -8,7 +8,7 @@ aurora_public_ip: 167.172.54.82
 aurora_app_repo: https://github.com/GAMB2LE/aurora_cloud_dashboard.git
 # Exact clean dashboard commit currently validated on development. Production
 # remains independently pinned to its immutable release tag.
-aurora_app_version: db6bc869cef05254569f8e3599883062f2fddce0
+aurora_app_version: e053de8133564234763fd5c9eef95c7ee25ea23d
 # Development-only performance experiment. Panel supports reconnecting after a
 # brief disconnect, while this prevents unused phone sessions retaining a full
 # dashboard document. Production currently uses a two-minute lifetime.
@@ -68,6 +68,10 @@ aurora_nginx_disabled_sites:
   - data.gamb2le.co.uk
 
 aurora_standby_replication_timer_enabled: true
+# Root-backed canonical planning-cache bind verified on 2026-10-23. The role
+# rechecks its exact identity and reserves before installing mirror changes.
+# Relocation remains a separate operation; see docs/CANONICAL_POWER_STORAGE.md.
+aurora_standby_canonical_power_guard_enabled: true
 aurora_standby_replication_ssh_private_key_source: "{{ lookup('env', 'HOME') }}/.ssh/id_rsa_jasmin_20200514"
 aurora_standby_primary_host: 130.246.212.116
 aurora_standby_primary_user: azimuth

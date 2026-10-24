@@ -1010,3 +1010,7 @@
   when:
     - not auroracam_source_sync_enabled | bool or not auroracam_backfill_enabled | bool or not auroracam_backfill_timer_enabled | bool
     - not ansible_check_mode
+
+- name: Configure BLE source ingestion
+  ansible.builtin.import_tasks: blesensors.yml
+  tags: [blesensors]

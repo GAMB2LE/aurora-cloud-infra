@@ -12,8 +12,9 @@ The normal roles are:
 | `data-ocean.gamb2le.co.uk` on DigitalOcean | Development dashboard, isolated experiments, and staged live mirror |
 
 Use [Production and Development](PRODUCTION_DEVELOPMENT.md) for routine releases.
-Use this runbook only when Production cannot provide the required service and
-an approved maintainer has explicitly authorized a role change.
+Use the recovery steps below when Production cannot provide the required service.
+A full writer promotion needs an explicitly reviewed ownership change. Read-only
+app fallback and restoring JASMIN do not themselves authorize that promotion.
 
 ## Safety rules
 
@@ -40,6 +41,26 @@ an approved maintainer has explicitly authorized a role change.
 
 Prefer the first or second option. A public page being unavailable does not by
 itself require moving data writers.
+
+## Restore JASMIN after an outage
+
+I first check capacity and mounts, then verify ingestion before changing client
+routing. Keep retention paused and mirror deletion disabled during this work.
+Reconcile outage-only observations additively from data-ocean into JASMIN,
+checksum the copies and preserve conflicting versions for inspection. Do not
+make the mirror exact by deleting the only remaining outage copy.
+
+Require two successful scheduled cycles per active stream, advancing source,
+product, API and media timestamps, and explained intentional gaps. Complete
+archive verification independently. Disable each temporary continuity job only
+after its replacement has passed those checks. A recent transfer stamp alone
+does not pass. [Operator quickstart](OPERATOR_QUICKSTART.md) covers capacity;
+[Production and development](PRODUCTION_DEVELOPMENT.md) defines the mirror rules.
+
+Automatic app fallback uses the separately commissioned
+[operational mobile mirror](OPERATIONAL_MOBILE_MIRROR.md), labelled with source
+and age. It neither promotes the ordinary development API nor transfers
+writers, archives, alerts or retention.
 
 ## Capture the pre-change state
 
@@ -123,7 +144,7 @@ Confirm all of the following:
 - intentionally powered-off instruments are reported as expected pauses;
 - Power, AURORACam, WXcam, UAS, and Operations render from current data;
 - archive writers advance and retention remains disabled until its gate passes;
-- the native iOS app reaches the intended production API endpoint.
+- the native iOS and Android apps reach the intended production API endpoint.
 
 ## Failback to JASMIN
 

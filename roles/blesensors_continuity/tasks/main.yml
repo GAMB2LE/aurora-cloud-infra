@@ -1,0 +1,125 @@
+---
+- name: Require isolated development continuity paths
+  ansible.builtin.assert:
+    that:
+      - blesensors_continuity_action in ['install', 'rollback']
+      - aurora_site_env == 'development'
+      - not (aurora_is_primary | bool)
+      - blesensors_continuity_root == aurora_dev_product_root ~ '/blesensors-continuity'
+      - blesensors_continuity_raw_root == blesensors_continuity_root ~ '/raw'
+      - blesensors_continuity_zarr == blesensors_continuity_root ~ '/blesensors.zarr'
+      - blesensors_continuity_state_root == blesensors_continuity_root ~ '/state'
+    fail_msg: BLE continuity is limited to its separate development data tree.
+
+- name: Check appender exists before continuity activation
+  ansible.builtin.stat:
+    path: "{{ aurora_app_dir }}/append_new_blesensors_to_zarr.py"
+  register: blesensors_continuity_appender
+  when: blesensors_continuity_action == 'install'
+
+- name: Require reviewed appender code for continuity activation
+  ansible.builtin.assert:
+    that: blesensors_continuity_appender.stat.exists or ansible_check_mode
+    fail_msg: Deploy the reviewed BLE appender before activating continuity.
+  when: blesensors_continuity_action == 'install'
+
+- name: Ensure isolated BLE continuity directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "02775"
+  loop:
+    - "{{ blesensors_continuity_raw_root }}"
+    - "{{ blesensors_continuity_state_root }}"
+  when: blesensors_continuity_action == 'install'
+
+- name: Install BLE-only direct field sync without archive dispatch
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../roles/source_sync/templates/aurora-blesensors-sync.j2"
+    dest: /usr/local/bin/aurora-blesensors-continuity-sync
+    owner: root
+    group: root
+    mode: "0755"
+    backup: true
+    validate: /bin/bash -n %s
+  vars:
+    blesensors_source_destination: "{{ blesensors_continuity_raw_root }}"
+    blesensors_source_state_file: "{{ blesensors_continuity_state_root }}/sync.last"
+    blesensors_source_archive_enqueue: false
+  when: blesensors_continuity_action == 'install'
+
+- name: Install dedicated BLE continuity service and timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+  loop:
+    - aurora-blesensors-continuity.service
+    - aurora-blesensors-continuity.timer
+  when: blesensors_continuity_action == 'install'
+
+- name: Build the isolated BLE product before changing display bindings
+  ansible.builtin.systemd:
+    name: aurora-blesensors-continuity.service
+    state: started
+    daemon_reload: true
+  when:
+    - blesensors_continuity_action == 'install'
+    - not ansible_check_mode
+
+- name: Confirm an isolated BLE store was produced
+  ansible.builtin.stat:
+    path: "{{ blesensors_continuity_zarr }}/.zgroup"
+  register: blesensors_continuity_product
+  when:
+    - blesensors_continuity_action == 'install'
+    - not ansible_check_mode
+
+- name: Require a BLE product before changing display bindings
+  ansible.builtin.assert:
+    that: blesensors_continuity_product.stat.exists
+    fail_msg: The isolated BLE service did not produce a Zarr store; display bindings have not changed.
+  when:
+    - blesensors_continuity_action == 'install'
+    - not ansible_check_mode
+
+- name: Stop only the dedicated BLE continuity units during rollback
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop:
+    - aurora-blesensors-continuity.timer
+    - aurora-blesensors-continuity.service
+  when:
+    - blesensors_continuity_action == 'rollback'
+    - not ansible_check_mode
+
+- name: Update or restore only BLE environment values with a retained backup
+  ansible.builtin.command:
+    argv: "{{ ['/usr/bin/python3', '-', '--action', blesensors_continuity_action, '--state', blesensors_continuity_environment_state] + (['--check'] if ansible_check_mode else []) }}"
+    stdin: "{{ lookup('file', playbook_dir ~ '/../scripts/blesensors_continuity_environment.py') }}"
+  environment:
+    BLESENSORS_CONTINUITY_VALUES: "{{ {'BLESENSORS_DIR': blesensors_continuity_raw_root, 'BLESENSORS_ZARR_PATH': blesensors_continuity_zarr, 'BLESENSORS_SOURCE_LABEL': blesensors_continuity_source_label} | to_json }}"
+  register: blesensors_continuity_environment
+  check_mode: false
+  changed_when: (blesensors_continuity_environment.stdout | from_json).changed
+
+- name: Show continuity environment status and rollback state
+  ansible.builtin.debug:
+    msg: "{{ blesensors_continuity_environment.stdout | from_json }}"
+
+- name: Enable only the dedicated BLE continuity timer
+  ansible.builtin.systemd:
+    name: aurora-blesensors-continuity.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - blesensors_continuity_action == 'install'
+    - not ansible_check_mode

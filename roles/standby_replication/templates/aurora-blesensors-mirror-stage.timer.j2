@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule Aurora BLE mirror ({{ item.name }})
+
+[Timer]
+OnActiveSec={{ 20 + (loop_index * 15) }}s
+OnUnitInactiveSec=2min
+Persistent=true
+RandomizedDelaySec=15
+Unit=aurora-blesensors-mirror@{{ item.name }}.service
+
+[Install]
+WantedBy=timers.target

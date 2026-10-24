@@ -12,6 +12,11 @@ aurora_standby_raw_stages:
     destination: /project/aurora/raw/auroracam/
     interval: 2min
     exclude: ["*.lock", "*.tmp"]
+  - name: raw-blesensors
+    source: /project/aurora/raw/blesensors/
+    destination: /project/aurora/raw/blesensors/
+    interval: 2min
+    exclude: ["*.lock", "*.tmp"]
   - name: raw-cl61
     source: /project/aurora/raw/cl61/
     destination: /project/aurora/raw/cl61/
@@ -70,6 +75,20 @@ aurora_standby_product_stages:
     destination: /data/aurora/products/auroracam/
     interval: 2min
     exclude: ["*.lock", "*.tmp"]
+  - name: product-blesensors
+    source: /data/aurora/products/blesensors/
+    destination: /data/aurora/products/blesensors/
+    interval: 2min
+    # The appender holds this lock through staged publication and cursor commit.
+    source_lock: /data/aurora/products/blesensors/blesensors.lock
+    exclude:
+      - "*.lock"
+      - "*.tmp"
+      - /blesensors.ingest.json
+      - /.blesensors.zarr.staging*/***
+      - /.blesensors.zarr.previous*/***
+      - /blesensors.zarr.staging*/***
+      - /blesensors.zarr.previous*/***
   - name: product-cl61
     source: /data/aurora/products/cl61/
     destination: /data/aurora/products/cl61/

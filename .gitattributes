@@ -1,0 +1,2 @@
+# Preserve captured unified patches byte-for-byte, including blank context lines.
+manual-runtime/**/*.patch -whitespace

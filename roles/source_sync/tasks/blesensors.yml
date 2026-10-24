@@ -1,0 +1,56 @@
+---
+- name: Ensure BLE ingestion directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "02775"
+  loop:
+    - "{{ aurora_paths.raw_blesensors }}"
+    - "{{ aurora_state_root }}"
+  when: blesensors_source_sync_enabled | bool
+
+- name: Install BLE source sync script
+  ansible.builtin.template:
+    src: aurora-blesensors-sync.j2
+    dest: /usr/local/bin/aurora-blesensors-sync
+    owner: root
+    group: root
+    mode: "0755"
+    backup: true
+    validate: /bin/bash -n %s
+  when: blesensors_source_sync_enabled | bool
+
+- name: Install BLE source sync units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+  loop:
+    - aurora-blesensors-source-sync.service
+    - aurora-blesensors-source-sync.timer
+  when: blesensors_source_sync_enabled | bool
+
+- name: Apply BLE source timer state
+  ansible.builtin.systemd:
+    name: aurora-blesensors-source-sync.timer
+    enabled: "{{ blesensors_source_sync_timer_enabled | bool }}"
+    state: "{{ 'started' if blesensors_source_sync_timer_enabled | bool else 'stopped' }}"
+    daemon_reload: true
+  when:
+    - blesensors_source_sync_enabled | bool
+    - not ansible_check_mode
+
+- name: Disable BLE source timer when ingestion is disabled
+  ansible.builtin.systemd:
+    name: aurora-blesensors-source-sync.timer
+    enabled: false
+    state: stopped
+  failed_when: false
+  when:
+    - not blesensors_source_sync_enabled | bool
+    - not ansible_check_mode

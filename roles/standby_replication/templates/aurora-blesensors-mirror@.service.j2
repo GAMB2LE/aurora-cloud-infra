@@ -1,0 +1,14 @@
+[Unit]
+Description=Aurora BLE-only development mirror (%i)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/local/bin/aurora-blesensors-mirror %i
+TimeoutStartSec=10min
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6

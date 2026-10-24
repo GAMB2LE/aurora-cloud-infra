@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule Aurora blesensors source sync
+
+[Timer]
+OnActiveSec=2min
+OnUnitActiveSec={{ blesensors_source_sync_interval }}
+Persistent=true
+RandomizedDelaySec={{ blesensors_source_sync_randomized_delay }}
+Unit=aurora-blesensors-source-sync.service
+
+[Install]
+WantedBy=timers.target

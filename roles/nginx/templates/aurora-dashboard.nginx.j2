@@ -47,6 +47,8 @@ server {
     # request shape is different from JSON: the camera screen loads a 24-image
     # hourly grid. Give only this small-image route a bounded pool large enough
     # for that normal burst; videos and other API traffic retain stricter limits.
+{% include 'operational-mirror.locations.j2' %}
+
     location ^~ /mobile/v1/media/wxcam/thumb/ {
 {% if aurora_nginx_rate_limits | default(false) | bool %}
         limit_req zone=aurora_mobile_thumbnails burst=60 nodelay;
@@ -201,6 +203,8 @@ server {
         return 302 /app$is_args$args;
     }
 {% endif %}
+
+{% include 'operational-mirror.locations.j2' %}
 
     location ^~ /mobile/v1/media/wxcam/thumb/ {
         proxy_pass http://{{ aurora_mobile_api_host }}:{{ aurora_mobile_api_port }}/media/wxcam/thumb/;

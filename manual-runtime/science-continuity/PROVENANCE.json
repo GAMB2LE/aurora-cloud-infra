@@ -1,0 +1,44 @@
+{
+  "preparedAt": "2026-10-23T12:56:17.335058+00:00",
+  "target": "/usr/local/lib/aurora-science-continuity.py",
+  "baselineFile": "tests/before.py",
+  "baselineSHA256": "f0753a520eb45507c5c2dacebcf6c07257244ce7bd37e2a25983aae18d65262f",
+  "candidateFile": "aurora-science-continuity.py",
+  "candidateSHA256": "35aabfbd0159b91b80d20efa7f63e82ce85bdb98639d38cb95d709ef77fa8377",
+  "unchangedScientificAppender": {
+    "target": "/opt/aurora-cloud-dashboard/hatpro_to_zarr.py",
+    "fixtureCopy": "tests/deployed_hatpro_to_zarr.py",
+    "sha256": "498f231024e93621ba253c06cc96f15cb0510c126de94248f31373d01b82a354"
+  },
+  "scope": "Only SEED_PRODUCT destination serialization; shared CL61/radar/HATPRO trimmed seeds. All algorithms, guards, queue logic, phase budgets, WXcam code and excluded paths unchanged.",
+  "unitChanges": [],
+  "tests": {
+    "local": "8 passed in 5.67s",
+    "deployedLinux": "8 passed in 34.867s; private scratch; stdlib runner; no dependency installs"
+  },
+  "sourceBaselineCommit": "b61ce03101662d4f0be1ee2ea73d14552b7428e3",
+  "sourcePurpose": "Manual-runtime preservation only; no role, playbook, timer or deployment task added.",
+  "catalogStatusCommit": "0c6aca2fef67fe5773566a75e43a961953171e6a",
+  "catalogStatusCommitPurpose": "Separate dashboard status fix; not the scientific worker runtime.",
+  "sourceFiles": {
+    "INDEPENDENT_REVIEW.md": "c22b81d266e5cacaf06cf156a6d0d1da7aec258de13bbf31b8fbc6600e2f248e",
+    "README.md": "67d4ba7bba6ffd08dadf768c0f4d122ec6e42f63ca2572c8b04dace72a32b1dc",
+    "SOURCE_TEST_RESULTS.md": "31c28f9a93ebed56f054f11f8b4b32ed7b98dce511ad92499678d7eec88b4f07",
+    "aurora-science-continuity.py": "35aabfbd0159b91b80d20efa7f63e82ce85bdb98639d38cb95d709ef77fa8377",
+    "tests/before.py": "f0753a520eb45507c5c2dacebcf6c07257244ce7bd37e2a25983aae18d65262f",
+    "tests/deployed_hatpro_to_zarr.py": "498f231024e93621ba253c06cc96f15cb0510c126de94248f31373d01b82a354",
+    "tests/rebuild_cutoff.py": "83c27d691040ade62ce854176b7b5223db6030635c0bb45b7779f94f486a38e7",
+    "tests/test_seed_chunks.py": "9d4eb022115133b824b50dff3cc942c992a1bffa27a1655c425e54983e71a701",
+    "tests-linux.txt": "55101d4fcbfe553b872be716076ceddb1eb7bbdb00dd9b9a8d6140911c7b1a3a",
+    "worker.patch": "fd3cb59ab2d0454bc6316a74c905061cadfceb90f965d45e9a6993c3511137f5"
+  },
+  "originalSupportingFiles": {
+    "worker.patch": "fd3cb59ab2d0454bc6316a74c905061cadfceb90f965d45e9a6993c3511137f5",
+    "test_seed_chunks.py": "88a2edf37402a0bc90a408c830869396713c9680be1bfd9933c55a9181d36fe9",
+    "run_linux_tests.py": "c749da2edfbc18069c1ef013fd0a04fe140452dc01618aa6a8977996245c4063",
+    "rebuild_cutoff.py": "83c27d691040ade62ce854176b7b5223db6030635c0bb45b7779f94f486a38e7"
+  },
+  "originalRecoveryBundle": "output/aurora-stream-recovery-20261023/nextsteps-1249/hatpro",
+  "runtimeHashVerifiedDuringSourcePreservation": true,
+  "sourcePreservationVerifiedAt": "2026-10-23T13:44:45.328021+00:00"
+}
