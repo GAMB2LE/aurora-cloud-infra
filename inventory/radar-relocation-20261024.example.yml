@@ -7,12 +7,17 @@ aurora_radar_relocation_plan:
   state_root: /var/lib/aurora-cloud/radar-relocation-20261024
   project_mount: /project
   data_mount: /data
-  days: [Y2026/M05/D02, Y2026/M05/D03, Y2026/M05/D04, Y2026/M05/D05]
+  days: [Y2026/M05/D02, Y2026/M05/D03, Y2026/M05/D04, Y2026/M05/D05, Y2026/M05/D13]
   expected_files_per_day: 96
-  # Seven days at 84,856,499,251 bytes/day + 8 GiB + four largest files.
-  project_required_free_bytes: 617088629797
+  # This closed historical day contains 16 hours of all four native file types.
+  expected_files_by_day: {Y2026/M05/D13: 64}
+  # Seven future days + 8 GiB + four largest files + existing native debt.
+  # 617,088,629,797 + 51,015,441,637 bytes, measured 24 October 08:06.
+  project_required_free_bytes: 668104071434
   # Seven days at the worst observed /data growth plus a separate operating reserve.
   data_reserve_bytes: 42949672960
+  launch_hold: /etc/aurora/radar-relocation.hold
+  launchers: [aurora-object-store-recovery.service]
   consumers:
     - aurora-radar-source-sync.service
     - aurora-radar-backfill.service
@@ -23,3 +28,6 @@ aurora_radar_relocation_plan:
     - aurora-object-store-copy-raw.service
     - aurora-mirror-verify.service
     - aurora-ass-retention.service
+    - aurora-object-store-recovery-worker@raw.service
+    - aurora-object-store-repair.service
+    - aurora-object-store-recheck-after-repair.service

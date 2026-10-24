@@ -112,3 +112,77 @@ sonic `aurora_asfs_data_fast_sonic_202610240701.dat` contained 331,961 bytes. Th
 source mtimes were 07:31:00–07:31:05 on 24 October. These are collection evidence,
 not a replacement storage estimate. I left field acquisition and current data
 untouched. Restoring the estimate producer is separate follow-up work.
+
+
+## Fresh raw comparison and persistent retention hold, 07:58–08:03 UTC
+
+The fresh raw observation completed at 07:58:03 and published at 07:58:05. It
+compared 893,083 settled local observations with S3: all matched, with zero missing,
+size-mismatched or checksum-mismatched entries. S3 contained 1,867 additional
+entries, which were retained. This is 100% coverage for that settled local scope.
+The separate canonical-source/GWS comparison matched 317,849 of 317,888 entries:
+39 native radar entries were missing, with zero size or checksum mismatches.
+Its 572,115 additional GWS entries reflect the wider archive scope and were kept.
+The unsettled window contained 17 missing and two size-different entries; those
+are pending transfer evidence, not settled failures.
+
+The raw worker finished successfully at 07:58:08 and queued its next independent
+confirmation. Overall clean/stable parity and raw retention readiness were still
+false. The separate products observation was still running; the older 27,523
+missing-product count does not describe its unfinished result. The normal raw
+copy retry from 07:34:40 completed successfully at 07:57:44 without another camera
+temporary-file error.
+
+Both native-backfill and retention timers were disabled while inactive at 07:55;
+the live LV1 timer stayed enabled and active. Their failed service states were
+preserved. Disabling the retention timer was not sufficient because archive
+workers can directly request the service. PR 84, main `a625538`, added an independent
+persistent service condition. The focused apply at 08:02:43–44 reported six tasks
+ok, three changed and no failures. The hold and condition are root-owned.
+
+Before and after that apply, retention remained `failed`, result `exit-code`, with
+MainPID zero and unchanged previous start/exit times of 23 October 14:55:56 and
+14:58:20. A read-only systemd condition evaluation rejected activation while held.
+A separate disposable service had already proved held, released and held-again
+behaviour. No production pruning run was used as a test and no failed-state evidence
+was reset. The hold remains until both inventory switches are explicitly enabled
+and the independent archive and capacity checks pass.
+
+The four-day relocation's 617,088,629,797-byte reserve covers future seven-day
+arrivals, not the existing 50,991,223,097-byte native debt. Four days alone leave
+about 20.2 GB less than the required post-backlog headroom. Backfill remains held;
+any additional lossless relocation needs a separate reviewed capacity calculation.
+
+
+## Revised capacity plan and temporary reader barrier, 08:06 UTC
+
+A read-only source comparison restricted to 23–24 October found 44 missing native
+files, 51,015,441,637 bytes, and no missing or size-different LV1 NetCDF files.
+The missing types were 15 LV0, 14 LV0 NetCDF and 15 native LV1. The two additional
+small native files explain the change from the earlier 42-file snapshot.
+
+The reviewed plan adds only 13 May to the four days already staging. It contains
+64 regular files, 16 of each native type, and 61,415,642,624 allocated bytes. Its
+identities were unchanged between 08:04:39 and 08:05:11, with no links, submounts,
+open descriptors or process mappings. The latest file mtime was 14 May 01:02:43.
+This is a partial historical acquisition day, not a claim of 96-file completeness.
+The separate exact-count override preserves all four original 96-file checks.
+
+At 08:06 the projection left 58,176,908,800 bytes on `/data` after all copies, and
+658,248,127,771 on `/project` after the known backlog. Those exceed the separate
+40 GiB destination reserve and 617,088,629,797-byte future growth target by 15.23 GB
+and 41.16 GB respectively. The preparation plan now includes the existing backlog
+in its 668,104,071,434-byte primary requirement. It still needs a fresh capacity
+check before sequential D13 staging, before cutover and before backfill. This is
+plan evidence, not completed copying or a released original.
+
+The raw-reader audit identified three additional launch paths: raw recovery worker,
+shared repair and recheck-after-repair. A temporary persistent launch barrier now
+covers twelve named consumers in the reviewed code. The recovery coordinator and
+its timer are separately paused during the brief barrier; existing product
+workers and immutable manifest uploads continue. Live full and raw incremental
+inventory commands were verified to enqueue requests only. Regression coverage
+shows a condition-skipped raw launch preserves durable debt, epoch and attempt
+count across reopening the queue and ordinary replay. A disposable systemd unit
+proved held, released and held-again behaviour without touching production readers.
+No production relocation hold or mount cutover had been activated for these tests.

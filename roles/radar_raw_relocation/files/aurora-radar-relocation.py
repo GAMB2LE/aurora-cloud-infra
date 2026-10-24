@@ -74,9 +74,25 @@ def load(path):
     for key in ('project_required_free_bytes', 'data_reserve_bytes', 'expected_files_per_day'):
         if not isinstance(plan[key], int) or plan[key] <= 0:
             raise ValueError('Expected positive reservation/count: ' + key)
-    if any(not re.fullmatch(r'aurora-[a-z0-9-]+\.service', unit) for unit in plan['consumers']):
-        raise ValueError('Unexpected consumer unit')
+    overrides = plan.get('expected_files_by_day', {})
+    if (not isinstance(overrides, dict) or set(overrides) - set(plan['days'])
+            or any(type(count) is not int or count <= 0 for count in overrides.values())):
+        raise ValueError('Expected positive counts only for explicitly reviewed days')
+    for unit in plan['consumers']:
+        if (unit != 'aurora-object-store-recovery-worker@raw.service'
+                and not re.fullmatch(r'aurora-[a-z0-9-]+\.service', unit)):
+            raise ValueError('Unexpected consumer unit')
+    if 'launchers' in plan and plan['launchers'] != ['aurora-object-store-recovery.service']:
+        raise ValueError('Unexpected relocation launcher')
+    if 'launch_hold' in plan:
+        plan['launch_hold'] = str(safe_path(plan['launch_hold']))
+        if not re.fullmatch(r'/[A-Za-z0-9_./-]+', plan['launch_hold']):
+            raise ValueError('Unexpected launch hold path')
     return plan
+
+
+def expected_files(plan, day):
+    return plan.get('expected_files_by_day', {}).get(day, plan['expected_files_per_day'])
 
 
 def paths(plan, day):
@@ -196,7 +212,7 @@ def inspect(plan):
         origin = quarantine if quarantine.exists() else source
         records = snapshot(origin) if not progress_path(plan, day).exists() else original_snapshot(
             plan, day, origin, json.loads(manifest_path(plan, day).read_text()))
-        if not progress_path(plan, day).exists() and len(records) != plan['expected_files_per_day']:
+        if not progress_path(plan, day).exists() and len(records) != expected_files(plan, day):
             raise RuntimeError('Unexpected source file count: ' + day)
         total += sum((origin / name).stat().st_blocks * 512 for name in records)
         remaining += sum(row[2] for name, row in records.items() if not (target / name).exists())
@@ -302,7 +318,7 @@ def guard(plan, additional_bytes=0):
         # without reading observation bytes on every consumer start.
         evidence = json.loads(manifest_path(plan, day).read_text())
         expected = evidence['destination_signature']
-        if (evidence['day'] != day or len(expected) != plan['expected_files_per_day']
+        if (evidence['day'] != day or len(expected) != expected_files(plan, day)
                 or set(expected) != set(evidence['files'])
                 or snapshot(target, minimum_age=0) != expected):
             raise RuntimeError('Relocated destination differs from verified manifest: ' + day)
@@ -329,15 +345,31 @@ def dropin_text(plan):
             f'[Service]\nExecStartPre={HELPER} guard --config {ACTIVE}\n')
 
 
+def launch_hold_text(plan):
+    return ('[Unit]\n# Block new raw readers while a reviewed relocation is in progress.\n'
+            f'ConditionPathExists=!{plan["launch_hold"]}\n')
+
+
 def assert_paused(plan):
+    # Timer inactivity alone does not cover path/ExecStopPost/queue launches.
+    # Older staging plans remain readable, but cannot cut over without this gate.
+    hold = safe_path(plan.get('launch_hold', '/missing-relocation-launch-hold'))
+    if not hold.is_file() or not plan.get('launchers'):
+        raise RuntimeError('Activate the reviewed raw-reader launch barrier before cutover')
     for service in plan['consumers']:
+        dropin = SYSTEMD_ROOT / (service + '.d') / '50-radar-relocation-hold.conf'
+        if not dropin.is_file() or dropin.read_text() != launch_hold_text(plan):
+            raise RuntimeError('Missing or changed raw-reader launch barrier: ' + service)
+    for service in plan['consumers'] + plan['launchers']:
         for unit in (service, service.replace('.service', '.timer')):
-            state = subprocess.check_output(['systemctl', 'show', unit, '--property=LoadState,ActiveState,MainPID,Job'], text=True)
+            state = subprocess.check_output(['systemctl', 'show', unit, '--property=LoadState,ActiveState,MainPID,Job,NeedDaemonReload'], text=True)
             fields = dict(line.split('=', 1) for line in state.splitlines())
             if fields.get('LoadState') == 'not-found':
                 if unit.endswith('.timer'):
                     continue
                 raise RuntimeError('Required consumer is unknown: ' + unit)
+            if fields.get('NeedDaemonReload') != 'no':
+                raise RuntimeError('Reload the reviewed raw-reader launch barrier: ' + unit)
             if fields.get('ActiveState') not in ('inactive', 'failed') or fields.get('MainPID', '0') != '0' or fields.get('Job', '') not in ('', '0'):
                 raise RuntimeError('Pause and drain raw consumer before cutover: ' + unit)
 
