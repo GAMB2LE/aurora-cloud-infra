@@ -1,0 +1,16 @@
+---
+- name: Prepare the shared raw GWS delivery lock directory
+  ansible.builtin.file:
+    path: "{{ gws_raw_delivery_lock_root }}"
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "0750"
+
+- name: Install the bounded raw GWS delivery helper
+  ansible.builtin.copy:
+    src: aurora-gws-transfer.py
+    dest: /usr/local/lib/aurora-gws-transfer
+    owner: root
+    group: root
+    mode: "0755"

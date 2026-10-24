@@ -4,6 +4,8 @@
   "status_path": {{ (archive_dispatch_state_root ~ '/status.json') | to_json }},
   "receipt_root": {{ (archive_dispatch_state_root ~ '/receipts') | to_json }},
   "lock_path": {{ (archive_dispatch_state_root ~ '/worker.lock') | to_json }},
+  "gws_delivery_lock_root": {{ gws_raw_delivery_lock_root | to_json }},
+  "gws_delivery_wait_seconds": {{ gws_raw_delivery_wait_seconds | int }},
   "rclone_config": {{ object_store_rclone_config | to_json }},
   "object_remote": {{ object_store_remote | to_json }},
   "object_bucket": {{ object_store_bucket | to_json }},

@@ -856,6 +856,14 @@ gws_verification_enabled: true
 gws_verification_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 gws_sync_randomized_delay_sec: 60
 gws_sync_timeout_start_sec: 6h
+# Raw bulk delivery yields between batches to the existing fast dispatcher.
+# One large file or hardlink group can exceed these size/count bounds.
+gws_raw_delivery_lock_root: "{{ archive_dispatch_state_root }}/gws-transfer"
+gws_raw_batch_files: 256
+gws_raw_batch_bytes: 67108864
+# Keep a waiting dispatch ahead of the next batch, including after a slow
+# oversized file. The existing service timeout remains the outer limit.
+gws_raw_delivery_wait_seconds: 0
 gws_verification_randomized_delay_sec: 60
 gws_verification_schedule: "*:08/10"
 gws_sync_jobs:
