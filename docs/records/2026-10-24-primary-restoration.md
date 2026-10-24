@@ -83,3 +83,31 @@ command found four files. The source wildcard had become 18 shell arguments
 instead of the intended four. A separate focused fix adds literal quoting,
 bounded capacity admission and a finite recovery-window mode. Its live
 commissioning evidence belongs after successful transfer and product checks.
+
+## Bounded radar recovery, 06:55–06:58 UTC
+
+PR [62](https://github.com/GAMB2LE/aurora-cloud-infra/pull/62) passed all four
+checks after integrating the current main branch, then merged as
+`61b968ebc9a89310ff7156517a8d31993c7b7fed`. The focused deployment changed only
+the live wrapper and retained its timestamped original. The deployed SHA-256 was
+`b10b81bf7a5254cf87d1632aca71b50fa04a0b130091f6bc013af758eb1cb03f`.
+
+The finite 05:30–06:20 source-modification window selected four files totalling
+3,683,680,202 bytes. Its required capacity was 12,273,614,794 bytes, with
+152,139,988,992 bytes available. The LV1 arrived first and matched source
+SHA-256 `aca1226fcd029a141f14f9224f0c0b385cc54cd67d0feee388e4be0e091e4984`.
+The existing pinned radar appender completed at 06:56:28 and advanced the Zarr
+to `2026-10-24T05:59:51.806Z`; the public overview then reported Collecting.
+The scheduled quicklook service also completed at 06:57:14.
+
+The same finite transfer finished all four native files and enqueued them for
+raw archive delivery. The normal checkpoint remained `1792823765`, and both
+transfer timers were still paused during these checks. An attempted guarded
+stop of the slow remainder found the process already finished and signalled
+nothing. This run left no interrupted partial to reclaim. The log remains at
+`/var/log/aurora-radar-live-recovery-20261024.log`.
+
+The next focused change deliberately limits the live lane to LV1 NetCDF. The
+bounded backfill lane retains every native class, with its backlog and archive
+proof tracked independently. Restoring display freshness does not clear that
+backlog or satisfy the seven-day capacity gate.

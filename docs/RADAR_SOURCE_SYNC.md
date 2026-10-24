@@ -8,7 +8,7 @@
 - Quicklooks: `/data/aurora/products/quicklooks/cloud_radar`
 
 The source stores hourly radar files under a recursive `Yyyyy/Mmm/Ddd/` tree.
-The sync preserves the complete native tree, including LV0/LV1 binaries,
+Together, the live and bounded backfill lanes preserve the complete native tree, including LV0/LV1 binaries,
 LV0/LV1 NetCDF, and instrument JPG files. Relative paths are unchanged from
 edge to cloud raw storage, GWS, and object storage:
 
@@ -42,9 +42,9 @@ The source has two independent lanes:
   previous checkpoint by ten minutes, and ignores files modified in the last
   five minutes. Discovery quotes the remote wildcard before SSH invokes its
   shell. A live batch is limited to 8 GiB, with a mounted capacity check for
-  **all selected uncompressed bytes plus 8 GiB** before copying. LV1 NetCDF
-  inputs transfer first, then the complete selected native files; rsync
-  compression reduces transport bytes without changing file contents. Its checkpoint is
+  **all selected uncompressed bytes plus 8 GiB** before copying. This lane
+  selects only `*.LV1.NC` through `radar_live_source_pattern`; rsync compression
+  reduces transport bytes without changing file contents. Its checkpoint is
   `/var/lib/aurora-cloud/radar-live-sync.last`.
 - `aurora-radar-backfill.service` is the newest-first historical lane. It
   transfers a bounded batch in parallel and records progress in
@@ -52,7 +52,11 @@ The source has two independent lanes:
   live checkpoint.
 
 This separation prevents a historical LV0 archive catch-up from delaying new
-radar data. The backfill timer is enabled only on the authoritative writer
+radar data. Backfill keeps the independent `radar_source_pattern: '*'`, so all
+native classes remain in scope. A fresh dashboard is not proof that those
+native files have arrived or reached both archives. Keep that outstanding
+native backlog visible, and keep backfill paused during a capacity hold.
+The backfill timer is enabled only on the authoritative writer
 host; its temporary files live below `.radar-partials` and are excluded from
 GWS replication.
 
