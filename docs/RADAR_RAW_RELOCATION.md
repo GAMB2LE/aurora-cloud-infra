@@ -317,3 +317,64 @@ refuses to pretend the old copy still exists.
 
 See [radar source sync](RADAR_SOURCE_SYNC.md), [archive services](ARCHIVE_SERVICES.md)
 and the [dated recovery record](records/2026-10-24-primary-restoration.md).
+
+## Withdraw unused staging copies
+
+If cutover is deferred, I can recover the space used by this operation's redundant
+staging copies without moving an original observation. This is a separate action
+from `release` and `rollback`: neither of those commands withdraws an unused stage.
+The original raw days remain authoritative, and native backfill and retention
+keep their independent holds.
+
+`aurora-radar-unstage.py` requires a reviewed JSON request containing
+`operation_id`, the absolute `config` and `helper` paths, `plan_sha256`,
+`helper_sha256`, and a `manifests` mapping from every plan day to its stage-manifest
+SHA-256. Pin the newly installed helper, including its withdrawal guard. Install
+only that reviewed helper and the withdrawal tool, preserving the previous helper;
+this action does not require a role deployment or any unit changes.
+
+```sh
+sudo python3 /usr/local/lib/aurora-radar-unstage.py \
+  --request /root/radar-stage-withdrawal-request.json
+# Apply only after reviewing the complete validation result.
+sudo python3 /usr/local/lib/aurora-radar-unstage.py \
+  --request /root/radar-stage-withdrawal-request.json --apply
+```
+
+The default command validates without creating a journal or removing files. Both
+commands take the existing exclusive relocation lock without waiting. A busy lock
+means no withdrawal was attempted; let the existing sender finish. If a brief
+schedule pause is necessary to obtain a window, review and record that separately.
+The tool never stops a process, timer or service.
+
+Before the first removal, every day must have a paired SHA verification less than
+six hours old and unchanged complete original and destination file inventories.
+The tool checks device, inode, size, modification and change times, ownership,
+permissions, file type and link count. It refuses an active relocation, quarantine,
+release ledger, mounted verification, launch barrier, selected-tree mount or
+submount, active/queued staging unit, unknown open user, or incomplete process scan.
+The process scan covers descriptors, memory maps, current directories and roots,
+including device/inode aliases. These checks reuse the completed, fsynced SHA proof;
+they do not adopt new file identities or rehash changed observations automatically.
+
+The root-owned `stage-withdrawal.json` journal pins the reviewed request, tool,
+helper, plan, all manifests and source/destination directory identities. Each
+removal has durable intent, an unlink relative to the opened destination directory,
+a directory fsync and durable completion. Original entries and current directory
+identities are checked again immediately before that unlink. Unknown or changed
+files stop the action. All original files, stage manifests and empty target day
+directories remain in place.
+
+For an interrupted action, keep the exact request and journal and use `--resume
+--apply`. A missing copy is accepted only for that journal's pending or completed
+entry. Missing, replaced or malformed evidence fails closed; do not repair it by
+hand or run recursive removal. An expired incomplete proof needs a separately
+reviewed recovery decision. A completed rerun only verifies and reports completion;
+it does not need a new freshness window because it removes nothing.
+
+As soon as the journal exists, `stage`, `verify` and `cutover` refuse the old plan,
+including after an interrupted withdrawal. Keep the journal permanently. Any
+future relocation needs a separately reviewed plan and new state directory. After
+completion, record actual free space on both volumes and ordinary reader/source
+results. Withdrawing copies restores `/data`; it does not itself satisfy the
+independent `/project` native-backfill capacity gate.
