@@ -1,6 +1,6 @@
 ---
 # Same reviewed presentation as JASMIN; existing development data routing stays.
-aurora_presentation_revision: ac672ae6d835d05461b2fcb8c209151aa8ace2de
+aurora_presentation_revision: 222ce9ea1ca0eec611435418df15f4ac18a1e332
 aurora_presentation_venv: /opt/aurora-presentations/runtime-20261024
 aurora_presentation_wxcam_media_dir: /data/aurora/dev-products/science-continuity/wxcam/current/media
 aurora_presentation_auroracam_media_dir: /data/aurora/dev-products/live-continuity/current/cameras
