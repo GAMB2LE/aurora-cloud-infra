@@ -138,7 +138,7 @@ from worker completion hooks; a single inactive check does not close that race.
 Preparation installs a separate negative `ConditionPathExists` drop-in for each
 reader. The absent `/etc/aurora/radar-relocation.hold` leaves them unchanged.
 
-After full verification, create that persistent operator hold before draining.
+After checking the fresh stage proofs, create that persistent operator hold before draining.
 Pause the recovery launch timer and wait for its short coordinator service to
 finish, so condition-skipped launches do not add noise to the durable queue. Keep
 existing product verification workers and recovery-manifest upload running. The

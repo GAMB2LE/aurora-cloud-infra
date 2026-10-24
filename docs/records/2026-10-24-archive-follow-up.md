@@ -307,3 +307,40 @@ the initial conservative 2.3 GB/hour allowance for the remaining copy, a 100-min
 mounted verification and ten-minute drain exceeded the 08:53 spare margin by about
 0.65–0.81 GB. D13 remained held pending a fresh admissible projection. No reserve
 was lowered, no observation was removed and no cache cleanup was assumed.
+
+## Four days complete; D13 admitted at 09:07 UTC
+
+D05 completed its 96-file SHA/metadata proof at 09:02:56, with manifest SHA-256
+`3e47216c7bd2596f9e88ce82429312427fe1919cce6c13c8c59ba61a9b8e797d`.
+The original four-day staging unit exited successfully. Only after it was inactive
+with no PID, the reviewed plan-only update raised the live `/data` floor to
+53,687,091,200 bytes and the dated primary minimum to 671,710,696,206 bytes.
+The old plan was backed up. The helper, services, timers and holds were unchanged.
+
+The [completed recovery-bundle move](2026-10-24-partial-recovery-storage.md)
+restored about 1.708 GB of `/data` capacity while preserving every recovery file.
+The 09:07:18 admission read measured 121,848,270,848 bytes free on `/data` and
+278,350,790,656 on `/project`. Native debt was now 54,646,797,466 bytes, so the
+fresh pre-backfill requirement was 671,735,427,263 bytes. The projection after
+all five releases and delivery of that debt left 654,415,445,350 bytes on
+`/project`, above the separate 617,088,629,797-byte future seven-day target.
+
+The remaining D13 copy reserved 61,415,755,776 bytes, rounded to destination
+blocks. At 45 MB/s, with 100 minutes for mounted verification, ten minutes for
+draining and 2.3 GB/hour of other growth, the remaining allowance was
+5,088,618,755 bytes. Projected `/data` free space after that window was
+55,343,896,317 bytes: 1,656,805,117 above the unchanged 50 GiB floor. Both actual
+configured reserve floors were read again; neither was replaced with a weaker
+hard-coded value. This is dated admission evidence, not a promise of future space.
+
+D13 metadata inventories at 09:04:48 and 09:07:18 matched exactly. The second
+scan checked 5,880 descriptors and mappings, with no open users, permission errors
+or mounts. The four completed stage proofs also passed unchanged-identity checks.
+Only D13 then started under `aurora-radar-relocation-stage-d13-20261024.service`
+at 09:07:48. Its 64-file expectation remains specific to that historical day.
+
+At 09:08, raw verification was idle with two clean independent confirmations and
+no queue error. Products' second confirmation was still running without an error.
+The persistent retention hold remained present. No production relocation hold,
+active mount record, cutover or duplicate-original release had occurred. Fresh
+capacity, consumer-state and mounted-verification gates still apply.
