@@ -266,24 +266,79 @@ def stage(plan, day):
     return {'day': day, 'files': len(before), 'bytes': sum(row[2] for row in before.values())}
 
 
-def verify_day(plan, day, mounted=False):
+def evidence_digest(evidence):
+    content = {key: evidence[key] for key in
+               ('day', 'source_signature', 'destination_signature', 'files')}
+    return hashlib.sha256(json.dumps(content, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def cutover_identity(plan):
+    if not ACTIVE.is_file():
+        raise RuntimeError('Current active cutover record is missing')
+    before = signature(ACTIVE.lstat())
+    if load(ACTIVE) != plan:
+        raise RuntimeError('Current active cutover record does not match the verified plan')
+    digest = hash_file(ACTIVE)
+    if signature(ACTIVE.lstat()) != before:
+        raise RuntimeError('Active cutover record changed while reading')
+    return {'path': str(ACTIVE), 'signature': before, 'sha256': digest}
+
+
+def mount_identity(plan, day):
+    # The guard proves this is the expected read-only bind. Equivalent same-target
+    # remounts are safe; numeric Linux mount IDs are reusable and add no proof.
+    source, target, _ = paths(plan, day)
+    return {'logical': str(source), 'destination': str(target),
+            'directory_identity': [source.stat().st_dev, source.stat().st_ino,
+                                   target.stat().st_dev, target.stat().st_ino]}
+
+
+def require_mounted_verification(plan, day, evidence):
+    proof = evidence.get('mounted_verification', {})
+    if (proof.get('kind') != 'mounted-logical-path'
+            or proof.get('manifest_sha256') != evidence_digest(evidence)
+            or proof.get('verified_at') != evidence['verified_at']
+            or proof.get('cutover_identity') != cutover_identity(plan)
+            or proof.get('mount_identity') != mount_identity(plan, day)):
+        raise RuntimeError('Full verification through the current mounted path is required before release: ' + day)
+
+
+def verify_day(plan, day, mounted=False, quarantine_origin=False):
     source, target, quarantine = paths(plan, day)
     evidence = json.loads(manifest_path(plan, day).read_text())
-    origin = quarantine if mounted else source
+    origin = quarantine if mounted or quarantine_origin else source
+    if mounted:
+        guard(plan)
+        mounted_before = mount_identity(plan, day)
+        cutover_before = cutover_identity(plan)
     before = original_snapshot(plan, day, origin, evidence)
     destination_before = snapshot(target, minimum_age=0)
     if set(p.name for p in target.iterdir()) != set(evidence['files']):
         raise RuntimeError('Destination file set changed: ' + day)
     for name, record in evidence['files'].items():
-        for path in ([origin / name] if name in before else []) + [target / name]:
+        # Mounted acceptance must read the published logical path, not just /data.
+        published = source if mounted else target
+        for path in ([origin / name] if name in before else []) + [published / name]:
             if hash_file(path) != record['sha256'] or attributes(path) != {k: v for k, v in record.items() if k != 'sha256'}:
                 raise RuntimeError('SHA-256 or metadata mismatch: ' + str(path))
     if original_snapshot(plan, day, origin, evidence) != before:
         raise RuntimeError('Original changed during verification')
     if snapshot(target, minimum_age=0) != destination_before:
         raise RuntimeError('Destination changed during verification')
+    if mounted:
+        guard(plan)
+        if (mount_identity(plan, day) != mounted_before
+                or cutover_identity(plan) != cutover_before):
+            raise RuntimeError('Mounted path or active cutover changed during full verification: ' + day)
     evidence['destination_signature'] = destination_before
     evidence['verified_at'] = time.time()
+    evidence.pop('mounted_verification', None)
+    if mounted:
+        evidence['mounted_verification'] = {
+            'kind': 'mounted-logical-path', 'verified_at': evidence['verified_at'],
+            'manifest_sha256': evidence_digest(evidence), 'mount_identity': mounted_before,
+            'cutover_identity': cutover_before}
+    # No receipt is replaced until the entire guarded read and identity check pass.
     save(manifest_path(plan, day), evidence)
     return evidence
 
@@ -438,6 +493,7 @@ def release(plan, day):
     graph(plan)
     inspect(plan)
     evidence = verify_fast(plan, day, mounted=True)
+    require_mounted_verification(plan, day, evidence)
     source, target, quarantine = paths(plan, day)
     # Durable evidence is written before removing any duplicate original bytes.
     progress_file = progress_path(plan, day)
@@ -448,6 +504,7 @@ def release(plan, day):
     for name, expected in evidence['source_signature'].items():
         original = quarantine / name
         guard(plan)
+        require_mounted_verification(plan, day, evidence)
         if signature((target / name).lstat()) != evidence['destination_signature'][name]:
             raise RuntimeError('File changed before releasing duplicate original')
         if not original.exists():
@@ -482,7 +539,9 @@ def rollback(plan):
                 raise RuntimeError('Original release has started; rollback requires a verified recopy')
         if not quarantine.exists() and os.path.ismount(source):
             raise RuntimeError('Original already released; rollback requires a verified recopy')
-        verify_day(plan, day, mounted=quarantine.exists())
+        # A failed/partial cutover may have no usable bind. Rollback verifies the
+        # preserved originals and destination directly, without claiming publication.
+        verify_day(plan, day, quarantine_origin=quarantine.exists())
     for service in plan['consumers']:
         dropin = SYSTEMD_ROOT / (service + '.d') / '60-radar-relocation.conf'
         if dropin.exists():

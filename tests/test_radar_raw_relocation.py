@@ -8,7 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import patch
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 
 import pytest
 import yaml
@@ -140,7 +140,8 @@ def test_release_removes_only_verified_quarantine_after_durable_record(layout):
     quarantine.parent.mkdir(parents=True)
     source.rename(quarantine)
     source.mkdir()
-    with patch.object(relocate, 'assert_paused'), patch.object(relocate, 'guard'), patch.object(relocate, 'inspect'), patch.object(relocate, 'graph'):
+    with simulated_bind(plan, source, target), patch.object(relocate, 'assert_paused'), patch.object(relocate, 'inspect'), patch.object(relocate, 'graph'):
+        relocate.verify_day(plan, plan['days'][0], mounted=True)
         relocate.release(plan, plan['days'][0])
     assert not quarantine.exists()
     assert len(list(target.iterdir())) == 2
@@ -148,13 +149,15 @@ def test_release_removes_only_verified_quarantine_after_durable_record(layout):
 
 
 def test_failed_evidence_fsync_keeps_all_originals(layout):
-    plan, source, _, quarantine = layout
+    plan, source, target, quarantine = layout
     relocate.stage(plan, plan['days'][0])
     quarantine.parent.mkdir(parents=True)
     source.rename(quarantine)
     source.mkdir()
-    with patch.object(relocate, 'assert_paused'), patch.object(relocate, 'guard'), patch.object(relocate, 'inspect'), patch.object(relocate, 'graph'), patch.object(relocate, 'save', side_effect=OSError('disk failure')):
-        with pytest.raises(OSError, match='disk failure'): relocate.release(plan, plan['days'][0])
+    with simulated_bind(plan, source, target), patch.object(relocate, 'assert_paused'), patch.object(relocate, 'inspect'), patch.object(relocate, 'graph'):
+        relocate.verify_day(plan, plan['days'][0], mounted=True)
+        with patch.object(relocate, 'save', side_effect=OSError('disk failure')):
+            with pytest.raises(OSError, match='disk failure'): relocate.release(plan, plan['days'][0])
     assert len(list(quarantine.iterdir())) == 2
 
 
@@ -251,7 +254,8 @@ def test_interrupted_release_resumes_from_durable_per_file_intent(layout):
         if str(path).endswith('-release.json') and value.get('released'):
             raise OSError('power loss after unlink before progress commit')
         original_save(path, value)
-    with patch.object(relocate, 'assert_paused'), patch.object(relocate, 'guard'), patch.object(relocate, 'inspect'), patch.object(relocate, 'graph'):
+    with simulated_bind(plan, source, target), patch.object(relocate, 'assert_paused'), patch.object(relocate, 'inspect'), patch.object(relocate, 'graph'):
+        relocate.verify_day(plan, plan['days'][0], mounted=True)
         with patch.object(relocate, 'save', side_effect=fail_after_first_unlink):
             with pytest.raises(OSError, match='power loss'): relocate.release(plan, plan['days'][0])
         assert len(list(quarantine.iterdir())) == 1
@@ -507,3 +511,130 @@ def test_named_count_override_does_not_weaken_other_days(layout, tmp_path):
     del checked['expected_files_by_day']
     with pytest.raises(RuntimeError, match='file count'):
         relocate.inspect(checked)
+
+
+@contextmanager
+def simulated_bind(plan, source, target):
+    """Map logical file reads to the destination; real mount probes run on Linux."""
+    hash_file, attributes = relocate.hash_file, relocate.attributes
+    mapped = lambda path: target / Path(path).name if Path(path).parent == source else path
+    identity = {'logical': str(source), 'destination': str(target),
+                'directory_identity': [1, 2, 1, 2]}
+    active = Path(plan['state_root']) / 'test-active.json'
+    if not active.exists(): relocate.save(active, plan)
+    with patch.object(relocate, 'ACTIVE', active), patch.object(relocate, 'guard'), patch.object(relocate, 'mount_identity', return_value=identity), \
+            patch.object(relocate, 'hash_file', side_effect=lambda path: hash_file(mapped(path))) as hashes, \
+            patch.object(relocate, 'attributes', side_effect=lambda path: attributes(mapped(path))):
+        yield hashes
+
+
+def enter_quarantine(layout):
+    plan, source, target, quarantine = layout
+    relocate.stage(plan, plan['days'][0])
+    quarantine.parent.mkdir(parents=True)
+    source.rename(quarantine)
+    source.mkdir()
+    return plan, source, target, quarantine
+
+
+def test_staging_receipt_cannot_release_originals(layout):
+    plan, source, target, quarantine = enter_quarantine(layout)
+    with simulated_bind(plan, source, target), patch.object(relocate, 'assert_paused'), \
+            patch.object(relocate, 'inspect'), patch.object(relocate, 'graph'):
+        with pytest.raises(RuntimeError, match='current mounted path'):
+            relocate.release(plan, plan['days'][0])
+    assert len(list(quarantine.iterdir())) == 2
+    assert not relocate.progress_path(plan, plan['days'][0]).exists()
+
+
+def test_mounted_verification_hashes_logical_path_and_quarantine(layout):
+    plan, source, target, quarantine = enter_quarantine(layout)
+    with simulated_bind(plan, source, target) as hashes:
+        evidence = relocate.verify_day(plan, plan['days'][0], mounted=True)
+    read = {Path(call.args[0]) for call in hashes.call_args_list if Path(call.args[0]).parent in (source, quarantine)}
+    assert read == {root/name for root in (source, quarantine) for name in evidence['files']}
+    proof = evidence['mounted_verification']
+    assert proof['manifest_sha256'] == relocate.evidence_digest(evidence)
+    assert proof['mount_identity']['logical'] == str(source)
+    assert proof['cutover_identity']['sha256']
+
+
+@pytest.mark.parametrize('failure', ['missing mount', 'wrong mounted target', 'changed file identity'])
+def test_bad_mount_guard_preserves_previous_proof(layout, failure):
+    plan, source, target, _ = enter_quarantine(layout)
+    before = relocate.manifest_path(plan, plan['days'][0]).read_bytes()
+    with patch.object(relocate, 'guard', side_effect=RuntimeError(failure)), \
+            patch.object(relocate, 'hash_file') as hashes:
+        with pytest.raises(RuntimeError, match=failure):
+            relocate.verify_day(plan, plan['days'][0], mounted=True)
+        hashes.assert_not_called()
+    assert relocate.manifest_path(plan, plan['days'][0]).read_bytes() == before
+
+
+def test_mount_changed_after_hashing_cannot_publish_receipt(layout):
+    plan, source, target, _ = enter_quarantine(layout)
+    before = relocate.manifest_path(plan, plan['days'][0]).read_bytes()
+    with simulated_bind(plan, source, target), patch.object(relocate, 'mount_identity', side_effect=[{'directory_identity':[1,2]}, {'directory_identity':[1,3]}]):
+        with pytest.raises(RuntimeError, match='Mounted path or active cutover changed'):
+            relocate.verify_day(plan, plan['days'][0], mounted=True)
+    assert relocate.manifest_path(plan, plan['days'][0]).read_bytes() == before
+
+
+def test_interrupted_mounted_verification_keeps_previous_receipt(layout):
+    plan, source, target, _ = enter_quarantine(layout)
+    with simulated_bind(plan, source, target):
+        relocate.verify_day(plan, plan['days'][0], mounted=True)
+        before = relocate.manifest_path(plan, plan['days'][0]).read_bytes()
+        with patch.object(relocate, 'hash_file', side_effect=OSError('interrupted read')):
+            with pytest.raises(OSError, match='interrupted read'):
+                relocate.verify_day(plan, plan['days'][0], mounted=True)
+    assert relocate.manifest_path(plan, plan['days'][0]).read_bytes() == before
+
+
+def test_rebound_mount_or_changed_manifest_requires_new_mounted_proof(layout):
+    plan, source, target, quarantine = enter_quarantine(layout)
+    with simulated_bind(plan, source, target):
+        proof = relocate.verify_day(plan, plan['days'][0], mounted=True)
+        with patch.object(relocate, 'mount_identity', return_value={'directory_identity':[1,3]}):
+            with pytest.raises(RuntimeError, match='current mounted path'):
+                relocate.require_mounted_verification(plan, plan['days'][0], proof)
+        proof['files']['one.LV0']['sha256'] = '0'*64
+        with pytest.raises(RuntimeError, match='current mounted path'):
+            relocate.require_mounted_verification(plan, plan['days'][0], proof)
+    assert len(list(quarantine.iterdir())) == 2
+
+
+def test_quarantine_verification_for_rollback_does_not_require_working_mount(layout):
+    plan, source, target, _ = enter_quarantine(layout)
+    with patch.object(relocate, 'guard', side_effect=AssertionError('partial cutover has no usable bind')):
+        evidence = relocate.verify_day(plan, plan['days'][0], quarantine_origin=True)
+    assert 'mounted_verification' not in evidence
+
+
+def test_post_read_mount_guard_failure_preserves_prior_proof(layout):
+    plan, source, target, _ = enter_quarantine(layout)
+    before = relocate.manifest_path(plan, plan['days'][0]).read_bytes()
+    with simulated_bind(plan, source, target), patch.object(relocate, 'guard', side_effect=[None, RuntimeError('mount failed after reading')]) as check:
+        with pytest.raises(RuntimeError, match='after reading'):
+            relocate.verify_day(plan, plan['days'][0], mounted=True)
+        assert check.call_count == 2
+    assert relocate.manifest_path(plan, plan['days'][0]).read_bytes() == before
+
+
+def test_new_cutover_with_same_plan_requires_new_mounted_verification(layout):
+    plan, source, target, quarantine = enter_quarantine(layout)
+    with simulated_bind(plan, source, target):
+        proof = relocate.verify_day(plan, plan['days'][0], mounted=True)
+        relocate.save(relocate.ACTIVE, plan)  # New atomic record, identical JSON.
+        with pytest.raises(RuntimeError, match='current mounted path'):
+            relocate.require_mounted_verification(plan, plan['days'][0], proof)
+    assert len(list(quarantine.iterdir())) == 2
+
+
+def test_active_record_changed_during_read_does_not_replace_proof(layout):
+    plan, source, target, _ = enter_quarantine(layout)
+    before = relocate.manifest_path(plan, plan['days'][0]).read_bytes()
+    with simulated_bind(plan, source, target), patch.object(relocate, 'cutover_identity', side_effect=[{'signature':[1]}, {'signature':[2]}]):
+        with pytest.raises(RuntimeError, match='active cutover changed'):
+            relocate.verify_day(plan, plan['days'][0], mounted=True)
+    assert relocate.manifest_path(plan, plan['days'][0]).read_bytes() == before
