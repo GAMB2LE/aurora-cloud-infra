@@ -23,6 +23,13 @@ readings. A separate share-link defect was found during that check: Panel's
 websocket path had leaked into copied URLs. Dashboard PR 26 fixes the page URL;
 its 694 tests plus 55 subtests and integrated CI passed before merge.
 
+By 07:24 UTC both public readers served the follow-up `prod-20261024.2`,
+`222ce9ea1ca0eec611435418df15f4ac18a1e332`. Each clean checkout was checked against
+`origin/main` and imported with the existing isolated runtime before deployment.
+The focused playbook changed only reader paths and provenance; its post-release
+manifest checks passed on both hosts. The development camera share field now
+contains `/app?...`, with the camera and selected time retained.
+
 ## Observations and mirror evidence
 
 At 07:17 UTC all nine primary Operations stream groups reported current
@@ -67,8 +74,8 @@ held.
 
 iOS distribution needs the existing Apple account restored in Xcode and a usable
 distribution signing identity. A local compiler pipe stall also prevented the
-final archive attempt. Android distribution needs the existing signing and store
-credentials. I have not replaced either app's signing identity. Original dirty
+final archive attempt. Android has no configured release signing keys; Play app
+and tester access remain unverified. I have not replaced either app's signing identity. Original dirty
 work and unfinished scientific experiments remain preserved separately.
 
 ## Remaining gates
