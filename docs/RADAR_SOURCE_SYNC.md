@@ -108,6 +108,11 @@ bounded cleanup never removes a completed observation. Remaining old partials
 need a separately reviewed recovery pass; this helper does not sweep the tree.
 
 Deploy the helper and backfill wrapper together while backfill is stopped.
+The focused `playbooks/radar_backfill_guard.yml` requires the current installed
+wrapper's SHA-256 in `aurora_radar_backfill_expected_sha256`, checks the idle
+worker and mounted reserve, and backs up both replaced files. Review it with
+`--check --diff` before applying. It does not start or enable either radar timer.
+Do not apply the broad source-sync role just to install this guard.
 Validate the existing mount and the guard read-only before restoring its timer:
 
 ```bash
