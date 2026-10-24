@@ -340,6 +340,11 @@ def deliver_gws(config: dict, job: dict, rows: Sequence[sqlite3.Row], nul_path: 
     failures: list[str] = []
     for host in config.get("gws_hosts", []):
         command = [
+            "/usr/local/lib/aurora-gws-transfer",
+            "fast",
+            "--lock-root", str(config["gws_delivery_lock_root"]),
+            "--wait-seconds", str(config.get("gws_delivery_wait_seconds", 0)),
+            "--",
             "/usr/bin/rsync",
             "-a",
             "--partial",
@@ -355,6 +360,11 @@ def deliver_gws(config: dict, job: dict, rows: Sequence[sqlite3.Row], nul_path: 
         completed = subprocess.run(command, text=True, capture_output=True)
         if completed.returncode == 0:
             return
+        if completed.returncode == 75 or completed.returncode >= 128 or completed.returncode < 0:
+            raise RuntimeError(
+                "GWS delivery deferred or interrupted; leave these paths pending "
+                f"(exit {completed.returncode})"
+            )
         detail = (completed.stderr or completed.stdout).strip().splitlines()
         failures.append(f"{host}: {detail[-1] if detail else completed.returncode}")
     raise RuntimeError("all GWS delivery hosts failed: " + "; ".join(failures))

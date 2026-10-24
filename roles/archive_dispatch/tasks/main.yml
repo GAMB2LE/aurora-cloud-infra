@@ -1,4 +1,9 @@
 ---
+- name: Prepare shared raw GWS delivery before starting dispatch
+  ansible.builtin.include_role:
+    name: gws_delivery
+  when: archive_dispatch_enabled | bool
+
 - name: Ensure dual-archive dispatch directories exist
   ansible.builtin.file:
     path: "{{ item.path }}"
