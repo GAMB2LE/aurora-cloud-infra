@@ -10,6 +10,9 @@ aurora_dashboard_unused_session_lifetime_ms: 120000
 ass_retention_dry_run: false
 # Recovery hold: require two fresh complete archive reports before restoring pruning.
 ass_retention_timer_enabled: false
+# Native radar backlog stays held until seven-day headroom is demonstrated.
+# The independent LV1 live timer remains enabled for current observations.
+radar_backfill_timer_enabled: false
 ass_retention_max_candidates_per_run: 50000
 object_store_recovery_enabled: true
 object_store_recovery_deployment_id: a4635b966f2c272ee9f24ffe6b74f1d19fc8c5f2
