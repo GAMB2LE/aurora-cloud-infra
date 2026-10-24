@@ -1,0 +1,8 @@
+---
+- name: Prepare reviewed closed-day radar relocation on JASMIN
+  hosts: aurora-cloud
+  become: true
+  tasks:
+    - name: Install only the inactive relocation helper and plan
+      ansible.builtin.import_role:
+        name: radar_raw_relocation

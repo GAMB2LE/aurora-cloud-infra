@@ -14,7 +14,7 @@ TEMPLATE = ROOT / 'roles/standby_replication/templates/aurora-standby-pull.j2'
 
 
 def run_stage(tmp_path, stage='product-dashboard', *, deleting=True, reconciling=False,
-              destination_mounted=True, source_ready=True, status=0):
+              destination_mounted=True, source_ready=True, status=0, raw_guard=False):
     fake_bin = tmp_path / 'bin'
     fake_bin.mkdir()
     capture = tmp_path / 'rsync.json'
@@ -36,7 +36,7 @@ sys.exit(int(os.environ['RSYNC_STATUS']))
     function = re.search(r'^replicate_path\(\) \{.*?^\}', TEMPLATE.read_text(), re.M | re.S).group()
     for prefix in ('/data/aurora', '/project/aurora', '/var/lib/aurora-cloud'):
         function = function.replace(prefix, str(tmp_path / prefix.lstrip('/')))
-    path = (tmp_path / 'project/aurora/raw/power' if stage == 'raw-power'
+    path = (tmp_path / 'project/aurora/raw' / ('rpgfmcw94' if stage == 'raw-radar' else 'power') if stage.startswith('raw-')
             else tmp_path / 'data/aurora/products' / stage.removeprefix('product-'))
     path.mkdir(parents=True)
     orphan = path / 'outage-only.dat'
@@ -48,7 +48,7 @@ sys.exit(int(os.environ['RSYNC_STATUS']))
         f'ssh_wrapper={shlex.quote(str(fake_bin / "ssh-wrapper"))}',
         'source_user=azimuth', 'source_host=primary', f'state_root={shlex.quote(str(tmp_path))}',
         f'delete_enabled={str(deleting).lower()}', f'reconciling={str(reconciling).lower()}',
-        f'delete_stages={stage}', function,
+        f'delete_stages={stage}', f'raw_relocation_guard={str(raw_guard).lower()}', function,
         'replicate_path ' + ' '.join(map(shlex.quote, [stage, str(path) + '/', str(path) + '/', ''])),
     ])
     result = subprocess.run(['bash'], input=script, text=True, capture_output=True, timeout=10,
@@ -107,3 +107,12 @@ def test_recovery_inventory_keeps_deletion_and_retention_off():
     assert group['aurora_standby_replication_reconciling'] is True
     assert group['aurora_standby_replication_delete_stages'] == []
     assert production['ass_retention_timer_enabled'] is False
+
+
+def test_radar_sender_holds_relocation_guard_lock_for_entire_transfer(tmp_path):
+    result, args, stamp, _ = run_stage(tmp_path, stage='raw-radar', deleting=False, raw_guard=True)
+    assert result.returncode == 0, result.stderr
+    sender = next(arg for arg in args if arg.startswith('--rsync-path='))
+    assert 'aurora-radar-relocation.py exec --if-active' in sender
+    assert sender.endswith('-- sudo rsync')  # rsync appends its server arguments here.
+    assert json.loads(stamp)['stage'] == 'raw-radar'

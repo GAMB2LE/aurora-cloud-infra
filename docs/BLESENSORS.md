@@ -23,6 +23,9 @@ and the `ops_monitor` product. No email or notification rules are introduced.
 
 ## Focused production release
 
+The [24 October commissioning record](records/2026-10-24-blesensors-commissioning.md)
+records the installed BLE revision, archive pause/resume and observed data cycles.
+
 Deploy the reviewed dashboard/appender code first, then use the focused
 playbook. It changes only BLE units, directories, three environment entries,
 and the BLE entries in the existing archive bindings. It does not restart the

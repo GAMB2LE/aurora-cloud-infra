@@ -6,6 +6,9 @@ aurora_site_env: production
 aurora_failover_role: primary
 aurora_public_ip: 130.246.212.116
 aurora_app_version: prod-20261019.1
+# BLE was commissioned independently; keep the other scientific writers pinned.
+blesensors_app_dir: /opt/aurora-presentations/ac672ae6d835d05461b2fcb8c209151aa8ace2de
+blesensors_venv: /opt/aurora-presentations/runtime-20261024
 aurora_mobile_api_auth_mode: public_read_only
 aurora_nginx_rate_limits: true
 aurora_dashboard_session_check_ms: 15000

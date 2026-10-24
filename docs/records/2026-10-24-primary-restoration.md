@@ -138,3 +138,29 @@ are a visible delivery backlog, not observations to discard. Bounded recovery
 of the older LV1 files can proceed within its own reservation. The normal
 appender only accepts times after its current frontier, so receiving old raw
 files alone does not prove their gaps have been filled in the published Zarr.
+
+### Bounded LV1 raw recovery and the remaining product gap
+
+Three finite recovery windows restored 13 missing older LV1 NetCDF files without
+advancing the normal live checkpoint. A source-to-cloud SHA-256 comparison passed
+for all 15 available LV1 files in the checked interval, including the previously
+recovered hour and the next automatically delivered hour. The latter was selected
+by the normal timer at 07:10:07, completed at 07:10:20 and appended by the existing
+scheduled writer at 07:14:12. The Zarr frontier then reached
+`2026-10-24T06:59:52.536`. Its source/cloud file SHA-256 was
+`a5d923f8432a56907f07f835d879d0d44946b78e145db1497469dc5a7bd2388f`.
+
+Older raw files are preserved, but that does not fill the existing Zarr gap. The
+current appender deliberately accepts only samples newer than its latest stored
+time. The inspected product gap runs from `2026-10-23T14:59:51.910` to
+`2026-10-24T04:59:59.854`. No product rebuild was performed. A separate repair would
+need an isolated candidate containing the existing store plus available missing
+samples, exact checks that existing observations and geometry are unchanged, and
+a controlled atomic publication with rollback. The current full rebuild option
+moves the published store away before rebuilding a much longer geometry run, so
+it is not an appropriate recovery shortcut.
+
+The closed-day [raw relocation procedure](../RADAR_RAW_RELOCATION.md) is prepared
+as a separate capacity change. Its example plan and tests do not establish that
+any historical day has moved. Copy, mount commissioning, duplicate release and
+native-backfill restart each require their own recorded evidence.
