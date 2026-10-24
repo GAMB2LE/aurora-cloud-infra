@@ -238,3 +238,29 @@ confirmation remaining; products were still in a fresh inventory with no error.
 D02 and D03 had completed staging; D04 had 48.86 GB copied. D05 and D13 had not
 started. `/project` had 278,476,619,776 bytes free and `/data` had 249,869,500,416.
 These are progress observations, not archive acceptance or completed relocation.
+
+
+## Mounted-release guard installed, 08:26 UTC
+
+PR 86 reached main as `dae3041c37af09f91cf5cd47cbdf24065f7722af` after all four
+checks and two independent reviews. The focused checksum-guarded helper update
+at 08:26:40 reported three tasks ok, one changed and no failures. It did not reload
+systemd, change the plan or interrupt staging. The previous helper was preserved
+as `/usr/local/lib/aurora-radar-relocation.py.4006647.2026-10-24@08:26:40~`.
+
+The new helper SHA-256 is
+`2bc5b16ed2a5c1f03830785829c5ba12bc11c523e888d1eedaec782438afe57f`.
+At 08:26:47, the plan retained SHA-256
+`59042dd5b155b3d197e1e78ebddb0895f98a10521e0d6b6cab2c1bb95b57d5c6`,
+and the original four-day stage retained MainPID 3753660 and its 07:23:04 start.
+The production active record and temporary relocation hold were absent. The
+persistent retention hold stayed present; retention and native-backfill timers
+were disabled/inactive, their failed-service evidence was unchanged, and live LV1
+sync remained enabled. This installs the release safeguard; it does not authorize
+cutover, release a duplicate original or resume native backfill.
+
+The next ordinary DO raw-radar sender ran at 08:28:19–22 through the installed
+helper and completed successfully. Its existing timer remained active, and the
+stage receipt recorded two seconds and zero changed bytes. This confirms the
+inactive-guard sender path after installation; mount acceptance still awaits the
+reviewed cutover and full mounted verification.
