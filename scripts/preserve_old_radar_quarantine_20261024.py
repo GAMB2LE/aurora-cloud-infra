@@ -69,11 +69,15 @@ def attributes(entry):
     return [info[3], info[5], info[6], info[7], entry['xattrs']]
 
 
+def walk_error(error):
+    raise error
+
+
 def inventory(root):
     safe_path(root)
     device, inode = directory_id(root)
     result = {}
-    for base, directories, files in os.walk(root, followlinks=False):
+    for base, directories, files in os.walk(root, followlinks=False, onerror=walk_error):
         for path in [Path(base), *(Path(base) / n for n in files)]:
             before = path.lstat()
             require(before.st_dev == device, 'Unexpected device: ' + str(path))
@@ -484,7 +488,10 @@ class Preserver:
             require(hash_file(self.stage / name) == self.record['copied'][name]['sha256'], 'Independent target SHA mismatch')
             self.event('target-hashed')
         require(self.copied(complete=True) == before, 'Destination changed during full verification')
-        self.original(); self.check_closure()
+        self.original()
+        # Persist the successful full byte proof before publication's fresh
+        # closure scan, so a disappearing process namespace never forces an
+        # unnecessary complete rehash on resume. Publication still fails closed.
         self.record['copy_proof'] = {'at': time.time(), 'inventory': before}
         self.record['phase'] = 'publishing'; self.save()
 
@@ -628,6 +635,9 @@ class Preserver:
             self.finish()
         require(self.record['phase'] == 'complete', 'Unknown preservation phase')
         self.logical_proof()
+        parent_info = self.parent.lstat()
+        require(directory_id(self.parent) == self.record['target_parent'] and parent_info.st_uid == OWNER and
+                stat.S_IMODE(parent_info.st_mode) == 0o755, 'Completed target traversal changed')
         require(not present(self.backup), 'Unexpected original backup after completion')
         return {'phase': self.record['phase'], 'files_preserved': len(self.files),
                 'receipt': str(self.receipt), 'target': str(self.target)}

@@ -326,3 +326,36 @@ def test_logical_link_replaced_after_release_intent_does_not_unlink(fixture, tmp
     before = payloads(source)
     with pytest.raises(RuntimeError, match='Logical link changed'): runner.run()
     assert payloads(runner.backup) == before
+
+
+def test_inventory_propagates_walk_errors(fixture, monkeypatch):
+    _, source, _, _ = fixture
+    def failing_walk(root, **kwargs):
+        kwargs['onerror'](PermissionError('unreadable subtree'))
+        yield
+    monkeypatch.setattr(os, 'walk', failing_walk)
+    with pytest.raises(PermissionError, match='unreadable'): m.inventory(source)
+
+
+def test_publication_closure_failure_keeps_full_byte_proof(fixture, monkeypatch):
+    make, source, _, _ = fixture
+    runner = make(); calls = 0
+    def closure(self):
+        nonlocal calls
+        calls += 1
+        if calls == 2: raise RuntimeError('namespace disappeared')
+    monkeypatch.setattr(m.Preserver, 'check_closure', closure)
+    with pytest.raises(RuntimeError, match='namespace disappeared'): runner.run()
+    receipt = json.loads(runner.receipt.read_bytes())
+    assert receipt['phase'] == 'publishing' and receipt['copy_proof']
+    assert source.is_dir() and not source.is_symlink()
+    def unexpected_hash(*args): raise RuntimeError('unnecessary full rehash')
+    monkeypatch.setattr(m, 'hash_file', unexpected_hash)
+    assert make().run(resume=True)['phase'] == 'complete'
+
+
+def test_completed_rerun_checks_traversal(fixture):
+    make, _, target, _ = fixture
+    make().run()
+    target.parent.chmod(0o700)
+    with pytest.raises(RuntimeError, match='Completed target traversal'): make().run(resume=True)
