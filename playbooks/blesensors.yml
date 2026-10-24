@@ -49,15 +49,23 @@
 
     - name: Check BLE appender is already deployed before enabling writers
       ansible.builtin.stat:
-        path: "{{ aurora_app_dir }}/append_new_blesensors_to_zarr.py"
+        path: "{{ blesensors_app_dir }}/append_new_blesensors_to_zarr.py"
       register: blesensors_appender
       tags: [blesensors, blesensors_processing]
 
-    - name: Require appender code before enabling BLE processing
+    - name: Check the selected BLE Python runtime
+      ansible.builtin.stat:
+        path: "{{ blesensors_venv }}/bin/python"
+        follow: true
+      register: blesensors_python
+      tags: [blesensors, blesensors_processing]
+
+    - name: Require appender code and runtime before enabling BLE processing
       ansible.builtin.assert:
         that:
-          - blesensors_appender.stat.exists or not (aurora_processing_timers.blesensors_append | default(aurora_writer_timers_enabled) | bool) or ansible_check_mode
-        fail_msg: Deploy the reviewed BLE appender code before enabling its production timer.
+          - (blesensors_appender.stat.isreg | default(false)) or not (aurora_processing_timers.blesensors_append | default(aurora_writer_timers_enabled) | bool) or ansible_check_mode
+          - (blesensors_python.stat.executable | default(false)) or not (aurora_processing_timers.blesensors_append | default(aurora_writer_timers_enabled) | bool) or ansible_check_mode
+        fail_msg: Deploy the reviewed BLE appender and Python runtime at blesensors_app_dir and blesensors_venv before enabling its production timer.
       tags: [blesensors, blesensors_processing]
 
   tasks:
