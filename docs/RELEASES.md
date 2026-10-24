@@ -21,8 +21,41 @@ runtime overrides. Do not change the writer checkout, forecast revision or
 writer units. Review `systemctl cat` before applying overrides; reset only
 `WorkingDirectory` and `ExecStart`, and record the previous values for rollback.
 
-The operational mirror playbook accepts that checkout through `aurora_app_dir`
-and its virtual environment through `aurora_venv`. See
+The focused `playbooks/presentation_release.yml` applies these two reader
+overrides and verifies the API revision. Stage a normal clean clone at the
+commit path and fetch `origin/main`; the playbook checks that the release is
+reachable from it. Install the pinned runtime requirements in a separate
+environment first. Put the full revision and runtime path in a release file:
+
+```yaml
+aurora_presentation_revision: <40-character commit on main>
+aurora_presentation_venv: /opt/aurora-presentations/runtime-<release-date>
+```
+
+Review the effective units and retain them with the release evidence. On a
+host using direct-field continuity, also set
+`aurora_presentation_wxcam_media_dir` and
+`aurora_presentation_auroracam_media_dir` to the currently served paths. The
+playbook preserves existing environment overlays but cannot infer static
+media routes from them.
+
+```bash
+uv run ansible-playbook playbooks/presentation_release.yml --limit <host> -e @/path/to/presentation-release.yml --check --diff
+uv run ansible-playbook playbooks/presentation_release.yml --limit <host> -e @/path/to/presentation-release.yml
+```
+
+The `zz-presentation-release.conf` drop-ins take precedence over older command
+overrides. `aurora-presentation.env` sets only reader provenance and disables
+Python bytecode writes; it does not set forecast-generator provenance. Check
+the browser and API after release. To roll back the first isolated release,
+remove only those two drop-ins, reload systemd and restart the two readers.
+For later releases, restore their recorded previous drop-ins and presentation
+environment. Keep the release checkout and runtime until rollback is no longer
+needed. A failed runtime or manifest check is a failed release.
+
+The operational mirror uses dedicated `aurora_operational_mirror_app_dir`
+and `aurora_operational_mirror_venv` settings. Never repoint the shared
+`aurora_app_dir` or `aurora_venv` to change a reader. See
 [Operational mobile mirror](OPERATIONAL_MOBILE_MIRROR.md).
 
 Before releasing, preserve dirty files and deployed-only fixes in a reviewed

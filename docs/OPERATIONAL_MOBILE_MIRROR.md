@@ -28,7 +28,7 @@ products. Keep emergency continuity and experiments intact until their
 replacement data have passed those checks.
 
 Deploy the reviewed presentation revision separately with its own Python 3.12
-or newer virtual environment. Supply that exact `aurora_venv`; the mirror role
+or newer virtual environment. Supply that exact `aurora_operational_mirror_venv`; the mirror role
 does not upgrade or reuse the scientific writer environment. This playbook does not
 clone code, install dependencies, change writer timers or touch archives.
 Create a private release variables file with the full deployed commit:
@@ -36,8 +36,8 @@ Create a private release variables file with the full deployed commit:
 ```yaml
 aurora_operational_mirror_enabled: true
 aurora_operational_mirror_expected_revision: <40-character presentation commit>
-aurora_app_dir: /opt/aurora-presentations/<same commit>
-aurora_venv: /opt/aurora-presentations/<same commit>/venv
+aurora_operational_mirror_app_dir: /opt/aurora-presentations/<same commit>
+aurora_operational_mirror_venv: /opt/aurora-presentations/<same commit>/venv
 ```
 
 From the infrastructure checkout, review the existing nginx site diff:
@@ -55,7 +55,9 @@ validation fails; repair or restore that site before any later reload.
 The nginx template is shared with other deployments. After commissioning,
 record the enabled flag and presentation path in reviewed host inventory so a
 later deployment does not remove the route or select the shared writer checkout.
-Do not set these values before the evidence gates pass.
+Use only these dedicated mirror variables; changing the shared `aurora_app_dir`
+or `aurora_venv` would also change future scientific writer deployments. Do not
+set the enabled flag before the evidence gates pass.
 
 ## Verify the result
 

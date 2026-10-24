@@ -6,10 +6,13 @@
       - aurora_site_env == 'development'
       - aurora_operational_mirror_port | int != aurora_mobile_api_port | int
       - not (aurora_operational_mirror_enabled | bool) or aurora_operational_mirror_expected_revision is match('^[0-9a-f]{40}$')
+      - not (aurora_operational_mirror_enabled | bool) or aurora_operational_mirror_app_dir == '/opt/aurora-presentations/' + aurora_operational_mirror_expected_revision
+      - not (aurora_operational_mirror_enabled | bool) or aurora_operational_mirror_venv is match('^/opt/aurora-presentations/[A-Za-z0-9._/-]+$')
+      - "'/../' not in aurora_operational_mirror_venv"
     fail_msg: Supply the reviewed deployed commit before enabling the operational mirror.
 
 - name: Read the deployed source revision without changing it
-  ansible.builtin.command: git -C {{ aurora_app_dir }} rev-parse HEAD
+  ansible.builtin.command: git -C {{ aurora_operational_mirror_app_dir }} rev-parse HEAD
   become_user: "{{ aurora_service_user }}"
   register: operational_mirror_revision
   changed_when: false
@@ -17,7 +20,7 @@
   when: aurora_operational_mirror_enabled | bool
 
 - name: Read deployed source cleanliness
-  ansible.builtin.command: git -C {{ aurora_app_dir }} status --porcelain
+  ansible.builtin.command: git -C {{ aurora_operational_mirror_app_dir }} status --porcelain
   become_user: "{{ aurora_service_user }}"
   register: operational_mirror_dirty
   changed_when: false
