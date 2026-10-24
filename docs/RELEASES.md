@@ -39,6 +39,28 @@ host using direct-field continuity, also set
 playbook preserves existing environment overlays but cannot infer static
 media routes from them.
 
+After the dedicated operational mirror and its observation/media checks pass,
+set `aurora_presentation_canonical_observations=true` on development and select
+the canonical static roots `/data/aurora/products/wxcam` and
+`/project/aurora/raw/auroracam`. The same focused release then restores the
+ordinary development readers to replicated observations. It preserves and
+checksum-checks the two temporary continuity overlays for each reader under
+`/etc/aurora-retired-reader-overrides/20261024/` before removing their active
+copies. Its last environment file, `/etc/aurora-canonical-observations.env`,
+keeps current Power/BLE/Operations data and prewarm paths on the replica, with
+full forecast publication disabled and forecast-only publication retained.
+
+This does not stop continuity producers. The development forecast, ensemble
+and learning units still snapshot live/UAS continuity inputs; changing those
+inputs requires a separately tested handoff. The ordinary development API can
+still expose its accepted forecast bundle. Native fallback uses only the
+isolated operational API, where development products are inaccessible.
+
+For a routing rollback, restore the four checksum-suffixed overlays to their
+original reader filenames, set the canonical-observation flag false and restore
+the previous static roots. Apply the focused release, then check the two public
+readers again. Keep the saved overlays and all continuity data for that rollback.
+
 ```bash
 uv run ansible-playbook playbooks/presentation_release.yml --limit <host> -e @/path/to/presentation-release.yml --check --diff
 uv run ansible-playbook playbooks/presentation_release.yml --limit <host> -e @/path/to/presentation-release.yml

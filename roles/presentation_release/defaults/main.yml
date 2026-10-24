@@ -4,3 +4,5 @@ aurora_presentation_app_dir: "/opt/aurora-presentations/{{ aurora_presentation_r
 aurora_presentation_venv: ""
 aurora_presentation_wxcam_media_dir: /data/aurora/products/wxcam
 aurora_presentation_auroracam_media_dir: /project/aurora/raw/auroracam
+# Enable only after the production replica has passed its data and media checks.
+aurora_presentation_canonical_observations: false

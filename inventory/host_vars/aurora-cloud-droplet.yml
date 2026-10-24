@@ -1,9 +1,11 @@
 ---
-# Same reviewed presentation as JASMIN; existing development data routing stays.
+# Same reviewed presentation as JASMIN, with replicated observations and separate
+# development forecasts. Producer inputs are independent of these reader paths.
 aurora_presentation_revision: 222ce9ea1ca0eec611435418df15f4ac18a1e332
 aurora_presentation_venv: /opt/aurora-presentations/runtime-20261024
-aurora_presentation_wxcam_media_dir: /data/aurora/dev-products/science-continuity/wxcam/current/media
-aurora_presentation_auroracam_media_dir: /data/aurora/dev-products/live-continuity/current/cameras
+aurora_presentation_canonical_observations: true
+aurora_presentation_wxcam_media_dir: /data/aurora/products/wxcam
+aurora_presentation_auroracam_media_dir: /project/aurora/raw/auroracam
 # Commissioned after source/product, anonymous API and media checks on 24 October.
 # Keep this reader isolated from the ordinary development API and writer runtime.
 aurora_operational_mirror_enabled: true

@@ -80,3 +80,45 @@ def test_operations_provenance_keeps_the_existing_collector_command():
     assert 'EnvironmentFile=/etc/aurora-presentation.env' in content
     assert 'ExecStart' not in content and 'WorkingDirectory' not in content
     assert 'notify' not in provenance
+
+
+@pytest.mark.parametrize('reader', ['aurora-dashboard', 'aurora-mobile-api'])
+def test_canonical_observations_override_only_the_two_reader_environments(reader):
+    template = (ROLE / f'templates/{reader}.conf.j2').read_text()
+    # The environment is last, so legacy publication=true cannot select a
+    # development current-observation product after the continuity overlay goes.
+    environment_part = template.split('ExecStart=')[0]
+    rendered = Environment(undefined=StrictUndefined).from_string(environment_part).render(
+        aurora_presentation_app_dir='/opt/aurora-presentations/' + 'a' * 40,
+        aurora_presentation_canonical_observations=True,
+    )
+    assert rendered.endswith('EnvironmentFile=/etc/aurora-canonical-observations.env\n')
+    assert 'EnvironmentFile=\n' not in rendered
+
+
+def test_canonical_observations_preserve_development_forecast_selection():
+    settings = dict(line.split('=', 1) for line in
+                    (ROLE / 'files/aurora-canonical-observations.env').read_text().splitlines()
+                    if line and not line.startswith('#'))
+    assert settings['AURORA_POWER_FORECAST_PUBLICATION_ACTIVE'] == 'false'
+    assert settings['AURORA_POWER_FORECAST_ONLY_PUBLICATION_ACTIVE'] == 'true'
+    assert settings['AURORA_OPERATIONAL_MIRROR'] == 'false'
+    assert settings['POWER_CURRENT_DISPLAY_ZARR_PATH'].startswith('/data/aurora/products/')
+    assert settings['BLESENSORS_ZARR_PATH'].startswith('/data/aurora/products/')
+    assert 'POWER_FORECAST_DISPLAY_ZARR_PATH' not in settings
+    assert 'AURORA_POWER_FORECAST_BUNDLE_MANIFEST_PATH' not in settings
+    assert not any('INPUT_MODE' in key or 'INPUT_ROOT' in key for key in settings)
+
+
+def test_retirement_is_limited_to_preserved_reader_overlays():
+    tasks = yaml.safe_load((ROLE / 'tasks/canonical_observations.yml').read_text())
+    preservation = next(task for task in tasks if task['name'].startswith('Preserve each'))
+    retirement = next(task for task in tasks if task['name'].startswith('Retire only'))
+    assert tasks.index(preservation) < tasks.index(retirement)
+    assert 'item.stat.checksum' in preservation['ansible.builtin.copy']['dest']
+    assert preservation['ansible.builtin.copy']['force'] is False
+    source = (ROLE / 'tasks/canonical_observations.yml').read_text()
+    assert '95-uas-display-continuity.conf' in source
+    assert '99-forecast-publication-only.conf' not in source
+    assert 'aurora-live-continuity.service' not in source
+    assert 'aurora-science-continuity' not in source

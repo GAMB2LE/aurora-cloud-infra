@@ -1,5 +1,8 @@
 [Service]
 WorkingDirectory={{ aurora_presentation_app_dir }}
 EnvironmentFile=/etc/aurora-presentation.env
+{% if aurora_presentation_canonical_observations | default(false) %}
+EnvironmentFile=/etc/aurora-canonical-observations.env
+{% endif %}
 ExecStart=
 ExecStart={{ aurora_presentation_venv }}/bin/panel serve app.py model-evaluation.py dart.py --address={{ aurora_panel_host }} --port={{ aurora_panel_port }}{% for origin in aurora_dashboard_allowed_origins %} --allow-websocket-origin={{ origin }}{% endfor %} --static-dirs dashboard-assets={{ aurora_presentation_app_dir }}/assets wxcam-media={{ aurora_presentation_wxcam_media_dir }} auroracam-media={{ aurora_presentation_auroracam_media_dir }} --keep-alive=15000 --check-unused-sessions={{ aurora_dashboard_session_check_ms }} --unused-session-lifetime={{ aurora_dashboard_unused_session_lifetime_ms }} --session-token-expiration=86400 --num-procs={{ aurora_dashboard_num_procs }}
