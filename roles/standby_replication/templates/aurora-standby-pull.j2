@@ -22,6 +22,11 @@ delete_enabled={{ 'true' if aurora_standby_replication_delete | default(false) |
 reconciling={{ 'true' if aurora_standby_replication_reconciling | default(true) | bool else 'false' }}
 delete_stages={{ (aurora_standby_replication_delete_stages | default([]) | join(' ')) | quote }}
 
+# Guard before even the public-stamp directory is created on a missing mount.
+if ! mountpoint -q /data || ! mountpoint -q /project; then
+  echo "Development mirror held: /data and /project must be mounted." >&2
+  exit 75
+fi
 mkdir -p "$state_root" "$(dirname "$known_hosts")" "$(dirname "$public_stamp")"
 touch "$known_hosts"
 chown {{ aurora_service_user | quote }}:{{ aurora_service_group | quote }} "$known_hosts"

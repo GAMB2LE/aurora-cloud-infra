@@ -1,0 +1,85 @@
+---
+# Install only the reviewed guard and wrapper. Timer restoration is separate.
+- name: Install bounded radar backfill protection on JASMIN
+  hosts: aurora-cloud
+  become: true
+  tasks:
+    - name: Require the exact preserved installed wrapper checksum
+      ansible.builtin.assert:
+        that:
+          - aurora_radar_backfill_expected_sha256 | default('') is match('^[0-9a-f]{64}$')
+        fail_msg: Read and preserve the installed wrapper before supplying its expected SHA-256.
+
+    - name: Read the backfill timer state
+      ansible.builtin.command: systemctl show aurora-radar-backfill.timer --property=ActiveState,Job
+      register: radar_backfill_timer_state
+      changed_when: false
+      check_mode: false
+
+    - name: Require the backfill timer to remain paused during installation
+      ansible.builtin.assert:
+        that:
+          - "'ActiveState=inactive' in radar_backfill_timer_state.stdout_lines"
+          - "'Job=0' in radar_backfill_timer_state.stdout_lines or 'Job=' in radar_backfill_timer_state.stdout_lines"
+
+    - name: Read current radar backfill state
+      ansible.builtin.command: systemctl show aurora-radar-backfill.service --property=ActiveState,MainPID,Job
+      register: radar_backfill_live_state
+      changed_when: false
+      check_mode: false
+
+    - name: Require an idle backfill worker
+      ansible.builtin.assert:
+        that:
+          - "'MainPID=0' in radar_backfill_live_state.stdout_lines"
+          - "'Job=0' in radar_backfill_live_state.stdout_lines or 'Job=' in radar_backfill_live_state.stdout_lines"
+          - "'ActiveState=inactive' in radar_backfill_live_state.stdout_lines or 'ActiveState=failed' in radar_backfill_live_state.stdout_lines"
+
+    - name: Read the installed backfill wrapper checksum
+      ansible.builtin.stat:
+        path: /usr/local/bin/aurora-radar-backfill
+        checksum_algorithm: sha256
+      register: radar_backfill_installed
+
+    - name: Reject unexpected deployed wrapper changes
+      ansible.builtin.assert:
+        that:
+          - radar_backfill_installed.stat.checksum | default('') == aurora_radar_backfill_expected_sha256
+
+    - name: Check the existing mounted destination and minimum reserve
+      ansible.builtin.script:
+        cmd: >-
+          ../roles/source_sync/files/aurora-radar-transfer-guard.py capacity
+          --root {{ radar_source_destination | quote }}
+          --required-mount {{ radar_source_required_mount | quote }}
+          --workers {{ radar_backfill_workers | int }} --max-file-bytes 0
+          --reserve-bytes {{ radar_backfill_free_reserve_bytes | int }}
+        executable: /usr/bin/python3
+      changed_when: false
+      check_mode: false
+
+    - name: Install only the radar transfer guard
+      ansible.builtin.copy:
+        src: ../roles/source_sync/files/aurora-radar-transfer-guard.py
+        dest: /usr/local/lib/aurora-radar-transfer-guard.py
+        owner: root
+        group: root
+        mode: '0755'
+        backup: true
+
+    - name: Install only the validated radar backfill wrapper
+      ansible.builtin.template:
+        src: ../roles/source_sync/templates/aurora-radar-backfill.j2
+        dest: /usr/local/bin/aurora-radar-backfill
+        owner: root
+        group: root
+        mode: '0755'
+        backup: true
+        validate: /bin/bash -n %s
+
+    - name: Report the commissioning boundary
+      ansible.builtin.debug:
+        msg: >-
+          Guard and wrapper prepared. No timer or service state was changed.
+          Review the selected-file reservation and net growth before restoring
+          backfill; check live acquisition separately.
