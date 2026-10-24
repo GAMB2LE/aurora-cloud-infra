@@ -50,6 +50,18 @@ the three station cameras, current Power charts and development forecast charts.
 The forecast API still selected its immutable development generation
 `20261024T073255Z-29e678eb`; its continuity input producers were not stopped.
 
+At 07:47 UTC the primary and isolated operational mirror also served this same
+release. Both focused playbooks completed without failures and their serving
+manifest assertions passed. An independent public check found schema 3 on both,
+with the primary marked authoritative and the mirror marked `live-mirror` and
+`operationalMirror=true`. The mirror points browser users to JASMIN.
+
+The reloaded JASMIN Power page rendered its plots and both enclosure samples from
+07:45 UTC. Operations also rendered: it identified the clean `prod-20261024.3`
+reader, reported all nine stream groups current and all three source hosts
+reachable, and labelled both public HTTP bootstraps ready. Its remaining service
+and archive warnings are retained; a rendered page does not resolve those jobs.
+
 ## Observations and mirror evidence
 
 At 07:17 UTC all nine primary Operations stream groups reported current
@@ -110,7 +122,7 @@ science observations were removed to obtain this space.
 
 | Repository | Completed source on main | Distribution |
 | --- | --- | --- |
-| Dashboard | PR 25, then share-link PR 26 | Pinned serving release above; subsequent rollout recorded separately. |
+| Dashboard | PRs 25–28, integrated main `9f8624eab3c07de17c4bf1138f3485d7fef9469b` | All three readers serve the pinned `prod-20261024.3` source above. |
 | iOS | PR 9, `8f0a66fa1501df1cc4c3eb4625c0ebac2e406430` | 55 unit and 9 iPhone UI tests plus both CI builds passed. No new TestFlight upload. |
 | Android | PR 2, `ed2d0df3d66bbd4a457a4fa9987abc615075682d` | 45 JVM and 15 emulator tests, lint and builds passed. No signed beta upload. |
 | Infrastructure | Recovery, isolated presentation, mirror transport, radar and BLE changes merged in PRs 59–70. | Only the focused deployments described in these records were applied. |
@@ -131,8 +143,6 @@ work and unfinished scientific experiments remain preserved separately.
   delivery debt or fill the historical product gap.
 - Complete archive verification and resolve its reported discrepancies. Mirror
   equality is not independent archive parity. Retention remains disabled.
-- Verify the final reader rollout separately from the completed collector fix.
-  HTTP bootstrap readiness and rendered browser validation are separate checks.
 - Restore Menapia flight-archive S3 access. The credential expired on 30 September
   and bucket listing returns AccessDenied. Current UAS MQTT telemetry is updating.
 - Publish the final documentation status and complete native beta distribution
