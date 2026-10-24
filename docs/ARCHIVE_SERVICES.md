@@ -488,9 +488,10 @@ sudo /usr/local/sbin/aurora-cloud-cache-cleanup --apply
 ```
 
 The role defaults keep `aurora-ass-retention.timer` disabled and dry-run on.
-The committed production host overrides enable the reviewed live policy; ASS
-enables the restricted helper in live mode, while APS remains disabled and
-non-prunable. A failed, interrupted, or partial inventory never replaces the
+Production also holds the timer off during the 24 October storage recovery. Its
+previously commissioned live-mode setting does not authorize restarting it:
+fresh archive proof and the recorded capacity gates are still required. APS
+remains disabled and non-prunable. A failed, interrupted, or partial inventory never replaces the
 previous complete comparison and can never authorize deletion. Always check
 the live unit and both audit logs rather than treating committed configuration
 as proof of the current host state.
