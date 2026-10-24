@@ -30,6 +30,38 @@ The focused playbook changed only reader paths and provenance; its post-release
 manifest checks passed on both hosts. The development camera share field now
 contains `/app?...`, with the camera and selected time retained.
 
+The separate primary Operations collector now uses source
+`1a588513a6f715f2159d0f65c41b857f1ccca9d3`, tagged `prod-20261024.3` and reachable
+from main after dashboard PRs 27–28. Those changes passed 711 tests plus 55
+subtests and integrated CI. The focused collector release changed only its
+working directory and command, retained both output paths and environment files,
+and reloaded systemd for the existing timer. Its scheduled 07:41 and 07:42 runs
+exited successfully. Both public HTTP bootstrap checks and their legacy aliases
+reported ready; the 07:42 snapshot also contained APS/ASS BLE samples from 07:41.
+Browser rendering is a separate check. The source still reports the reader's
+actual serving revision rather than confusing it with the collector revision.
+
+At 07:44 UTC, data-ocean's ordinary dashboard and API also served
+`prod-20261024.3`. Their observations, camera media, BLE, Operations and prewarm
+paths now read the production replicas. The four temporary reader overlays were
+saved with matching checksums before retirement. All 12 anonymous API routes
+passed and seven actual media files matched the primary. Browser checks rendered
+the three station cameras, current Power charts and development forecast charts.
+The forecast API still selected its immutable development generation
+`20261024T073255Z-29e678eb`; its continuity input producers were not stopped.
+
+At 07:47 UTC the primary and isolated operational mirror also served this same
+release. Both focused playbooks completed without failures and their serving
+manifest assertions passed. An independent public check found schema 3 on both,
+with the primary marked authoritative and the mirror marked `live-mirror` and
+`operationalMirror=true`. The mirror points browser users to JASMIN.
+
+The reloaded JASMIN Power page rendered its plots and both enclosure samples from
+07:45 UTC. Operations also rendered: it identified the clean `prod-20261024.3`
+reader, reported all nine stream groups current and all three source hosts
+reachable, and labelled both public HTTP bootstraps ready. Its remaining service
+and archive warnings are retained; a rendered page does not resolve those jobs.
+
 ## Observations and mirror evidence
 
 At 07:17 UTC all nine primary Operations stream groups reported current
@@ -90,15 +122,18 @@ science observations were removed to obtain this space.
 
 | Repository | Completed source on main | Distribution |
 | --- | --- | --- |
-| Dashboard | PR 25, then share-link PR 26 | Pinned serving release above; subsequent rollout recorded separately. |
+| Dashboard | PRs 25–28, integrated main `9f8624eab3c07de17c4bf1138f3485d7fef9469b` | All three readers serve the pinned `prod-20261024.3` source above. |
 | iOS | PR 9, `8f0a66fa1501df1cc4c3eb4625c0ebac2e406430` | 55 unit and 9 iPhone UI tests plus both CI builds passed. No new TestFlight upload. |
 | Android | PR 2, `ed2d0df3d66bbd4a457a4fa9987abc615075682d` | 45 JVM and 15 emulator tests, lint and builds passed. No signed beta upload. |
 | Infrastructure | Recovery, isolated presentation, mirror transport, radar and BLE changes merged in PRs 59–70. | Only the focused deployments described in these records were applied. |
 
-iOS distribution needs the existing Apple account restored in Xcode and a usable
-distribution signing identity. A local compiler pipe stall also prevented the
-final archive attempt. Android has no configured release signing keys; Play app
-and tester access remain unverified. I have not replaced either app's signing identity. Original dirty
+iOS signing is now verified through Xcode with the existing distribution identity;
+the diagnostic export was not uploaded. A host compiler pipe stall prevented the
+fresh local archive, so an exact-main unsigned CI archive is being prepared for
+local signing as version 0.13.2, build 28. The existing Android upload key was
+found in the established iCloud signing folder. Its Keychain approval and access
+to the owning Play Console account are still needed. Historical beta invitations
+confirm the existing Play channel. I have not replaced either app's signing identity. Original dirty
 work and unfinished scientific experiments remain preserved separately.
 
 ## Remaining gates
@@ -108,9 +143,6 @@ work and unfinished scientific experiments remain preserved separately.
   delivery debt or fill the historical product gap.
 - Complete archive verification and resolve its reported discrepancies. Mirror
   equality is not independent archive parity. Retention remains disabled.
-- Correct the old HTTP monitor's size-based false alarm. A valid Panel bootstrap
-  is about 9.6 kB and renders through its websocket; HTTP bootstrap readiness and
-  rendered browser validation need separate wording.
 - Restore Menapia flight-archive S3 access. The credential expired on 30 September
   and bucket listing returns AccessDenied. Current UAS MQTT telemetry is updating.
 - Publish the final documentation status and complete native beta distribution
