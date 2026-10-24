@@ -85,6 +85,16 @@ class BLERuntimeTests(unittest.TestCase):
                  if "blesensors_app_dir" in path.read_text() or "blesensors_venv" in path.read_text()}
         self.assertEqual(users, {TEMPLATE.relative_to(ROOT).as_posix()})
 
+    def test_source_setup_preserves_existing_shared_state_permissions(self):
+        tasks = yaml.safe_load((ROOT / "roles/source_sync/tasks/blesensors.yml").read_text())
+        state = next(task for task in tasks if task["name"] == "Create state directory only when absent")
+        condition = self.environment.compile_expression(state["when"][-1])
+        self.assertFalse(condition(blesensors_state_directory={"stat": {"exists": True}}))
+        self.assertTrue(condition(blesensors_state_directory={"stat": {"exists": False}}))
+        probe = next(task for task in tasks if task["name"] == "Check BLE can use the deployed state directory")
+        self.assertEqual(probe["ansible.builtin.command"]["argv"], ["test", "-w", "{{ aurora_state_root }}"])
+        self.assertFalse(probe["changed_when"])
+
 
 if __name__ == "__main__":
     unittest.main()
