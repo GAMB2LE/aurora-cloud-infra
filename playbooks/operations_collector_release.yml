@@ -1,0 +1,6 @@
+---
+- name: Release the primary operations snapshot collector
+  hosts: aurora_cloud
+  become: true
+  roles:
+    - operations_collector_release
