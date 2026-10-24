@@ -173,8 +173,9 @@ matched the scheduled Zarr append rather than a quicklook generation timestamp.
 The DO operational mirror remains a selected mirror, not a second full native
 radar archive. Its `raw-rpgfmcw94` stage explicitly excludes `Y2026/**` and
 `.radar-partials/**`; compact radar products and quicklooks supply presentation.
-The full native record remains on JASMIN and in the GWS/object archives. Closed-day
-relocation preserves those exclusions and does not add a 343.94 GiB DO transfer.
+JASMIN and the GWS/object archives retain responsibility for the full native
+record; their delivery backlog remains visible. Closed-day relocation preserves
+those exclusions and does not add a 343.94 GiB DO transfer.
 
 The inactive relocation helper was prepared from infrastructure main
 `d8d8dbae0e84a604f236421a1310f641f35d4462`. Dry-run and apply each reported the four
@@ -186,3 +187,20 @@ activated. At the preparation check, `/project` had 274,043,240,448 bytes free a
 `/data` had 490,631,454,720; the helper calculated 369,295,809,536 bytes of potential
 reclaim from the four closed days. These are dated measurements, not a release
 receipt or permission to skip a later capacity check.
+
+### Closed-day copy started, 07:23 UTC
+
+After the partial-file preservation completed, a fresh check measured
+278,619,226,112 free bytes on `/project` and 490,587,414,528 on `/data`. Both staging
+gates passed. The durable oneshot
+`aurora-radar-relocation-stage-20261024.service` started at 07:23:04 and copies
+D02–D05 sequentially with the reviewed helper. Progress and completed-day results
+are recorded in `/var/log/aurora-radar-relocation-stage-20261024.log`; a day counts
+as staged only after its manifest is published. An active service or a partly
+copied destination is not a completed SHA verification.
+
+The original logical paths remain unchanged. No active relocation record,
+production bind mount, quarantine rename or duplicate release has been performed.
+Live collection continues, and native backfill and retention remain held. The
+[archive follow-up](2026-10-24-archive-follow-up.md) records the separate metadata,
+native backlog and stale verification findings.
