@@ -184,6 +184,8 @@ def shell_fixture(tmp_path):
     def executable(name,body):
         path=bindir/name;path.write_text(body);path.chmod(0o755);return path
     executable('chown','#!/bin/sh\nexit 0\n')
+    executable('mountpoint','#!/bin/sh\nexit 0\n')
+    executable('ssh','#!/bin/sh\nexit 0\n')
     executable('flock','''#!/usr/bin/env python3
 import fcntl,os,sys
 fd=int(sys.argv[-1])

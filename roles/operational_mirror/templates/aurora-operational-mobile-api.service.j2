@@ -1,0 +1,38 @@
+[Unit]
+Description=Aurora operational mirror mobile API
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/data /project
+
+[Service]
+Type=simple
+User={{ aurora_service_user }}
+Group={{ aurora_service_group }}
+WorkingDirectory={{ aurora_app_dir }}
+EnvironmentFile=/etc/aurora-operational-mobile-api.env
+ExecStart={{ aurora_venv }}/bin/uvicorn mobile_api:app --host {{ aurora_mobile_api_host }} --port {{ aurora_operational_mirror_port }} --workers 1
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictNamespaces=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadOnlyPaths={{ aurora_app_dir }} /project/aurora/raw /data/aurora/products
+InaccessiblePaths=-/data/aurora/dev-products -/project/aurora/dev-raw
+ReadWritePaths=/var/cache/aurora-operational-mobile-api
+
+[Install]
+WantedBy=multi-user.target

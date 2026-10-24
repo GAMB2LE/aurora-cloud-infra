@@ -1,0 +1,88 @@
+---
+- name: Limit operational mirror to the development replica host
+  ansible.builtin.assert:
+    that:
+      - inventory_hostname == 'aurora-cloud-droplet'
+      - aurora_site_env == 'development'
+      - aurora_operational_mirror_port | int != aurora_mobile_api_port | int
+      - not (aurora_operational_mirror_enabled | bool) or aurora_operational_mirror_expected_revision is match('^[0-9a-f]{40}$')
+    fail_msg: Supply the reviewed deployed commit before enabling the operational mirror.
+
+- name: Read the deployed source revision without changing it
+  ansible.builtin.command: git -C {{ aurora_app_dir }} rev-parse HEAD
+  become_user: "{{ aurora_service_user }}"
+  register: operational_mirror_revision
+  changed_when: false
+  check_mode: false
+  when: aurora_operational_mirror_enabled | bool
+
+- name: Read deployed source cleanliness
+  ansible.builtin.command: git -C {{ aurora_app_dir }} status --porcelain
+  become_user: "{{ aurora_service_user }}"
+  register: operational_mirror_dirty
+  changed_when: false
+  check_mode: false
+  when: aurora_operational_mirror_enabled | bool
+
+- name: Require the reviewed source revision
+  ansible.builtin.assert:
+    that:
+      - operational_mirror_revision.stdout == aurora_operational_mirror_expected_revision
+      - operational_mirror_dirty.stdout | trim == ''
+  when: aurora_operational_mirror_enabled | bool
+
+- name: Create the isolated API cache
+  ansible.builtin.file:
+    path: /var/cache/aurora-operational-mobile-api/auroracam
+    state: directory
+    owner: "{{ aurora_service_user }}"
+    group: "{{ aurora_service_group }}"
+    mode: "0750"
+
+- name: Install the operational mirror environment and unit
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/{{ 'systemd/system/' if item.endswith('.service') else '' }}{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+  loop:
+    - aurora-operational-mobile-api.env
+    - aurora-operational-mobile-api.service
+  notify: Restart operational mirror API
+
+- name: Apply only the operational API service state
+  ansible.builtin.systemd:
+    name: aurora-operational-mobile-api.service
+    enabled: "{{ aurora_operational_mirror_enabled | bool }}"
+    state: "{{ 'started' if aurora_operational_mirror_enabled | bool else 'stopped' }}"
+    daemon_reload: true
+  when: not ansible_check_mode
+
+- name: Apply changed operational API configuration before checking it
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify the operational mirror contract before exposing its route
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ aurora_operational_mirror_port }}/manifest"
+    return_content: true
+  register: operational_mirror_manifest
+  retries: 5
+  delay: 2
+  until: operational_mirror_manifest.status | default(0) == 200
+  when:
+    - aurora_operational_mirror_enabled | bool
+    - not ansible_check_mode
+
+- name: Reject a development candidate or wrong API revision
+  ansible.builtin.assert:
+    that:
+      - operational_mirror_manifest.json.schemaVersion == 3
+      - operational_mirror_manifest.json.deployment.operationalMirror | default(false) | bool
+      - operational_mirror_manifest.json.deployment.dataRole == 'live-mirror'
+      - operational_mirror_manifest.json.deployment.revision in [aurora_operational_mirror_expected_revision, aurora_operational_mirror_expected_revision[:12]]
+      - operational_mirror_manifest.json.deployment.dashboardURL == 'https://data.gamb2le.co.uk/app'
+  when:
+    - aurora_operational_mirror_enabled | bool
+    - not ansible_check_mode

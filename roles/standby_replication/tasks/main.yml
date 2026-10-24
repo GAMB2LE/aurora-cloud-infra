@@ -114,6 +114,8 @@
     owner: root
     group: root
     mode: "0755"
+    backup: true
+    validate: /bin/bash -n %s
   when: aurora_standby_replication_enabled | bool
 
 - name: Install development live pull systemd units

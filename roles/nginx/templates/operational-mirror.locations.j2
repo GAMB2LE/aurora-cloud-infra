@@ -1,0 +1,23 @@
+{% if aurora_operational_mirror_enabled | default(false) | bool %}
+    # This process reads only production replicas; /mobile/v1 remains development.
+    location ^~ /mobile/operational/v1/media/wxcam/thumb/ {
+{% if aurora_nginx_rate_limits | default(false) | bool %}
+        limit_req zone=aurora_mobile_thumbnails burst=60 nodelay;
+        limit_conn aurora_per_ip 32;
+{% endif %}
+        proxy_pass http://127.0.0.1:{{ aurora_operational_mirror_port }}/media/wxcam/thumb/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+    }
+    location ^~ /mobile/operational/v1/ {
+{% if aurora_nginx_rate_limits | default(false) | bool %}
+        limit_req zone=aurora_mobile_api burst=20 nodelay;
+        limit_conn aurora_per_ip 8;
+{% endif %}
+        proxy_pass http://127.0.0.1:{{ aurora_operational_mirror_port }}/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+    }
+{% endif %}

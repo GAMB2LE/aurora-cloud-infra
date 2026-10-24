@@ -1,0 +1,9 @@
+---
+- name: Restart operational mirror API
+  ansible.builtin.systemd:
+    name: aurora-operational-mobile-api.service
+    state: restarted
+    daemon_reload: true
+  when:
+    - aurora_operational_mirror_enabled | bool
+    - not ansible_check_mode

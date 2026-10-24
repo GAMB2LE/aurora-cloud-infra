@@ -38,14 +38,18 @@ class BleMirrorTests(unittest.TestCase):
             root = Path(directory)
             fake_bin = root / "bin"
             fake_bin.mkdir()
+            for command in ("mountpoint", "ssh-wrapper"):
+                stub = fake_bin / command
+                stub.write_text("#!/bin/sh\nexit 0\n")
+                stub.chmod(0o755)
             rsync = fake_bin / "rsync"
             rsync.write_text("#!/usr/bin/env python3\nimport json,os,sys\nfrom pathlib import Path\nPath(os.environ['CAPTURE']).write_text(json.dumps(sys.argv[1:]))\nprint('Total transferred file size: 123 bytes')\nsys.exit(int(os.environ['RSYNC_STATUS']))\n")
             rsync.chmod(0o755)
             source = (ROOT / "roles/standby_replication/templates/aurora-standby-pull.j2").read_text()
             function = re.search(r"^replicate_path\(\) \{.*?^\}", source, re.M | re.S).group()
-            script = "set -euo pipefail\nmkdir() { :; }\nrsync_common=(-a)\nrsync_path='sudo rsync'\nssh_wrapper=/unused\nsource_user=azimuth\nsource_host=primary\nstate_root=" + shlex.quote(str(root)) + "\n" + function + "\n"
+            script = "set -euo pipefail\nmkdir() { :; }\nrsync_common=(-a)\nrsync_path='sudo rsync'\nssh_wrapper=" + shlex.quote(str(fake_bin / "ssh-wrapper")) + "\nsource_user=azimuth\nsource_host=primary\nstate_root=" + shlex.quote(str(root)) + "\n" + function + "\n"
             lock = STAGE["source_lock"] if locked else ""
-            script += "replicate_path " + " ".join(map(shlex.quote, ["product-blesensors" if locked else "product-power", "/source/", "/data/aurora/products/blesensors/", lock])) + "\n"
+            script += "replicate_path " + " ".join(map(shlex.quote, ["product-blesensors" if locked else "product-power", "/data/aurora/products/blesensors/", "/data/aurora/products/blesensors/", lock])) + "\n"
             capture = root / "argv.json"
             result = subprocess.run(["bash"], input=script, text=True, capture_output=True,
                                     env=dict(os.environ, PATH=str(fake_bin) + os.pathsep + os.environ["PATH"], CAPTURE=str(capture), RSYNC_STATUS=str(status)))
@@ -57,7 +61,7 @@ class BleMirrorTests(unittest.TestCase):
     def test_ble_remote_sender_holds_the_same_bounded_shared_lock(self):
         result, args, fresh = self.run_transfer()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("--rsync-path=/usr/bin/flock --shared --timeout 30 /data/aurora/products/blesensors/blesensors.lock sudo rsync", args)
+        self.assertTrue(any(arg.endswith("&& /usr/bin/flock --shared --timeout 30 /data/aurora/products/blesensors/blesensors.lock sudo rsync") for arg in args))
         self.assertTrue(fresh)
 
     def test_ble_vanished_source_is_not_reported_as_success(self):
@@ -68,7 +72,7 @@ class BleMirrorTests(unittest.TestCase):
     def test_other_stage_transport_and_vanished_source_policy_are_preserved(self):
         result, args, fresh = self.run_transfer(locked=False, status=24)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("--rsync-path=sudo rsync", args)
+        self.assertTrue(any(arg.endswith("&& sudo rsync") for arg in args))
         self.assertTrue(fresh)
 
     @unittest.skipUnless(shutil.which("rclone"), "local rclone unavailable")

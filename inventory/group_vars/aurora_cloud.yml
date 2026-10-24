@@ -129,6 +129,9 @@ aurora_dashboard_session_check_ms: 600000
 aurora_dashboard_unused_session_lifetime_ms: 3600000
 aurora_mobile_api_host: 127.0.0.1
 aurora_mobile_api_port: 8010
+# Activate separately after the pinned API and mirror data have been verified.
+aurora_operational_mirror_enabled: false
+aurora_operational_mirror_port: 8011
 # Secure by default. Public dashboard hosts opt into bounded GET/HEAD access
 # explicitly in host_vars; privileged artifact inventory remains protected.
 aurora_mobile_api_auth_mode: required
@@ -1201,7 +1204,12 @@ aurora_standby_replication_rsync_path: sudo rsync
 aurora_standby_replication_interval: 5min
 aurora_standby_replication_randomized_delay_sec: 60
 aurora_standby_replication_timeout_start_sec: 12h
-aurora_standby_replication_delete: true
+# Raw observations, service state and outage-only files are always additive.
+# End reconciliation only after source/destination verification, then opt in
+# individual disposable product replicas below. The default never deletes.
+aurora_standby_replication_delete: false
+aurora_standby_replication_reconciling: true
+aurora_standby_replication_delete_stages: []
 aurora_standby_replication_state_root: "{{ aurora_state_root }}/dev-live-mirror"
 aurora_standby_replication_paths:
   - name: raw
