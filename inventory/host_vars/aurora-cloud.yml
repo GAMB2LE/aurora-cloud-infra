@@ -1,7 +1,10 @@
 ---
-# The web/API readers use prod-20261024.1. Keep scientific writer pins separate.
-aurora_presentation_revision: 222ce9ea1ca0eec611435418df15f4ac18a1e332
+# Keep the reviewed web/API release separate from scientific writer pins.
+aurora_presentation_revision: 1a588513a6f715f2159d0f65c41b857f1ccca9d3
 aurora_presentation_venv: /opt/aurora-presentations/runtime-20261024
+# Independent snapshot collector; scientific writer checkout stays pinned.
+aurora_operations_collector_revision: 1a588513a6f715f2159d0f65c41b857f1ccca9d3
+aurora_operations_collector_venv: /opt/aurora-presentations/runtime-20261024
 aurora_site_env: production
 aurora_failover_role: primary
 aurora_public_ip: 130.246.212.116
