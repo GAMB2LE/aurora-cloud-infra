@@ -165,6 +165,7 @@ def test_prepare_never_starts_mounts_or_services_and_plan_preserves_paths():
     assert 'After=project.mount data.mount' in unit
     assert 'BindsTo=project.mount data.mount' in unit
     assert 'Options=bind,ro' in unit
+    assert 'AssertPathIsDirectory=/data/aurora/raw-relocated/rpgfmcw94/Y2026/M05/D02' in unit
 
 
 def test_config_rejects_traversal_and_overlapping_roots(layout, tmp_path):
@@ -262,13 +263,50 @@ def test_active_record_is_readable_even_with_restrictive_operator_umask(tmp_path
 
 def test_guard_requires_read_only_bind_and_data_reserve(layout):
     plan, source, target, _ = layout
-    target.mkdir(parents=True)
-    with patch.object(relocate.os.path, 'ismount', return_value=True), patch.object(Path, 'samefile', return_value=True):
+    relocate.stage(plan, plan['days'][0])
+    with patch.object(relocate.os.path, 'ismount', side_effect=lambda p: Path(p) == source), patch.object(Path, 'samefile', return_value=True):
         with patch.object(relocate.subprocess, 'check_output', return_value='rw,relatime'):
             with pytest.raises(RuntimeError, match='read-only'): relocate.guard(plan)
         with patch.object(relocate.subprocess, 'check_output', return_value='ro,relatime'):
             relocate.guard(plan)
             with pytest.raises(RuntimeError, match='reserve'): relocate.guard(plan, additional_bytes=961)
+
+
+@pytest.mark.parametrize('damage', ['absent', 'empty', 'missing', 'changed', 'extra', 'manifest'])
+def test_mounted_destination_requires_original_verified_file_set(layout, damage):
+    plan, source, target, _ = layout
+    relocate.stage(plan, plan['days'][0])
+    if damage in ('absent', 'empty'):
+        for path in target.iterdir(): path.unlink()
+        if damage == 'absent': target.rmdir()
+    elif damage == 'missing': (target / 'one.LV0').unlink()
+    elif damage == 'changed':
+        path = target / 'one.LV0'
+        before = path.stat()
+        path.write_bytes(b'x' * before.st_size)
+        os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+    elif damage == 'extra': (target / 'unknown').write_text('unexpected')
+    else: relocate.manifest_path(plan, plan['days'][0]).unlink()
+    with patch.object(relocate.os.path, 'ismount', side_effect=lambda p: Path(p) == source), patch.object(Path, 'samefile', return_value=True), patch.object(relocate.subprocess, 'check_output', return_value='ro,relatime'), patch.object(relocate, 'hash_file', side_effect=AssertionError('guard must not rehash bytes')):
+        with pytest.raises((RuntimeError, FileNotFoundError)):
+            relocate.guard(plan)
+
+
+def test_unchanged_guard_checks_metadata_without_rehash(layout):
+    plan, source, _, _ = layout
+    relocate.stage(plan, plan['days'][0])
+    with patch.object(relocate.os.path, 'ismount', side_effect=lambda p: Path(p) == source), patch.object(Path, 'samefile', return_value=True), patch.object(relocate.subprocess, 'check_output', return_value='ro,relatime'), patch.object(relocate, 'hash_file', side_effect=AssertionError('guard must not rehash bytes')):
+        relocate.guard(plan)
+
+
+def test_graph_accepts_systemctl_quoted_escaped_mount_names(layout):
+    plan, _, _, _ = layout
+    name = r'project-aurora-recovery-probe\x2dwith\x2dhyphens.mount'
+    displayed = json.dumps(name)
+    properties = '\n'.join(prop + '=other.service ' + displayed for prop in ('Requires', 'After', 'BindsTo'))
+    properties += '\nExecStartPre={ path=' + relocate.HELPER + ' ; argv[]=guard ; }'
+    with patch.object(relocate, 'unit_name', return_value=name), patch.object(relocate.subprocess, 'check_output', return_value=properties):
+        assert relocate.graph(plan) == {'consumers': 1, 'mounts': 1}
 
 
 def test_remote_exec_parses_options_and_keeps_lock_until_exec(tmp_path):
