@@ -258,3 +258,9 @@ persistent retention hold stayed present; retention and native-backfill timers
 were disabled/inactive, their failed-service evidence was unchanged, and live LV1
 sync remained enabled. This installs the release safeguard; it does not authorize
 cutover, release a duplicate original or resume native backfill.
+
+The next ordinary DO raw-radar sender ran at 08:28:19–22 through the installed
+helper and completed successfully. Its existing timer remained active, and the
+stage receipt recorded two seconds and zero changed bytes. This confirms the
+inactive-guard sender path after installation; mount acceptance still awaits the
+reviewed cutover and full mounted verification.
