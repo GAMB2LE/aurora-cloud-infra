@@ -1,0 +1,4 @@
+---
+# Enable only after the separately reviewed root-backed cache relocation.
+# The role validates the live bind and reserves before rewriting the mirror.
+aurora_standby_canonical_power_guard_enabled: false

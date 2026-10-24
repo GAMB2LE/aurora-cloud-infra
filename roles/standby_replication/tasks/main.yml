@@ -101,6 +101,12 @@
     aurora_standby_replication_effective_paths: "{{ (aurora_standby_replication_paths | rejectattr('name', 'equalto', 'raw') | rejectattr('name', 'equalto', 'products') | list) + aurora_standby_raw_stages + aurora_standby_product_stages }}"
   when: aurora_standby_replication_enabled | bool
 
+- name: Validate and install optional canonical Power mirror protection
+  ansible.builtin.include_tasks: canonical_power_guard.yml
+  when:
+    - aurora_standby_replication_enabled | bool
+    - aurora_standby_canonical_power_guard_enabled | default(false) | bool
+
 - name: Install development live pull replication script
   ansible.builtin.template:
     src: aurora-standby-pull.j2
