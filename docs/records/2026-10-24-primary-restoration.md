@@ -111,3 +111,30 @@ The next focused change deliberately limits the live lane to LV1 NetCDF. The
 bounded backfill lane retains every native class, with its backlog and archive
 proof tracked independently. Restoring display freshness does not clear that
 backlog or satisfy the seven-day capacity gate.
+
+## Live timer restored; native backlog held, 07:00–07:02 UTC
+
+PR [65](https://github.com/GAMB2LE/aurora-cloud-infra/pull/65) passed its four
+integrated checks and merged as `e4b8f3061af0e832bba9fd78d893229b05146b8c`.
+Only the live wrapper changed on JASMIN. Its SHA-256 is
+`76d9de9325d594c62494bc5d7afa28dcf44f842d326571eb777547fb67e843f1`.
+A second finite recovery check selected only the 45,138,786-byte LV1 file,
+reserved 8,635,073,378 bytes, retained its source checksum and left the live
+checkpoint unchanged. The public operations endpoint independently reported
+the same `05:59:51.806Z` sample and green collection status. The live timer was
+then restored at 07:01 UTC; bulk backfill stayed inactive.
+
+The read-only source inventory measured 84,856,499,251 native bytes modified
+in the preceding 24 hours, versus 1,038,510,942 LV1 NetCDF bytes. Seven days at
+that native rate plus the four-worker reserve requires 617,088,629,797 bytes;
+the measured `/project` availability was 177,985,290,240 bytes. This conservative
+growth check assumes no pruning and fails the headroom gate. Production
+inventory now holds the backfill timer off so a later broad deployment cannot
+silently restore it.
+
+Within the same 24-hour source window, 52 files totalling 47,929,831,411 bytes
+were missing or different on cloud, including 13 older LV1 NetCDF files. These
+are a visible delivery backlog, not observations to discard. Bounded recovery
+of the older LV1 files can proceed within its own reservation. The normal
+appender only accepts times after its current frontier, so receiving old raw
+files alone does not prove their gaps have been filled in the published Zarr.
