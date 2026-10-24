@@ -959,7 +959,30 @@ def capture_issue(source: Path) -> None:
     )
 
 
+
+def publication_input_paths() -> tuple[Path, Path, Path, Path | None]:
+    mode = os.environ.get("AURORA_POWER_INPUT_MODE", "canonical")
+    if mode == "canonical":
+        return POWER_ZARR, PDU_ZARR, UAS_LOG, None
+    if mode != "continuity":
+        raise ValueError("unsupported Power forecast input mode")
+    selection = Path(os.environ["AURORA_POWER_INPUT_SELECTION"])
+    record = json.loads(selection.read_text())
+    if record.get("owner") != "aurora-power-forecast-inputs-v1":
+        raise ValueError("unrecognized Power input snapshot")
+    power = Path(os.environ["AURORA_POWER_SELECTED_POWER_ZARR"])
+    pdu = Path(os.environ["AURORA_POWER_SELECTED_PDU_ZARR"])
+    if power != selection.parent / "power.zarr" or pdu != selection.parent / "pdu.zarr":
+        raise ValueError("Power/PDU inputs do not share the selected snapshot")
+    if not power.is_dir() or not pdu.is_dir():
+        raise ValueError("Power input snapshot no longer exists")
+    uas = Path(os.environ["AURORA_POWER_SELECTED_UAS_LOG"])
+    if uas != selection.parent / "menapia_mqtt.log" or not uas.is_file():
+        raise ValueError("UAS input does not share the selected snapshot")
+    return power, pdu, uas, selection
+
 def publish_bundle(forecast_source: Path, *, allow_cached_reanchor: bool) -> None:
+    power_input, pdu_input, uas_input, input_selection = publication_input_paths()
     requested_at = str(prior_status().get("requestedAt") or utc_now())
     lock_path = BUNDLE_ROOT / ".publisher.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -976,6 +999,8 @@ def publish_bundle(forecast_source: Path, *, allow_cached_reanchor: bool) -> Non
         final = GENERATIONS_ROOT / generation_id
         staging.mkdir(parents=False, exist_ok=False)
         try:
+            if input_selection is not None:
+                shutil.copy2(input_selection, staging / "power_input_selection.json")
             # Materialize the operational input once. Cached re-anchors remain
             # operational samples, but are never presented to the candidate as
             # independent evidence.
@@ -1015,8 +1040,8 @@ def publish_bundle(forecast_source: Path, *, allow_cached_reanchor: bool) -> Non
             scenario_command = [
                 str(PYTHON),
                 "generate_power_operating_scenarios.py",
-                "--power-zarr", str(POWER_ZARR),
-                "--pdu-zarr", str(PDU_ZARR),
+                "--power-zarr", str(power_input),
+                "--pdu-zarr", str(pdu_input),
                 "--forecast-zarr", str(planning_snapshot),
                 "--ensemble-zarr", str(ensemble_snapshot),
                 "--state-output", str(staging / "power_operating_state.zarr"),
@@ -1024,7 +1049,7 @@ def publish_bundle(forecast_source: Path, *, allow_cached_reanchor: bool) -> Non
                 "--model-state", str(staged_model_state),
                 "--bootstrap-state", str(BOOTSTRAP_STATE),
                 "--recommendation-archive", str(staged_recommendation_history),
-                "--uas-log", str(UAS_LOG),
+                "--uas-log", str(uas_input),
                 "--planning-hours", "240",
                 "--optimization-hours", "96",
                 "--lookback-days", "30",
@@ -1051,9 +1076,9 @@ def publish_bundle(forecast_source: Path, *, allow_cached_reanchor: bool) -> Non
                 [
                     str(PYTHON),
                     "generate_power_display_summary.py",
-                    "--power-zarr", str(POWER_ZARR),
+                    "--power-zarr", str(power_input),
                     "--asfs-logger-zarr", str(ASFS_ZARR),
-                    "--pdu-zarr", str(PDU_ZARR),
+                    "--pdu-zarr", str(pdu_input),
                     "--forecast-zarr", str(operational_snapshot),
                     "--forecast-skill-zarr", str(FORECAST_SKILL_ZARR),
                     "--hindcast-zarr", str(HINDCAST_ZARR),

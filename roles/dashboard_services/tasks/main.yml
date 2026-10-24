@@ -125,6 +125,15 @@
     mode: "02775"
   when: aurora_power_paired_evaluation_enabled | bool
 
+- name: Install continuity Power forecast input snapshot helper
+  ansible.builtin.copy:
+    src: aurora-power-forecast-inputs.py
+    dest: /usr/local/lib/aurora-power-forecast-inputs.py
+    owner: root
+    group: root
+    mode: "0755"
+  when: aurora_power_forecast_orchestration_enabled | bool
+
 - name: Install development Power forecast orchestration helpers
   ansible.builtin.template:
     src: "{{ item.src }}"
