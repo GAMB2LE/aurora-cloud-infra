@@ -95,8 +95,8 @@ The collector's exact read-only SSH route to ASS succeeded. The source file
 `2026-10-21T13:31:32.424153+00:00`, so it is outside the collector's two-hour
 freshness limit. Its old estimate of 65,256 directory slots is not a current card
 measurement or evidence of today's capacity. The ASS data filesystem had about
-2.61 TB free during this check; SSH access and Linux disk quota did not cause the
-missing estimate.
+2.61 TB free during this check. The read succeeded; the unavailable estimate
+comes from its age and absent producer, not a failed SSH fetch.
 
 The current `/home/aurora/scripts/asfs/asfssync.py` is a 3,240-byte FTP mirror with
 mtime `2026-10-21T14:58:42.143040+00:00` and SHA-256
