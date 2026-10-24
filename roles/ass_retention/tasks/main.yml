@@ -1,4 +1,7 @@
 ---
+- name: Apply the same retention hold to scheduled and direct starts
+  ansible.builtin.import_tasks: hold.yml
+
 - name: Ensure retention evidence directory exists
   ansible.builtin.file:
     path: "{{ ass_retention_audit_root }}"

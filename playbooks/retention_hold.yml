@@ -1,0 +1,14 @@
+---
+- name: Persist the primary retention hold without running retention
+  hosts: aurora-cloud
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Require the existing disabled retention inventory setting
+      ansible.builtin.assert:
+        that:
+          - not (ass_retention_timer_enabled | bool)
+    - name: Install only the retention launch condition
+      ansible.builtin.import_role:
+        name: ass_retention
+        tasks_from: hold

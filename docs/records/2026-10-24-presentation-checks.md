@@ -152,3 +152,19 @@ The [documentation update plan](https://gamb2le.pages.dev/modernization/primary-
 owns the cross-repository checklist. Current procedures remain in
 [Production and development](../PRODUCTION_DEVELOPMENT.md),
 [Releases](../RELEASES.md) and [Radar raw relocation](../RADAR_RAW_RELOCATION.md).
+
+
+## DO mirror label receipt, 07:53–07:54 UTC
+
+Infrastructure PR82 (`a7edd6e`) applied the one-line `BLESENSORS_SOURCE_LABEL`
+correction at 07:53: 23 tasks succeeded, two changed, and none failed. The changes
+included the normal reader restarts. At 07:54 all three DO readers were active,
+with zero automatic restarts and working directories pinned to `1a58851`. The
+isolated operational mirror had been running since 07:45:36.
+
+The browser's current Power plots showed “SwitchBot via ASS - JASMIN mirror”,
+with APS and ASS samples at 07:51:26 and 07:51:25. Switching to Forecast also
+rendered every plot. This changed the reader label only; source processing stayed
+on the existing release. Evidence is retained in
+`output/primary-cleanup-20261024/presentation-ble-label-{check,apply}.txt`,
+`ocean-prod3-label-service-state.txt` and `ocean-canonical-label-rendered.jpg`.

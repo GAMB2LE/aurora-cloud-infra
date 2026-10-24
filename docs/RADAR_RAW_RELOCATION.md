@@ -92,7 +92,13 @@ Record timer and service states before verification. Once full verification is
 complete, pause only the listed radar/raw consumers and their timers; let any
 current raw transfer drain. Coordinate the DO `raw-rpgfmcw94` stage with its sender lock. Do not stop the product archive jobs during another operator's
 BLE or product commissioning. The helper refuses a running or queued local
-consumer. Keep retention paused throughout.
+consumer. Keep retention paused throughout. A disabled timer alone is insufficient: archive
+workers can request the retention service directly. The retention role therefore
+keeps `/etc/aurora/ass-retention.hold` while either `ass_retention_enabled` or
+`ass_retention_timer_enabled` is false. Its service condition blocks every start.
+Use `playbooks/retention_hold.yml` for a narrow hold deployment; it does not run
+or reset retention. The full role removes the hold only when both switches are
+explicitly enabled after the separate gates pass.
 
 The consumer list covers the live and bulk radar syncs, appender, quicklooks,
 archive dispatch, both raw archive copies, mirror verification and retention. Every listed unit receives a
