@@ -14,10 +14,16 @@ state_file={{ radar_source_state_file | quote }}
 bootstrap_lookback_seconds={{ radar_source_bootstrap_lookback_seconds | int }}
 overlap_seconds={{ radar_source_overlap_seconds | int }}
 mtime_grace_seconds={{ radar_source_mtime_grace_seconds | int }}
+required_mount={{ radar_source_required_mount | quote }}
+reserve_bytes={{ radar_backfill_free_reserve_bytes | int }}
+max_batch_bytes={{ radar_source_max_batch_bytes | int }}
+transfer_guard=/usr/local/lib/aurora-radar-transfer-guard.py
 known_hosts=/home/{{ aurora_service_user }}/.ssh/known_hosts
 lock_file={{ aurora_state_root | quote }}/radar-live-sync.lock
 
-mkdir -p "$destination" "$(dirname "$state_file")" "$(dirname "$known_hosts")"
+"$transfer_guard" capacity --root "$destination" --required-mount "$required_mount" \
+  --workers 1 --max-file-bytes 0 --reserve-bytes "$reserve_bytes"
+mkdir -p "$(dirname "$state_file")" "$(dirname "$known_hosts")"
 exec 9>"$lock_file"
 flock -n 9 || exit 0
 
@@ -30,6 +36,20 @@ fi
 scan_epoch=$(( last_epoch - overlap_seconds ))
 safe_now_epoch=$(( now_epoch - mtime_grace_seconds ))
 (( scan_epoch < 0 )) && scan_epoch=0
+recovery=false
+if (( $# )); then
+  if [[ $# != 3 || "$1" != --recover-window || ! "$2" =~ ^[0-9]+$ || ! "$3" =~ ^[0-9]+$ ]]; then
+    echo 'Usage: aurora-radar-sync [--recover-window START_EPOCH END_EPOCH]' >&2
+    exit 64
+  fi
+  if (( $2 >= $3 || $3 > safe_now_epoch )); then
+    echo 'Recovery needs a closed, ordered time window older than the source grace period.' >&2
+    exit 64
+  fi
+  scan_epoch="$2"
+  safe_now_epoch="$3"
+  recovery=true
+fi
 
 ssh_opts=(
   -p "$source_port" -o BatchMode=yes -o ConnectTimeout=15
@@ -37,21 +57,61 @@ ssh_opts=(
   -o ServerAliveInterval=15 -o ServerAliveCountMax=4
   -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$known_hosts"
 )
-files_from="$(mktemp)"
-trap 'rm -f "$files_from"' EXIT
-ssh "${ssh_opts[@]}" "${source_user}@${source_host}" bash -s -- \
-  "$source_path" "$scan_epoch" "$safe_now_epoch" "$source_pattern" > "$files_from" <<'REMOTE_FIND'
-set -euo pipefail
-cd "$1"
-find . -type f -name "$4" -newermt "@$2" ! -newermt "@$3" -printf '%P\0'
-REMOTE_FIND
+workdir="$(mktemp -d)"
+trap 'rm -rf "$workdir"' EXIT
+files_from="$workdir/files"
+# ssh joins arguments into a remote shell command. Quote the wildcard here;
+# an unquoted '*' expands in the remote home directory and silently finds nothing.
+remote_source_path="$(printf '%q' "$source_path")"
+remote_pattern="$(printf '%q' "$source_pattern")"
+ssh "${ssh_opts[@]}" "${source_user}@${source_host}" \
+  "cd $remote_source_path && find . -type f -name $remote_pattern -newermt '@$scan_epoch' ! -newermt '@$safe_now_epoch' -printf '%s\\t%P\\0'" > "$workdir/records"
+
+selected_bytes="$(python3 - "$workdir" "$max_batch_bytes" <<'PY'
+import os
+import sys
+from pathlib import Path
+
+workdir, maximum = Path(sys.argv[1]), int(sys.argv[2])
+files, priority, total = [], [], 0
+for record in (workdir / 'records').read_bytes().split(b'\0'):
+    if not record:
+        continue
+    raw_size, relative = record.split(b'\t', 1)
+    path = Path(os.fsdecode(relative))
+    if path.is_absolute() or '..' in path.parts or int(raw_size) < 0:
+        raise SystemExit('Invalid radar source record')
+    total += int(raw_size)
+    files.append(relative)
+    if relative.endswith(b'.LV1.NC'):
+        priority.append(relative)
+if total > maximum:
+    raise SystemExit(f'Radar live batch hold: selected={total}, maximum={maximum}; use a bounded recovery window')
+for name, rows in [('files', files), ('priority', priority)]:
+    (workdir / name).write_bytes(b''.join(row + b'\0' for row in rows))
+print(total)
+PY
+)"
+"$transfer_guard" capacity --root "$destination" --required-mount "$required_mount" \
+  --workers 1 --max-file-bytes "$selected_bytes" --reserve-bytes "$reserve_bytes"
+echo "Radar live selection: $selected_bytes bytes; recovery=$recovery."
 
 if [[ -s "$files_from" ]]; then
-  rsync -a --partial --timeout=120 --from0 --files-from="$files_from" \
+  # Publish the small LV1 inputs before the much larger LV0 history. Both passes
+  # share the full uncompressed capacity reservation; compression changes no data.
+  if [[ -s "$workdir/priority" ]]; then
+    rsync -az --partial --timeout=120 --from0 --files-from="$workdir/priority" \
+      -e "ssh ${ssh_opts[*]}" "${source_user}@${source_host}:${source_path%/}/" "${destination%/}/"
+  fi
+  rsync -az --partial --timeout=120 --from0 --files-from="$files_from" \
     -e "ssh ${ssh_opts[*]}" "${source_user}@${source_host}:${source_path%/}/" "${destination%/}/"
   if [[ -x /usr/local/bin/aurora-archive-dispatch ]]; then
     /usr/local/bin/aurora-archive-dispatch enqueue --job raw --base "$destination" --files-from "$files_from" --null
   fi
 fi
-echo "$now_epoch" > "$state_file"
-echo "Radar live checkpoint advanced to $now_epoch."
+if [[ "$recovery" == false ]]; then
+  echo "$now_epoch" > "$state_file"
+  echo "Radar live checkpoint advanced to $now_epoch."
+else
+  echo 'Radar recovery window complete; normal live checkpoint unchanged.'
+fi
