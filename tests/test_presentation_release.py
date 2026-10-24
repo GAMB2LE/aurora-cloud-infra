@@ -105,6 +105,7 @@ def test_canonical_observations_preserve_development_forecast_selection():
     assert settings['AURORA_OPERATIONAL_MIRROR'] == 'false'
     assert settings['POWER_CURRENT_DISPLAY_ZARR_PATH'].startswith('/data/aurora/products/')
     assert settings['BLESENSORS_ZARR_PATH'].startswith('/data/aurora/products/')
+    assert settings['BLESENSORS_SOURCE_LABEL'] == 'SwitchBot via ASS - JASMIN mirror'
     assert 'POWER_FORECAST_DISPLAY_ZARR_PATH' not in settings
     assert 'AURORA_POWER_FORECAST_BUNDLE_MANIFEST_PATH' not in settings
     assert not any('INPUT_MODE' in key or 'INPUT_ROOT' in key for key in settings)
