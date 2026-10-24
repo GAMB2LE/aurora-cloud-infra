@@ -1,0 +1,111 @@
+---
+- name: Require an independent pinned presentation release
+  ansible.builtin.assert:
+    that:
+      - aurora_presentation_revision is match('^[0-9a-f]{40}$')
+      - aurora_presentation_app_dir == '/opt/aurora-presentations/' + aurora_presentation_revision
+      - aurora_presentation_venv is match('^/opt/aurora-presentations/[A-Za-z0-9._/-]+$')
+      - "'/../' not in aurora_presentation_venv"
+      - aurora_presentation_app_dir != aurora_app_dir
+      - aurora_presentation_venv != aurora_venv
+    fail_msg: Stage the tested main commit and its independent runtime before releasing presentation.
+
+- name: Read the prepared presentation revision
+  ansible.builtin.command:
+    argv: [git, -C, "{{ aurora_presentation_app_dir }}", rev-parse, HEAD]
+  become_user: "{{ aurora_service_user }}"
+  register: presentation_revision
+  changed_when: false
+  check_mode: false
+
+- name: Check the prepared source is clean
+  ansible.builtin.command:
+    argv: [git, -C, "{{ aurora_presentation_app_dir }}", status, --porcelain]
+  become_user: "{{ aurora_service_user }}"
+  register: presentation_dirty
+  changed_when: false
+  check_mode: false
+
+- name: Require the release to be reachable from the fetched main branch
+  ansible.builtin.command:
+    argv: [git, -C, "{{ aurora_presentation_app_dir }}", merge-base, --is-ancestor, "{{ aurora_presentation_revision }}", origin/main]
+  become_user: "{{ aurora_service_user }}"
+  changed_when: false
+  check_mode: false
+
+- name: Verify the separate runtime can import the public API
+  ansible.builtin.command:
+    argv:
+      - "{{ aurora_presentation_venv }}/bin/python"
+      - -c
+      - "import sys; assert sys.version_info >= (3, 12); import panel, mobile_api"
+    chdir: "{{ aurora_presentation_app_dir }}"
+  become_user: "{{ aurora_service_user }}"
+  environment:
+    PYTHONDONTWRITEBYTECODE: '1'
+  changed_when: false
+  check_mode: false
+
+- name: Require the exact clean source
+  ansible.builtin.assert:
+    that:
+      - presentation_revision.stdout == aurora_presentation_revision
+      - presentation_dirty.stdout | trim == ''
+
+- name: Create presentation override directories
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ item }}.service.d"
+    state: directory
+    mode: '0755'
+  loop:
+    - aurora-dashboard
+    - aurora-mobile-api
+
+- name: Set presentation provenance after the existing serving environment
+  ansible.builtin.template:
+    src: aurora-presentation.env.j2
+    dest: /etc/aurora-presentation.env
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+  notify: Restart presentation services
+
+- name: Override only presentation commands and working directories
+  ansible.builtin.template:
+    src: "{{ item }}.conf.j2"
+    dest: "/etc/systemd/system/{{ item }}.service.d/zz-presentation-release.conf"
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+  loop:
+    - aurora-dashboard
+    - aurora-mobile-api
+  notify: Restart presentation services
+
+- name: Validate both complete unit definitions before restarting them
+  ansible.builtin.command:
+    argv: [systemd-analyze, verify, aurora-dashboard.service, aurora-mobile-api.service]
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Restart the changed readers before checking their revision
+  ansible.builtin.meta: flush_handlers
+
+- name: Check the public API reader after release
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ aurora_mobile_api_port }}/manifest"
+    return_content: true
+  register: presentation_manifest
+  retries: 12
+  delay: 5
+  until: presentation_manifest.status | default(0) == 200
+  when: not ansible_check_mode
+
+- name: Require the tested presentation to be serving
+  ansible.builtin.assert:
+    that:
+      - presentation_manifest.json.schemaVersion == 3
+      - presentation_manifest.json.deployment.revision in [aurora_presentation_revision, aurora_presentation_revision[:12]]
+  when: not ansible_check_mode
