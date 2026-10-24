@@ -212,6 +212,15 @@
     mode: "0755"
   when: radar_source_sync_enabled | bool
 
+- name: Install radar transfer capacity and duplicate-partial guard
+  ansible.builtin.copy:
+    src: aurora-radar-transfer-guard.py
+    dest: /usr/local/lib/aurora-radar-transfer-guard.py
+    owner: root
+    group: root
+    mode: "0755"
+  when: radar_backfill_enabled | bool
+
 - name: Install bounded parallel radar archive backfill script
   ansible.builtin.template:
     src: aurora-radar-backfill.j2

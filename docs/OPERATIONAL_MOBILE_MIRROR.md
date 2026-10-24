@@ -27,7 +27,9 @@ mirrors, plus observation timestamps in Power, Operations, UAS and camera
 products. Keep emergency continuity and experiments intact until their
 replacement data have passed those checks.
 
-Deploy the reviewed presentation revision separately. This playbook does not
+Deploy the reviewed presentation revision separately with its own Python 3.12
+or newer virtual environment. Supply that exact `aurora_venv`; the mirror role
+does not upgrade or reuse the scientific writer environment. This playbook does not
 clone code, install dependencies, change writer timers or touch archives.
 Create a private release variables file with the full deployed commit:
 

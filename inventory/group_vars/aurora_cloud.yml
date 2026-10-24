@@ -467,6 +467,9 @@ radar_backfill_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 radar_backfill_interval: 2min
 radar_backfill_randomized_delay: 15
 radar_backfill_workers: 4
+radar_source_required_mount: /project
+radar_backfill_free_reserve_bytes: 8589934592
+radar_backfill_partial_audit: "{{ aurora_state_root }}/radar-partial-reclamation.jsonl"
 radar_backfill_batch_files: 24
 radar_backfill_batch_bytes: 85899345920
 radar_backfill_partial_root: "{{ aurora_paths.raw_radar }}/.radar-partials"

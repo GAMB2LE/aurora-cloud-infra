@@ -13,7 +13,9 @@ therefore require `aurora_shared_writer_source_change_reviewed=true`.
 
 For presentation-only recovery, install the tested `main` commit in a separate
 `/opt/aurora-presentations/<full-commit>` checkout with its own pinned runtime
-virtual environment. Point only the dashboard and mobile API unit overrides at
+virtual environment using Python 3.12 or newer. Keep the existing scientific
+writer virtual environment unchanged; a presentation dependency update must
+not upgrade that environment. Point only the dashboard and mobile API unit overrides at
 that checkout. Preserve their existing environment files, sandbox settings and
 runtime overrides. Do not change the writer checkout, forecast revision or
 writer units. Review `systemctl cat` before applying overrides; reset only

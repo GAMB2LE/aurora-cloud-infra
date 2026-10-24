@@ -15,9 +15,16 @@ max_files={{ radar_backfill_batch_files | int }}
 max_bytes={{ radar_backfill_batch_bytes | int }}
 partial_root={{ radar_backfill_partial_root | quote }}
 status_file={{ radar_backfill_status_file | quote }}
+required_mount={{ radar_source_required_mount | quote }}
+reserve_bytes={{ radar_backfill_free_reserve_bytes | int }}
+partial_audit={{ radar_backfill_partial_audit | quote }}
+transfer_guard=/usr/local/lib/aurora-radar-transfer-guard.py
 known_hosts=/home/{{ aurora_service_user }}/.ssh/known_hosts
 lock_file={{ aurora_state_root | quote }}/radar-backfill.lock
 
+# Do not create empty raw/staging directories on root when /project is absent.
+"$transfer_guard" capacity --root "$destination" --required-mount "$required_mount" \
+  --workers "$workers" --max-file-bytes 0 --reserve-bytes "$reserve_bytes"
 mkdir -p "$destination" "$partial_root" "$(dirname "$status_file")" "$(dirname "$known_hosts")"
 exec 9>"$lock_file"
 flock -n 9 || exit 0
@@ -53,6 +60,7 @@ workers, max_files, max_bytes = int(workers), int(max_files), int(max_bytes)
 bucket_bytes = [0] * workers
 selected = 0
 selected_bytes = 0
+largest_selected_file_bytes = 0
 handles = [open(Path(workdir) / f"files.{index}", "wb") for index in range(workers)]
 try:
     for record in Path(records).read_bytes().split(b"\0"):
@@ -75,12 +83,14 @@ try:
         bucket_bytes[slot] += size
         selected += 1
         selected_bytes += size
+        largest_selected_file_bytes = max(largest_selected_file_bytes, size)
 finally:
     for handle in handles:
         handle.close()
 Path(selection).write_text(json.dumps({
     "selected_files": selected,
     "selected_bytes": selected_bytes,
+    "largest_selected_file_bytes": largest_selected_file_bytes,
     "worker_bytes": bucket_bytes,
     "source_record_bytes": Path(records).stat().st_size,
 }))
@@ -88,6 +98,7 @@ PY
 selected="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["selected_files"])' "$selection")"
 selected_bytes="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["selected_bytes"])' "$selection")"
 
+largest_file_bytes="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["largest_selected_file_bytes"])' "$selection")"
 started="$(date -u +%FT%TZ)"
 printf '{"started_at":"%s","selected_files":%d,"selected_bytes":%d,"workers":%d}\n' \
   "$started" "$selected" "$selected_bytes" "$workers" > "$status_file"
@@ -96,9 +107,16 @@ printf '{"started_at":"%s","selected_files":%d,"selected_bytes":%d,"workers":%d}
 transfer_worker() {
   local worker="$1" mtime size relpath target partial remote_file actual_size
   while IFS=$'\t' read -r -d '' mtime size relpath; do
+    # Reserve enough for every worker's next file, even if all start together.
+    # This is an admission check; unrelated writers still need storage monitoring.
+    "$transfer_guard" capacity --root "$destination" --required-mount "$required_mount" \
+      --workers "$workers" --max-file-bytes "$largest_file_bytes" --reserve-bytes "$reserve_bytes" || return 75
     target="$destination/$relpath"
     partial="$partial_root/$worker/$relpath"
     mkdir -p "$(dirname "$target")" "$(dirname "$partial")"
+    # Preserve an earlier interrupted attempt until a completed target proves
+    # its bytes are redundant. Never truncate that evidence on a retry.
+    partial="$(mktemp "${partial}.incoming.XXXXXX")"
     remote_file="$(printf '%q' "${source_path%/}/$relpath")"
     # A compressed stream is deliberately restarted after interruption.  A
     # typical 3.7 GB LV0 file is only about 435 MB on the wire, which is both
@@ -116,6 +134,10 @@ transfer_worker() {
     fi
     touch -d "@${mtime%.*}" "$partial"
     mv -f "$partial" "$target"
+    # Old interrupted copies can belong to another worker slot. Remove only
+    # stable matching prefixes of this now-complete file, with durable evidence.
+    "$transfer_guard" retire-duplicates --root "$destination" --relative "$relpath" \
+      --workers "$workers" --audit "$partial_audit" || return 75
     echo "Restored radar file: $relpath ($size bytes)."
   done < "$workdir/files.$worker"
 }
