@@ -221,21 +221,23 @@ read-only discovery. Preserve that evidence alongside the per-file manifests.
 
 Run `verify` with the active configuration while readers are running; the
 logical copies are read-only. It checks the mount guard before and after reading,
-hashes every logical bound path and its quarantined original, and rejects a mount
-identity change during that read. Only a fully successful pass publishes a durable
-mounted verification receipt tied to the exact manifest, active cutover record and logical/destination directory identities.
-The active record is bound by SHA-256 and filesystem identity, so a new cutover
-requires new mounted verification even if its plan is identical. An interrupted pass leaves the previous proof intact.
-A staging-only proof cannot authorize release; a new cutover also requires a new
-mounted verification before release. An equivalent same-target remount with
-unchanged files remains valid; the normal guard still requires the correct
-read-only bind. Then recreate the same owned launch hold and pause/drain consumers and the
-recovery launcher for the short release.
+hashes every logical bound path and its quarantined original, and rejects a
+changed target or active cutover record during that read. Only a fully successful
+pass publishes a durable mounted verification receipt tied to the exact manifest,
+active cutover record and logical/destination directory identities. The active
+record is bound by SHA-256 and filesystem identity, so a new cutover requires new
+mounted verification even if its plan is identical. An interrupted pass leaves
+the previous proof intact.
+
+A staging-only proof cannot authorize release. An equivalent same-target remount
+with unchanged files remains valid; the normal guard still requires the correct
+read-only bind. Then recreate the same owned launch hold and pause/drain consumers
+and the recovery launcher for the short release.
 `release` checks active mounts, read-only options, both reserves, the dependency
 graph, mounted verification receipt and unchanged file identities against that
-full verification. It repeats the receipt/cutover identity check before each unlink. It writes
-durable per-file release intent and completion records before and after unlinking
-only the duplicate files in the named quarantine day. It never removes the
+full verification. It repeats the receipt/cutover identity check before each
+unlink. It writes durable per-file release intent and completion records before
+and after unlinking only the duplicate files in the named quarantine day. It never removes the
 logical raw observation or the relocated copy.
 
 ```sh
