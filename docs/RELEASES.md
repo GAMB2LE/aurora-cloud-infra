@@ -58,6 +58,12 @@ and `aurora_operational_mirror_venv` settings. Never repoint the shared
 `aurora_app_dir` or `aurora_venv` to change a reader. See
 [Operational mobile mirror](OPERATIONAL_MOBILE_MIRROR.md).
 
+The release also gives the existing operations collector the presentation
+provenance file. Its next scheduled snapshot then reports the checkout serving
+the website. This does not change the collector command or the scientific writer
+checkout. I keep those separate so an older writer pin is not mistaken for the
+public dashboard version.
+
 Before releasing, preserve dirty files and deployed-only fixes in a reviewed
 branch. Build integration worktrees from current `origin/main`. Merge completed
 work through the repository checks, preserve unfinished experiments on named

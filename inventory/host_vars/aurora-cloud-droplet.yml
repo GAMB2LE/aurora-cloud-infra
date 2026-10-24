@@ -1,4 +1,9 @@
 ---
+# Same reviewed presentation as JASMIN; existing development data routing stays.
+aurora_presentation_revision: ac672ae6d835d05461b2fcb8c209151aa8ace2de
+aurora_presentation_venv: /opt/aurora-presentations/runtime-20261024
+aurora_presentation_wxcam_media_dir: /data/aurora/dev-products/science-continuity/wxcam/current/media
+aurora_presentation_auroracam_media_dir: /data/aurora/dev-products/live-continuity/current/cameras
 # Public development/staging host. It stays live by pulling production data
 # from JASMIN and does not run authoritative source/product writers.
 aurora_site_env: development

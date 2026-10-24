@@ -1,4 +1,7 @@
 ---
+# The web/API readers use prod-20261024.1. Keep scientific writer pins separate.
+aurora_presentation_revision: ac672ae6d835d05461b2fcb8c209151aa8ace2de
+aurora_presentation_venv: /opt/aurora-presentations/runtime-20261024
 aurora_site_env: production
 aurora_failover_role: primary
 aurora_public_ip: 130.246.212.116
