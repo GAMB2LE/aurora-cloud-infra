@@ -60,6 +60,7 @@
   loop:
     - aurora-dashboard
     - aurora-mobile-api
+    - aurora-ops-monitor-collect
 
 - name: Set presentation provenance after the existing serving environment
   ansible.builtin.template:
@@ -70,6 +71,24 @@
     mode: '0644'
     backup: true
   notify: Restart presentation services
+
+- name: Report the serving checkout in the next operations snapshot
+  ansible.builtin.copy:
+    content: |
+      # Read presentation provenance without changing the collector or writers.
+      [Service]
+      EnvironmentFile=/etc/aurora-presentation.env
+    dest: /etc/systemd/system/aurora-ops-monitor-collect.service.d/zz-presentation-provenance.conf
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+  register: presentation_provenance
+
+- name: Load the collector provenance for its next scheduled run
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: presentation_provenance.changed
 
 - name: Override only presentation commands and working directories
   ansible.builtin.template:

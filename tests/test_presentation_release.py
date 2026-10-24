@@ -71,3 +71,12 @@ def test_primary_api_keeps_one_worker_without_a_host_override():
             aurora_mobile_api_host='127.0.0.1', aurora_mobile_api_port=8010,
         )
     assert '--port 8010 --workers 1' in output
+
+
+def test_operations_provenance_keeps_the_existing_collector_command():
+    tasks = yaml.safe_load((ROLE / 'tasks/main.yml').read_text())
+    provenance = next(task for task in tasks if task.get('register') == 'presentation_provenance')
+    content = provenance['ansible.builtin.copy']['content']
+    assert 'EnvironmentFile=/etc/aurora-presentation.env' in content
+    assert 'ExecStart' not in content and 'WorkingDirectory' not in content
+    assert 'notify' not in provenance

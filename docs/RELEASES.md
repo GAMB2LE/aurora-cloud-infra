@@ -48,8 +48,10 @@ The `zz-presentation-release.conf` drop-ins take precedence over older command
 overrides. `aurora-presentation.env` sets only reader provenance and disables
 Python bytecode writes; it does not set forecast-generator provenance. Check
 the browser and API after release. To roll back the first isolated release,
-remove only those two drop-ins, reload systemd and restart the two readers.
-For later releases, restore their recorded previous drop-ins and presentation
+remove those two reader drop-ins and the collector's
+`zz-presentation-provenance.conf`, reload systemd and restart the two readers.
+The next scheduled collector run then reports the restored checkout. For later
+releases, restore the recorded reader and collector drop-ins and presentation
 environment. Keep the release checkout and runtime until rollback is no longer
 needed. A failed runtime or manifest check is a failed release.
 
@@ -57,6 +59,12 @@ The operational mirror uses dedicated `aurora_operational_mirror_app_dir`
 and `aurora_operational_mirror_venv` settings. Never repoint the shared
 `aurora_app_dir` or `aurora_venv` to change a reader. See
 [Operational mobile mirror](OPERATIONAL_MOBILE_MIRROR.md).
+
+The release also gives the existing operations collector the presentation
+provenance file. Its next scheduled snapshot then reports the checkout serving
+the website. This does not change the collector command or the scientific writer
+checkout. I keep those separate so an older writer pin is not mistaken for the
+public dashboard version.
 
 Before releasing, preserve dirty files and deployed-only fixes in a reviewed
 branch. Build integration worktrees from current `origin/main`. Merge completed
