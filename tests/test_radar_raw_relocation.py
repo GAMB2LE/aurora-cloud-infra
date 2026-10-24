@@ -276,3 +276,26 @@ def test_remote_exec_parses_options_and_keeps_lock_until_exec(tmp_path):
     with patch.object(relocate, 'LOCK', lock), patch.object(relocate.sys, 'argv', ['helper', 'exec', '--if-active', '--config', str(tmp_path / 'inactive.json'), '--', '/bin/bash', '-c', 'rsync --server . /raw']), patch.object(relocate.os, 'execvp') as execute:
         assert relocate.main() == 0
         execute.assert_called_once_with('/bin/bash', ['/bin/bash', '-c', 'rsync --server . /raw'])
+
+
+@pytest.mark.parametrize('action', ['stage', 'verify'])
+def test_late_change_to_already_hashed_destination_never_becomes_valid_proof(layout, action):
+    plan, _, target, _ = layout
+    if action == 'verify': relocate.stage(plan, plan['days'][0])
+    original = relocate.hash_file
+    old_proof = relocate.manifest_path(plan, plan['days'][0]).read_bytes() if action == 'verify' else None
+    def mutate_prior_target_after_last_hash(path):
+        result = original(path)
+        if path == target / 'one.LV1.NC':
+            previous = target / 'one.LV0'
+            old_time = previous.stat().st_mtime_ns
+            previous.write_bytes(b'changed after its own hash')
+            os.utime(previous, ns=(old_time, old_time))
+        return result
+    with patch.object(relocate, 'hash_file', side_effect=mutate_prior_target_after_last_hash):
+        with pytest.raises(RuntimeError, match='Destination changed'):
+            if action == 'stage': relocate.stage(plan, plan['days'][0])
+            else: relocate.verify_day(plan, plan['days'][0])
+    proof = relocate.manifest_path(plan, plan['days'][0])
+    if old_proof is None: assert not proof.exists()
+    else: assert proof.read_bytes() == old_proof
