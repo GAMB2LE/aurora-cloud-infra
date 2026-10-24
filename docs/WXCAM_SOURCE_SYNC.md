@@ -24,7 +24,8 @@ Each phase has a 120-second transfer budget, set by
 stuck transfer. A timeout returns a nonzero service result; that is unfinished
 work, not a successful sync. Completed phases are queued for raw archiving
 immediately. The global checkpoint advances only after all three phases and
-their queue submissions succeed. Rsync partials are retained for retry.
+their queue submissions succeed. A missing or failed archive dispatcher also
+keeps the checkpoint and pending work. Rsync partials are retained for retry.
 
 Selected paths are saved atomically in `wxcam-sync.last.pending` before any
 transfer. The next run merges that debt with newly discovered files, so an old

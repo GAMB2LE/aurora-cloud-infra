@@ -199,6 +199,11 @@ with temporary.open("wb") as output:
     output.flush()
     os.fsync(output.fileno())
 os.replace(temporary, pending)
+directory = os.open(pending.parent, os.O_RDONLY)
+try:
+    os.fsync(directory)
+finally:
+    os.close(directory)
 for name, items in phases.items():
     (work / name).write_bytes(encoded(items))
 PHASE_LISTS
@@ -208,6 +213,14 @@ transfer_phase() {
   local phase_files="$work_dir/$phase"
   local transfer_status=0
   [[ -s "$phase_files" ]] || return 0
+  if [[ ! -x "$archive_dispatch" ]]; then
+    echo "WXcam archive dispatcher unavailable; pending paths and checkpoint retained." >&2
+    return 1
+  fi
+  if (( transfer_timeout_seconds <= 0 )); then
+    echo "WXcam transfer budget must be positive; pending paths and checkpoint retained." >&2
+    return 1
+  fi
   echo "WXcam ${phase}: transfer budget ${transfer_timeout_seconds}s."
   timeout --signal=TERM --kill-after=15s "${transfer_timeout_seconds}s" \
     "${rsync_base[@]}" --from0 --files-from="$phase_files" \
@@ -219,9 +232,7 @@ transfer_phase() {
     return "$transfer_status"
   fi
   # Queue each completed phase now, even if the next phase runs out of time.
-  if [[ -x "$archive_dispatch" ]]; then
-    "$archive_dispatch" enqueue --job raw --base "$destination" --files-from "$phase_files" --null
-  fi
+  "$archive_dispatch" enqueue --job raw --base "$destination" --files-from "$phase_files" --null
 }
 
 transfer_phase latest-jpeg

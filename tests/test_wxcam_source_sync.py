@@ -305,7 +305,7 @@ class WxcamSourceSyncTests(unittest.TestCase):
             scope.write_text("old-scope\n")
             pending.write_text("all selected paths")
             dispatcher = root / "dispatch"
-            dispatcher.write_text('#!/bin/bash\nprintf "queue %s\\n" "$(basename "$7")" >> "$LOG"\n')
+            dispatcher.write_text('#!/bin/bash\nprintf "queue %s\\n" "$(basename "$7")" >> "$LOG"\nexit "${DISPATCH_EXIT:-0}"\n')
             dispatcher.chmod(0o755)
             # Model GNU timeout returning 124 for an unfinished video. Each
             # phase must have its own budget; this is not a budget for the run.
@@ -339,7 +339,23 @@ timeout() {
             self.assertEqual((root / "log").read_text().splitlines(), [
                 "copy latest-jpeg", "queue latest-jpeg", "copy remaining-jpeg",
                 "queue remaining-jpeg", "copy video"])
+            # Queue handoff is required even if copying succeeded. Neither a
+            # failed dispatcher nor a missing executable may clear the debt.
             environment["VIDEO_STATUS"] = "0"
+            environment["DISPATCH_EXIT"] = "23"
+            rejected = subprocess.run(["bash", "-c", command], env=environment,
+                                      text=True, capture_output=True)
+            self.assertEqual(rejected.returncode, 23)
+            self.assertEqual(state.read_text(), "10\n")
+            self.assertTrue(pending.exists())
+            dispatcher.chmod(0o644)
+            missing = subprocess.run(["bash", "-c", command], env=environment,
+                                     text=True, capture_output=True)
+            self.assertNotEqual(missing.returncode, 0)
+            self.assertEqual(state.read_text(), "10\n")
+            self.assertTrue(pending.exists())
+            dispatcher.chmod(0o755)
+            environment["DISPATCH_EXIT"] = "0"
             subprocess.run(["bash", "-c", command], env=environment,
                            text=True, capture_output=True, check=True)
             self.assertEqual(state.read_text(), "20\n")
