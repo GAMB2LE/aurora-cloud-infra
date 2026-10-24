@@ -593,6 +593,10 @@ power_source_service_timeout_seconds: 90
 # False means the first timer run pulls all existing matching source files.
 power_source_start_fresh: false
 
+# BLE may use a reviewed immutable release before the other writers move.
+# Persist host overrides in inventory, rather than changing shared paths.
+blesensors_app_dir: "{{ aurora_app_dir }}"
+blesensors_venv: "{{ aurora_venv }}"
 blesensors_source_sync_enabled: true
 blesensors_source_sync_timer_enabled: "{{ aurora_writer_timers_enabled }}"
 blesensors_source_auth: "{{ edge_source_sync_auth }}"
