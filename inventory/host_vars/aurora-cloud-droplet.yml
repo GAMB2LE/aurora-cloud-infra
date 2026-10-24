@@ -4,6 +4,12 @@ aurora_presentation_revision: 222ce9ea1ca0eec611435418df15f4ac18a1e332
 aurora_presentation_venv: /opt/aurora-presentations/runtime-20261024
 aurora_presentation_wxcam_media_dir: /data/aurora/dev-products/science-continuity/wxcam/current/media
 aurora_presentation_auroracam_media_dir: /data/aurora/dev-products/live-continuity/current/cameras
+# Commissioned after source/product, anonymous API and media checks on 24 October.
+# Keep this reader isolated from the ordinary development API and writer runtime.
+aurora_operational_mirror_enabled: true
+aurora_operational_mirror_expected_revision: 222ce9ea1ca0eec611435418df15f4ac18a1e332
+aurora_operational_mirror_app_dir: /opt/aurora-presentations/222ce9ea1ca0eec611435418df15f4ac18a1e332
+aurora_operational_mirror_venv: /opt/aurora-presentations/runtime-20261024
 # Public development/staging host. It stays live by pulling production data
 # from JASMIN and does not run authoritative source/product writers.
 aurora_site_env: development

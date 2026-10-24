@@ -57,11 +57,34 @@ quicklook. Each returned an image and matched SHA-256 on both hosts. The second
 check included both cameras' 24 October 06:30 thumbnails. BLE has its own
 [commissioning and byte-comparison record](2026-10-24-blesensors-commissioning.md).
 
-The dedicated mirror API is staged on loopback port 8011. It reports schema 3,
-`dataRole=live-mirror`, `operationalMirror=true` and the JASMIN browser address.
-Its candidate evaluation endpoint returns 404. Its public nginx route has not
-been commissioned. Development continuity remains available while that gate is
-held.
+The dedicated mirror API was commissioned publicly by 07:32 UTC at
+`https://data-ocean.gamb2le.co.uk/mobile/operational/v1`. It reports schema 3,
+`dataRole=live-mirror`, `operationalMirror=true`, revision `222ce9ea1ca0` and the
+JASMIN browser address. Its candidate evaluation endpoint returns 404. The
+focused deployment validated nginx and changed only this reader and route.
+All 12 checked anonymous routes returned 200, and the same seven actual media
+files matched SHA-256 through the public primary and mirror routes. The Android
+primary and mirror live contract tests both passed at 07:32 UTC, with no skips.
+
+A second direct product read at 07:32 UTC found equal radar, HATPRO, meteorology,
+ASFS logger/sonic/gas and PDU observations. CL61, Power and WXcam were about five
+minutes behind JASMIN, consistent with the mirror schedule. This is measured
+transfer lag, not a claim of simultaneous acquisition. The ordinary development
+API and its continuity producers remain separate; forecast dependencies need to
+be checked before those temporary inputs can be retired.
+
+## DigitalOcean capacity
+
+The approved data volume increase from 1,000 to 1,200 GiB completed at 07:28 UTC.
+I then expanded ext4 and verified both `/data` and its `/project` bind. The block
+device is 1,288,490,188,800 bytes; the filesystem reported 239,518,982,144 bytes
+available, about 223 GiB, at 82% used. The additional 200 GiB adds the approved
+$20/month. All three dashboard/API services remained active.
+
+Writes to this filesystem were briefly frozen for the provider resize, with an
+automatic thaw watchdog armed first. I thawed it as soon as the new device size
+was visible, expanded the mounted filesystem and cancelled the watchdog. No
+science observations were removed to obtain this space.
 
 ## Apps and source integration
 
@@ -80,10 +103,6 @@ work and unfinished scientific experiments remain preserved separately.
 
 ## Remaining gates
 
-- Increase the existing DigitalOcean volume from 1,000 to the approved 1,200 GiB,
-  then verify both block-device and filesystem capacity. Approval is recorded;
-  account sign-in is still needed. The observed 26–27 GiB free does not cover the
-  measured seven-day growth allowance.
 - Finish the verified radar relocation before restoring complete native
   backfill. The current LV1 live lane is updating; that does not clear older raw
   delivery debt or fill the historical product gap.
