@@ -1,0 +1,10 @@
+---
+- name: Restart presentation services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: restarted
+    daemon_reload: true
+  loop:
+    - aurora-dashboard.service
+    - aurora-mobile-api.service
+  when: not ansible_check_mode

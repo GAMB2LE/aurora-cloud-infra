@@ -1,0 +1,5 @@
+[Service]
+WorkingDirectory={{ aurora_presentation_app_dir }}
+EnvironmentFile=/etc/aurora-presentation.env
+ExecStart=
+ExecStart={{ aurora_presentation_venv }}/bin/uvicorn mobile_api:app --host {{ aurora_mobile_api_host }} --port {{ aurora_mobile_api_port }} --workers {{ aurora_mobile_api_workers }}

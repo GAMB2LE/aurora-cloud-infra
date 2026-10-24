@@ -1,0 +1,8 @@
+---
+# The web and mobile readers get their own code and Python environment. Source
+# collectors, scientific writers and their existing checkout stay pinned.
+- name: Release the dashboard presentation processes
+  hosts: aurora_cloud
+  become: true
+  roles:
+    - presentation_release

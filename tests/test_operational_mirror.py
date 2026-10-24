@@ -12,7 +12,7 @@ ROLE = ROOT / 'roles/operational_mirror'
 def environment():
     renderer = Environment(undefined=StrictUndefined)
     content = renderer.from_string((ROLE / 'templates/aurora-operational-mobile-api.env.j2').read_text()).render(
-        aurora_domain='data-ocean.gamb2le.co.uk', aurora_app_dir='/opt/aurora-cloud-dashboard',
+        aurora_domain='data-ocean.gamb2le.co.uk', aurora_operational_mirror_app_dir='/opt/aurora-presentations/' + 'a' * 40,
         aurora_dev_live_mirror_recent_minutes=15,
     )
     return dict(line.split('=', 1) for line in content.splitlines() if line and not line.startswith('#'))
