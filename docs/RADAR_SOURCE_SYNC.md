@@ -40,7 +40,11 @@ The source has two independent lanes:
 - `aurora-radar-source-sync.service` is the priority live lane. It polls every
   two minutes, uses a bounded bootstrap lookback on first start, overlaps its
   previous checkpoint by ten minutes, and ignores files modified in the last
-  five minutes. Its checkpoint is
+  five minutes. Discovery quotes the remote wildcard before SSH invokes its
+  shell. A live batch is limited to 8 GiB, with a mounted capacity check for
+  **all selected uncompressed bytes plus 8 GiB** before copying. LV1 NetCDF
+  inputs transfer first, then the complete selected native files; rsync
+  compression reduces transport bytes without changing file contents. Its checkpoint is
   `/var/lib/aurora-cloud/radar-live-sync.last`.
 - `aurora-radar-backfill.service` is the newest-first historical lane. It
   transfers a bounded batch in parallel and records progress in
@@ -52,14 +56,28 @@ radar data. The backfill timer is enabled only on the authoritative writer
 host; its temporary files live below `.radar-partials` and are excluded from
 GWS replication.
 
-To deliberately reset the live sync point, stop the timer and edit or remove
-the live checkpoint:
+For recovery, preserve the live checkpoint and copy one reviewed closed time
+window. Stop the live timer and verify its service is idle. The finite recovery
+mode applies the same capacity and batch limits and does not advance the normal
+checkpoint:
 
 ```bash
 sudo systemctl stop aurora-radar-source-sync.timer
-sudo -u aurora date +%s | sudo tee /var/lib/aurora-cloud/radar-live-sync.last
-sudo systemctl start aurora-radar-source-sync.timer
+sudo -u aurora /usr/local/bin/aurora-radar-sync --recover-window <start-epoch> <end-epoch>
 ```
+
+Use the source files' modification times for those bounds, and keep the end
+older than the five-minute grace period. Verify the selected source LV1 reaches
+cloud raw, the Zarr time coordinate and the public API before restoring the
+live timer. Leave bulk backfill paused until its independent seven-day
+headroom check passes. A successful empty source scan is not freshness proof.
+
+Install only this wrapper and its shared capacity helper with
+`playbooks/radar_live_guard.yml`. It requires
+`aurora_radar_live_expected_sha256` for the preserved installed wrapper,
+requires an idle service and paused timer, validates Bash syntax and keeps
+backups. Review `--check --diff` first. It does not change timer state, release
+application code or touch scientific products.
 
 ## Processing
 
