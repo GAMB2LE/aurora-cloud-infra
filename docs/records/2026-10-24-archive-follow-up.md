@@ -186,3 +186,55 @@ shows a condition-skipped raw launch preserves durable debt, epoch and attempt
 count across reopening the queue and ordinary replay. A disposable systemd unit
 proved held, released and held-again behaviour without touching production readers.
 No production relocation hold or mount cutover had been activated for these tests.
+
+
+## Inactive relocation guards commissioned, 08:14 UTC
+
+PR 85 reached main as `498c94454f0e1518f85a4e2760327ec6f0451a30` after all four
+checks and independent review. Its focused preparation reported 12 tasks ok,
+four changed and no failures. At 08:14:42, all twelve actual loaded systemd
+condition lists contained the negative relocation-hold condition, and no daemon
+reload remained pending. The temporary hold and production active record were
+both absent. The persistent retention hold remained present.
+
+The original four-day stage retained MainPID 3753660. Retention remained failed
+with no process; retention and native backfill timers stayed disabled/inactive.
+The live LV1 and recovery timers stayed enabled/active. D03 completed its 96-file
+SHA/metadata proof at 08:08:41; its manifest SHA-256 is
+`c2ae17045cb110cbd9657f02b1ce945544e3174f51eb8450fd1b390520f30524`.
+D04 then began. D13 had not started, and no original or production path moved.
+
+The installed helper SHA-256 is
+`632140eaf217bdd78dee6d1623f396a99cb831acf505c6b0420698f934847817`;
+the five-day plan SHA-256 is
+`59042dd5b155b3d197e1e78ebddb0895f98a10521e0d6b6cab2c1bb95b57d5c6`.
+The receipt includes all consumer and launcher states, loaded conditions, sender
+processes and locks. Those observations must be repeated at cutover.
+
+Review accepted using fresh, unchanged stage proofs for reversible cutover rather
+than rereading the same two copies first. Stage already hashes both sides, compares
+metadata and checks whole-day identity maps before publishing its durable proof.
+Cutover repeats the identity/file-set and six-hour checks under its exclusive lock.
+This avoids an estimated 60–100 minutes and 861.42 GB of repeated reads. Full
+verification through the mounted logical paths before any duplicate-original
+release remains mandatory and is now an explicit release gate in the helper.
+
+
+The mounted-proof helper passed a disposable real-bind sequence at 08:22 UTC.
+Staging alone and an atomically recreated active record with identical plan JSON
+both rejected release. Missing or wrong binds and an interrupted logical read
+left the prior proof unchanged. A deliberately wrong mount introduced during the
+read was rejected; rollback then restored the preserved original despite having
+no usable bind. After restaging, a new full mounted verification allowed release
+of only the 56-byte test duplicate while its logical copy remained readable.
+Equivalent same-target remounts with unchanged file identities were accepted.
+Production stage PID 3753660 stayed unchanged and no production active record was
+created. The tiny test trees and receipts remain outside the raw archive.
+
+At 08:22:20 the normal health report had cleared `source_metadata_invalid` in both
+recovery and evidence. The earlier label was stale, not a continuing metadata
+failure. At 08:22:41 the raw second confirmation was running with no error and one
+confirmation remaining; products were still in a fresh inventory with no error.
+D02 and D03 had completed staging; D04 had 48.86 GB copied. D05 and D13 had not
+started. `/project` had 278,476,619,776 bytes free and `/data` had 249,869,500,416.
+These are progress observations, not archive acceptance or completed relocation.

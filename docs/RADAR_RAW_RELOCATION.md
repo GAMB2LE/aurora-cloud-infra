@@ -145,13 +145,24 @@ Use `playbooks/retention_hold.yml` for a narrow deployment; it does not run or r
 retention. The full role removes that hold only when both switches are explicitly
 enabled after their separate gates pass.
 
-Run the full verification while readers and live collection are still running.
-It holds a shared helper lock, so cutover cannot race it.
+A completed stage is already a full SHA-256 verification of both copies. When
+all five completed manifests are less than six hours old, cutover can use those
+proofs: under the exclusive lock it checks unchanged source and destination file
+sets and identities before the first rename. There is no need to repeat the same
+full read before a reversible path change. The originals remain in quarantine.
+
+If a proof is older, run full verification while readers and collection continue,
+then investigate any changed identity rather than bypassing it:
 
 ```sh
 sudo /usr/local/lib/aurora-radar-relocation.py verify \
   --config /etc/aurora/radar-relocation-plan.json
 ```
+
+That command holds a shared lock. Cutover cannot race it. A complete additional
+five-day read would read about 861.42 GB across both copies; the dated estimate is
+60–100 minutes, separate from staging and dependent on storage/cache throughput.
+The full read after mounting remains mandatory before releasing any original.
 
 Then create the temporary barrier, pause the recovery launcher and recorded raw
 timers, drain readers and perform the short cutover. Record ownership of the hold
@@ -208,11 +219,21 @@ read-only discovery. Preserve that evidence alongside the per-file manifests.
 
 ## Release only verified duplicate originals
 
-Run `verify` again with the active configuration while readers are running; the
-logical copies are read-only. Then recreate the same owned launch hold and pause/drain consumers and the
+Run `verify` with the active configuration while readers are running; the
+logical copies are read-only. It checks the mount guard before and after reading,
+hashes every logical bound path and its quarantined original, and rejects a mount
+identity change during that read. Only a fully successful pass publishes a durable
+mounted verification receipt tied to the exact manifest, active cutover record and logical/destination directory identities.
+The active record is bound by SHA-256 and filesystem identity, so a new cutover
+requires new mounted verification even if its plan is identical. An interrupted pass leaves the previous proof intact.
+A staging-only proof cannot authorize release; a new cutover also requires a new
+mounted verification before release. An equivalent same-target remount with
+unchanged files remains valid; the normal guard still requires the correct
+read-only bind. Then recreate the same owned launch hold and pause/drain consumers and the
 recovery launcher for the short release.
 `release` checks active mounts, read-only options, both reserves, the dependency
-graph and unchanged file identities against that full verification. It writes
+graph, mounted verification receipt and unchanged file identities against that
+full verification. It repeats the receipt/cutover identity check before each unlink. It writes
 durable per-file release intent and completion records before and after unlinking
 only the duplicate files in the named quarantine day. It never removes the
 logical raw observation or the relocated copy.
@@ -252,7 +273,10 @@ the same consumers and recovery launcher, then run:
 sudo /usr/local/lib/aurora-radar-relocation.py rollback
 ```
 
-This also handles an interrupted cutover. It verifies the originals, removes only
+This also handles an interrupted cutover with a missing or failed bind. Rollback
+verifies the quarantined originals and destination directly; it does not falsely
+claim a successful mounted publication or require a healthy mount to recover.
+It removes only
 its own unchanged mount/drop-in definitions, stops the binds, and renames the
 original directories back. The `/data` copies remain preserved. Restore the
 recorded timer states separately. After a duplicate original has been released,
