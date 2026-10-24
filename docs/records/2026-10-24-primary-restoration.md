@@ -204,3 +204,28 @@ production bind mount, quarantine rename or duplicate release has been performed
 Live collection continues, and native backfill and retention remain held. The
 [archive follow-up](2026-10-24-archive-follow-up.md) records the separate metadata,
 native backlog and stale verification findings.
+
+### Disposable mount failure checks, 07:32–07:36 UTC
+
+The isolated pre-cutover test found that systemd could create a missing bind
+source as an empty directory. The earlier guard accepted the mount identity alone.
+No production relocation had been activated. The helper now asserts that the
+destination already exists and checks its exact staged file set and metadata
+against the SHA manifest before allowing a consumer to start. The graph check
+also handles systemd's quoted, escaped mount names.
+
+At 07:36 the candidate passed the full disposable sequence: a missing mount was
+rejected; the valid read-only mount and consumer started; stopping the bind stopped
+the consumer; an absent bind source failed without creating an empty directory;
+a missing file and a changed file each failed the consumer's pre-start check; and
+restoring the verified test fixture allowed normal startup again. Unit validation
+passed. The test used separate directories outside raw and runtime-only units;
+the production active record stayed absent, both production volumes stayed
+mounted, and all test units and mounts were removed afterward.
+
+The receipt remains at
+`/project/aurora/recovery/radar-relocation-probe-20261024f/probe-result.json`.
+The candidate SHA-256 was
+`4d5063247d21651bc56f9ab6dba831e5d93b61d35b43ddfbaa5aebbe2a8a43a9`.
+These checks validate the failure gates; they do not establish that the four
+production days have finished staging or authorize their cutover.
