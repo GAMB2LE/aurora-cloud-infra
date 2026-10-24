@@ -31,6 +31,13 @@ def wait_for(predicate, timeout=10):
 
 
 class LockTests(unittest.TestCase):
+    def test_directory_discovery_selects_nodes_without_trailing_slash(self):
+        result = subprocess.CompletedProcess(['rsync'], 0,
+            'AURORA\t.d..t......\t4096\t./\t\nAURORA\tcd+++++++++\t4096\tempty/\t\n', '')
+        with mock.patch.object(gws.subprocess, 'run', return_value=result):
+            self.assertEqual(gws.discover(['rsync', '-aH'], '/source/', '/dest/'),
+                             ([('.', 4096), ('empty', 4096)], 0))
+
     def test_discovery_retains_vanished_source_status(self):
         result = subprocess.CompletedProcess(
             ['rsync'], 24, 'AURORA\t>f+++++++++\t7\ta\t\n', 'source vanished\n',
@@ -136,6 +143,67 @@ class LockTests(unittest.TestCase):
 
 @unittest.skipUnless(REAL_RSYNC, 'Requires upstream rsync, not macOS openrsync')
 class RealRsyncTests(unittest.TestCase):
+    def test_directory_batches_do_not_pull_in_new_unselected_children(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, dest, locks = (root / name for name in ('source', 'dest', 'locks'))
+            for path in (source, dest, locks):
+                path.mkdir()
+            (source / 'sub').mkdir(); (source / 'empty').mkdir()
+            (source / 'sub/a').write_bytes(b'selected payload')
+            os.link(source / 'sub/a', source / 'sub/b')
+            for path in (source, source / 'sub', source / 'empty'):
+                os.chmod(path, 0o751)
+                os.utime(path, (1600000000, 1600000000))
+            names, code = gws.discover([RSYNC, '-aH'], str(source) + '/', str(dest) + '/')
+            self.assertEqual(code, 0)
+            self.assertIn('.', dict(names))
+            # These arrive after discovery. A selected parent must not import
+            # them early or silently expand the locked transfer's selected set.
+            (source / 'unselected-root').write_bytes(b'new root child')
+            (source / 'sub/unselected-child').write_bytes(b'new nested child')
+            for path in (source, source / 'sub', source / 'empty'):
+                os.chmod(path, 0o751)
+                os.utime(path, (1600000000, 1600000000))
+            args = type('Args', (), dict(source=str(source), destination=str(dest),
+                ssh_command='ssh', copy_links=False, exclude=[], max_files=1,
+                max_bytes=1024, lock_root=str(locks), wait_seconds=1))()
+            with mock.patch.object(gws, 'discover', return_value=(names, 0)):
+                self.assertEqual(gws.bulk(args), 0)
+            self.assertFalse((dest / 'unselected-root').exists())
+            self.assertFalse((dest / 'sub/unselected-child').exists())
+            self.assertEqual((dest / 'sub/a').read_bytes(), b'selected payload')
+            self.assertEqual((dest / 'sub/a').stat().st_ino, (dest / 'sub/b').stat().st_ino)
+            for path in (dest, dest / 'sub', dest / 'empty'):
+                self.assertTrue(path.is_dir())
+                self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o751, str(path))
+                self.assertEqual(int(path.stat().st_mtime), 1600000000, str(path))
+
+    def test_root_metadata_only_change_does_not_copy_unselected_child(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, dest, locks = (root / name for name in ('source', 'dest', 'locks'))
+            for path in (source, dest, locks):
+                path.mkdir()
+            (source / 'existing').write_bytes(b'unchanged')
+            subprocess.run([RSYNC, '-aH', str(source) + '/', str(dest) + '/'], check=True)
+            os.chmod(source, 0o751)
+            os.utime(source, (1600000000, 1600000000))
+            names, code = gws.discover([RSYNC, '-aH'], str(source) + '/', str(dest) + '/')
+            self.assertEqual(code, 0)
+            self.assertEqual([name for name, _ in names], ['.'])
+            (source / 'unselected').write_bytes(b'new child after discovery')
+            os.utime(source, (1600000000, 1600000000))
+            args = type('Args', (), dict(source=str(source), destination=str(dest),
+                ssh_command='ssh', copy_links=False, exclude=[], max_files=256,
+                max_bytes=1024 * 1024, lock_root=str(locks), wait_seconds=1))()
+            with mock.patch.object(gws, 'discover', return_value=(names, 0)):
+                self.assertEqual(gws.bulk(args), 0)
+            self.assertEqual((dest / 'existing').read_bytes(), b'unchanged')
+            self.assertFalse((dest / 'unselected').exists())
+            self.assertEqual(stat.S_IMODE(dest.stat().st_mode), 0o751)
+            self.assertEqual(int(dest.stat().st_mtime), 1600000000)
+
     def race(self, separate=False, update=False, locked=False):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);source=root/'source';fast_source=root/'fast';dest=root/'dest';locks=root/'locks'
