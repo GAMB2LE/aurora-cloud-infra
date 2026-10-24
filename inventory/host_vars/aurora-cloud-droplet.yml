@@ -85,6 +85,9 @@ aurora_standby_replication_timer_enabled: true
 # rechecks its exact identity and reserves before installing mirror changes.
 # Relocation remains a separate operation; see docs/CANONICAL_POWER_STORAGE.md.
 aurora_standby_canonical_power_guard_enabled: true
+# Hold the primary relocation lock throughout each radar sender. This is a
+# no-op until the separately reviewed active relocation record exists.
+aurora_standby_raw_relocation_guard: true
 aurora_standby_replication_ssh_private_key_source: "{{ lookup('env', 'HOME') }}/.ssh/id_rsa_jasmin_20200514"
 aurora_standby_primary_host: 130.246.212.116
 aurora_standby_primary_user: azimuth
