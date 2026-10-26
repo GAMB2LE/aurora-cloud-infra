@@ -13,12 +13,12 @@ OnSuccess=aurora-power-v12-candidate.service
 Type=oneshot
 User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
-WorkingDirectory={{ aurora_app_dir }}
+WorkingDirectory={{ aurora_power_forecast_app_dir }}
 EnvironmentFile=/etc/aurora-dashboard.env
 {% if aurora_power_forecast_orchestration_enabled | bool %}
 ExecStart=/usr/local/bin/aurora-power-forecast-runner full-cycle
 {% else %}
-ExecStart={{ aurora_venv }}/bin/python generate_power_soc_forecast.py --power-zarr {{ aurora_zarr.power }} --output-zarr {{ aurora_zarr.power_soc_forecast }} --cache-dir {{ aurora_paths.products_power_ecmwf_solar_forecast }} --state {{ aurora_power_forecast_root }}/power_soc_forecast_state.json --archive-zarr {{ aurora_zarr.power_soc_forecast_archive }} --skill-zarr {{ aurora_zarr.power_soc_forecast_skill }} --hindcast-zarr {{ aurora_zarr.power_soc_hindcast }} --horizon-hours 96
+ExecStart={{ aurora_power_forecast_venv }}/bin/python generate_power_soc_forecast.py --power-zarr {{ aurora_zarr.power }} --output-zarr {{ aurora_zarr.power_soc_forecast }} --cache-dir {{ aurora_paths.products_power_ecmwf_solar_forecast }} --state {{ aurora_power_forecast_root }}/power_soc_forecast_state.json --archive-zarr {{ aurora_zarr.power_soc_forecast_archive }} --skill-zarr {{ aurora_zarr.power_soc_forecast_skill }} --hindcast-zarr {{ aurora_zarr.power_soc_hindcast }} --horizon-hours 96
 {% endif %}
 
 Nice=10

@@ -14,8 +14,8 @@ fi
 action=$1
 lock_path={{ aurora_power_forecast_generator_lock_path | quote }}
 publisher=/usr/local/bin/aurora-power-forecast-publish
-python={{ (aurora_venv ~ '/bin/python') | quote }}
-app_dir={{ aurora_app_dir | quote }}
+python={{ (aurora_power_forecast_venv ~ '/bin/python') | quote }}
+app_dir={{ aurora_power_forecast_app_dir | quote }}
 
 power_input={{ aurora_zarr.power | quote }}
 pdu_input={{ aurora_zarr.pdu | quote }}

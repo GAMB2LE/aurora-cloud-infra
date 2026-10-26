@@ -1,0 +1,182 @@
+---
+- name: Select reviewed code for existing power forecast jobs
+  hosts: aurora_cloud
+  become: true
+  vars:
+    # For a subsequent release, pass the previously selected paths explicitly.
+    power_forecast_previous_app_dir: "{{ aurora_app_dir }}"
+    power_forecast_previous_venv: "{{ aurora_venv }}"
+    power_forecast_services:
+      - aurora-power-soc-forecast.service
+      - aurora-power-soc-forecast-learn.service
+      - aurora-power-soc-ensemble.service
+      - aurora-power-soc-planning-forecast.service
+      - aurora-power-operating-scenarios.service
+    power_forecast_orchestration_services:
+      - aurora-power-forecast-publish.service
+      - aurora-power-forecast-bundle-failure@.service
+    power_forecast_selected_services: >-
+      {{ power_forecast_services +
+         (power_forecast_orchestration_services if aurora_power_forecast_orchestration_enabled | bool else []) }}
+    power_forecast_selected_files: >-
+      {{ power_forecast_selected_services | map('regex_replace', '^', '/etc/systemd/system/') | list +
+         (['/usr/local/bin/aurora-power-forecast-runner', '/usr/local/bin/aurora-power-forecast-publish']
+          if aurora_power_forecast_orchestration_enabled | bool else []) }}
+
+  tasks:
+    - name: Require explicit immutable source and separate runtime pins
+      ansible.builtin.assert:
+        that:
+          - aurora_power_forecast_revision is match('^[0-9a-f]{40}$')
+          - aurora_power_forecast_app_dir == '/opt/aurora-presentations/' + aurora_power_forecast_revision
+          - aurora_power_forecast_venv is match('^/opt/aurora-presentations/[A-Za-z0-9][A-Za-z0-9._-]*$')
+          - aurora_power_forecast_app_dir != aurora_app_dir
+          - aurora_power_forecast_venv != aurora_venv
+          - power_forecast_previous_app_dir is match('^/opt/[A-Za-z0-9._/-]+$')
+          - power_forecast_previous_venv is match('^/opt/[A-Za-z0-9._/-]+$')
+          - "'/../' not in power_forecast_previous_app_dir"
+          - "'/../' not in power_forecast_previous_venv"
+
+    - name: Read prepared source revision
+      ansible.builtin.command:
+        argv: [git, -C, "{{ aurora_power_forecast_app_dir }}", rev-parse, HEAD]
+      become_user: "{{ aurora_service_user }}"
+      register: power_forecast_prepared_revision
+      changed_when: false
+      check_mode: false
+
+    - name: Check prepared source is clean
+      ansible.builtin.command:
+        argv: [git, -C, "{{ aurora_power_forecast_app_dir }}", status, --porcelain]
+      become_user: "{{ aurora_service_user }}"
+      register: power_forecast_prepared_status
+      changed_when: false
+      check_mode: false
+
+    - name: Require reviewed source reachable from fetched main
+      ansible.builtin.command:
+        argv: [git, -C, "{{ aurora_power_forecast_app_dir }}", merge-base, --is-ancestor, "{{ aurora_power_forecast_revision }}", origin/main]
+      become_user: "{{ aurora_service_user }}"
+      changed_when: false
+      check_mode: false
+
+    - name: Require exact clean prepared source
+      ansible.builtin.assert:
+        that:
+          - power_forecast_prepared_revision.stdout == aurora_power_forecast_revision
+          - power_forecast_prepared_status.stdout | trim == ''
+
+    - name: Check selected runtime imports the selected forecast code
+      ansible.builtin.command:
+        argv:
+          - "{{ aurora_power_forecast_venv }}/bin/python"
+          - -c
+          - >-
+            import sys; from pathlib import Path;
+            assert Path(sys.prefix).resolve() == Path(sys.argv[1]).resolve();
+            import generate_power_soc_forecast, generate_power_soc_ensemble,
+            generate_power_operating_scenarios, generate_power_display_summary;
+            modules = (generate_power_soc_forecast, generate_power_soc_ensemble,
+            generate_power_operating_scenarios, generate_power_display_summary);
+            assert all(Path(m.__file__).resolve().parent == Path(sys.argv[2]).resolve() for m in modules)
+          - "{{ aurora_power_forecast_venv }}"
+          - "{{ aurora_power_forecast_app_dir }}"
+        chdir: "{{ aurora_power_forecast_app_dir }}"
+      become_user: "{{ aurora_service_user }}"
+      environment:
+        PYTHONDONTWRITEBYTECODE: '1'
+      changed_when: false
+      check_mode: false
+
+    - name: Inspect existing scoped unit and wrapper files
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        checksum_algorithm: sha256
+        follow: false
+      loop: "{{ power_forecast_selected_files }}"
+      register: power_forecast_files
+
+    - name: Require regular existing root-owned files
+      ansible.builtin.assert:
+        that:
+          - item.stat.isreg | default(false)
+          - not (item.stat.islnk | default(false))
+          - item.stat.uid == 0
+      loop: "{{ power_forecast_files.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Read existing scoped path references
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop: "{{ power_forecast_selected_files }}"
+      register: power_forecast_existing_contents
+
+    - name: Reject unexpected source selections before changing any files
+      ansible.builtin.assert:
+        that:
+          - >-
+            power_forecast_previous_app_dir in (item.content | b64decode)
+            or aurora_power_forecast_app_dir in (item.content | b64decode)
+      loop: "{{ power_forecast_existing_contents.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Require forecast producers to be idle for code selection
+      ansible.builtin.command:
+        argv: [systemctl, show, "{{ item }}", --property=ActiveState, --value]
+      loop: "{{ power_forecast_selected_services | reject('search', '@') | list }}"
+      register: power_forecast_active_states
+      changed_when: false
+      check_mode: false
+      failed_when: power_forecast_active_states.stdout | trim not in ['inactive', 'failed']
+
+    # Replace the nested runtime first. Replacing the application first would
+    # incorrectly invent <new-source>/venv when the old runtime is beneath it.
+    # Existing unit arguments, sandbox, ownership, drop-ins and timers stay intact.
+    - name: Replace only scoped runtime path references
+      ansible.builtin.replace:
+        path: "{{ item }}"
+        regexp: '(?<![A-Za-z0-9_./-]){{ power_forecast_previous_venv | regex_escape }}(?![A-Za-z0-9_.-])'
+        replace: "{{ aurora_power_forecast_venv }}"
+        backup: true
+      loop: "{{ power_forecast_selected_files }}"
+      notify: Reload existing forecast unit definitions
+
+    - name: Replace only scoped source path references
+      ansible.builtin.replace:
+        path: "{{ item }}"
+        regexp: '(?<![A-Za-z0-9_./-]){{ power_forecast_previous_app_dir | regex_escape }}(?![A-Za-z0-9_.-])'
+        replace: "{{ aurora_power_forecast_app_dir }}"
+        backup: true
+      loop: "{{ power_forecast_selected_files }}"
+      notify: Reload existing forecast unit definitions
+
+    - name: Validate complete selected unit definitions
+      ansible.builtin.command:
+        argv: "{{ ['systemd-analyze', 'verify'] + power_forecast_selected_services }}"
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Record selected source and runtime independently of shared writers
+      ansible.builtin.copy:
+        dest: /etc/aurora-power-forecast-release.json
+        content: "{{ power_forecast_release_record | to_nice_json }}\n"
+        owner: root
+        group: root
+        mode: '0644'
+        backup: true
+      vars:
+        power_forecast_release_record:
+          revision: "{{ aurora_power_forecast_revision }}"
+          source: "{{ aurora_power_forecast_app_dir }}"
+          runtime: "{{ aurora_power_forecast_venv }}"
+          files: "{{ power_forecast_selected_files }}"
+
+    - name: Load selected paths for the next existing scheduled run
+      ansible.builtin.meta: flush_handlers
+
+  handlers:
+    - name: Reload existing forecast unit definitions
+      ansible.builtin.systemd_service:
+        daemon_reload: true
