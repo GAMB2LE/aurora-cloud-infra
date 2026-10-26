@@ -1,9 +1,9 @@
 ---
 # Keep the reviewed web/API release separate from scientific writer pins.
-aurora_presentation_revision: 71eef853ad4d5ca3617e8f856a269e393f187a0d
+aurora_presentation_revision: 7399c08a60e37fa2b7b48b21369b1bfb6ac54c1d
 aurora_presentation_venv: /opt/aurora-presentations/runtime-20261024
 # Independent snapshot collector; scientific writer checkout stays pinned.
-aurora_operations_collector_revision: c900dd85e71d1a4f81331f92740cbc5049074bf3
+aurora_operations_collector_revision: 7399c08a60e37fa2b7b48b21369b1bfb6ac54c1d
 aurora_operations_collector_venv: /opt/aurora-presentations/runtime-20261024
 aurora_site_env: production
 aurora_failover_role: primary
