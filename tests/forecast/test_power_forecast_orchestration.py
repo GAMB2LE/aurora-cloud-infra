@@ -24,6 +24,8 @@ def _template_context() -> dict[str, object]:
     return {
         "aurora_venv": "/opt/aurora-cloud-dashboard/venv",
         "aurora_app_dir": "/opt/aurora-cloud-dashboard",
+        "aurora_power_forecast_app_dir": "/opt/aurora-cloud-dashboard",
+        "aurora_power_forecast_venv": "/opt/aurora-cloud-dashboard/venv",
         "aurora_service_user": "aurora",
         "aurora_service_group": "aurora",
         "aurora_power_forecast_orchestration_enabled": True,

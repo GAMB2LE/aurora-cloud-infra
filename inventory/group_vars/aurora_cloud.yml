@@ -110,6 +110,9 @@ aurora_power_baseline_snapshot_root: /var/lib/aurora-power-baseline-snapshots
 aurora_infra_repo_dir: /tmp/aurora-cloud-infra-codex
 aurora_python: /usr/bin/python3
 aurora_venv: "{{ aurora_app_dir }}/venv"
+# Forecast jobs can use reviewed code independently of the shared scientific writers.
+aurora_power_forecast_app_dir: "{{ aurora_app_dir }}"
+aurora_power_forecast_venv: "{{ aurora_venv }}"
 aurora_uv_bin: /usr/local/bin/uv
 aurora_uv_cache_dir: "{{ aurora_data_root }}/uv-cache"
 aurora_les_root: "{{ aurora_data_root }}/les"

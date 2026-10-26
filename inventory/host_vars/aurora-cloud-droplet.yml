@@ -1,4 +1,8 @@
 ---
+# Reviewed power forecasting code, independent of the shared writer checkout.
+aurora_power_forecast_revision: 01fd146d4d40313fa1c5b72c34a9a64d6b575f9a
+aurora_power_forecast_app_dir: "/opt/aurora-presentations/{{ aurora_power_forecast_revision }}"
+aurora_power_forecast_venv: /opt/aurora-presentations/runtime-20261024
 # Same reviewed presentation as JASMIN, with replicated observations and separate
 # development forecasts. Producer inputs are independent of these reader paths.
 aurora_presentation_revision: d8942d09681808eb8aad49111badc3ef5a2b302d
