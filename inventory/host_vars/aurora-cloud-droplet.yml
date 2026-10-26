@@ -1,7 +1,7 @@
 ---
 # Same reviewed presentation as JASMIN, with replicated observations and separate
 # development forecasts. Producer inputs are independent of these reader paths.
-aurora_presentation_revision: c900dd85e71d1a4f81331f92740cbc5049074bf3
+aurora_presentation_revision: 71eef853ad4d5ca3617e8f856a269e393f187a0d
 aurora_presentation_venv: /opt/aurora-presentations/runtime-20261024
 aurora_presentation_canonical_observations: true
 aurora_presentation_wxcam_media_dir: /data/aurora/products/wxcam
