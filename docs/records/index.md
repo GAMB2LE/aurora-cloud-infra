@@ -4,6 +4,7 @@ These pages record a dated observation or source-integration result. They are
 not proof of the current deployment. Keep credentials, host configuration
 archives and raw operational logs out of public records.
 
+- [26 October 2026: MultiPlus charging indicator](2026-10-26-multiplus-indicator.md)
 - [24 October 2026: primary restoration source consolidation](2026-10-24-primary-restoration.md)
 - [24 October 2026: WXcam source recovery and bounded transfers](2026-10-24-wxcam-recovery.md)
 - [24 October 2026: dashboard, mirror and app checks](2026-10-24-presentation-checks.md)
