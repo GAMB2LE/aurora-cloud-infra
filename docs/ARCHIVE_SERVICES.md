@@ -490,6 +490,12 @@ during transfer. Neither it nor the file-count bound promises a transfer time. T
 waiting priority until the current batch drains, subject to its existing service
 timeout. Bulk work defers instead of queuing ahead of it.
 
+Directory entries select only the directory itself, including empty directories.
+I copy root-directory metadata in a separate batch that excludes all children.
+This prevents rsync from expanding a selected directory into files that were not
+in the discovery list. New arrivals wait for the next scan or the fast queue;
+parent permissions and timestamps and selected hardlink groups are preserved.
+
 Both writers still use ordinary rsync partial transfers and delayed publication.
 On 24 October, their concurrent transfers used the same `.~tmp~` filenames. The
 dispatcher committed 32 affected files shortly before the full transfer reported

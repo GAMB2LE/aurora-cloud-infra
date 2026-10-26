@@ -119,7 +119,10 @@ def discover(command, source, destination):
         relative = Path(name)
         if not name or relative.is_absolute() or '..' in relative.parts:
             raise RuntimeError('Raw archive path escapes its source')
-        return name
+        # In --files-from, "directory/" includes its immediate children even
+        # without -r. Select the directory node itself; children have their own
+        # discovery entries and must not grow this batch implicitly.
+        return name.rstrip('/')
 
     for line in result.stdout.splitlines():
         fields = line.split('\t', 4)
@@ -169,7 +172,14 @@ def batches(paths, source, max_files, max_bytes, copy_links=False):
 
     def selected():
         current, total = [], 0
+        root_group = None
         for group in groups.values():
+            if len(group) == 1 and group[0][0] == '.':
+                # Rsync treats even "." as a request for root children. Keep
+                # root metadata separate so that batch can exclude all children.
+                # Apply it last: creating selected children changes its mtime.
+                root_group = group
+                continue
             fresh = refreshed(group)
             size = sum(item[1] for item in fresh)
             if current and (len(current) + len(fresh) > max_files or total + size > max_bytes):
@@ -181,6 +191,8 @@ def batches(paths, source, max_files, max_bytes, copy_links=False):
             total += size
         if current:
             yield current
+        if root_group is not None:
+            yield refreshed(root_group)
     return selected()
 
 
@@ -207,9 +219,12 @@ def bulk(args):
             with tempfile.TemporaryDirectory(prefix='aurora-gws-batch-') as temporary:
                 names = Path(temporary) / 'files.nul'
                 names.write_bytes(b''.join(os.fsencode(name) + b'\0' for name, _ in batch))
-                # --files-from intentionally prevents directory entries recursively
-                # expanding beyond this batch. -aH still preserves their metadata.
-                actual = command + ['--from0', '--files-from=' + str(names), source, destination]
+                # Non-root directory names have no trailing slash. The special
+                # root-only batch needs an explicit filter to copy its metadata
+                # without pulling in children that discovery never selected.
+                root_only = len(batch) == 1 and batch[0][0] == '.'
+                metadata_filter = ['--exclude=/*'] if root_only else []
+                actual = command + metadata_filter + ['--from0', '--files-from=' + str(names), source, destination]
                 result = supervised_run(actual, lock_fd)
         if result not in (0, 24):
             return result  # In particular, exit 23 is never success.
