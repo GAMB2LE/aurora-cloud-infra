@@ -1,0 +1,11 @@
+[Unit]
+Description=Observe ASS and APS recovery transports every five minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+AccuracySec=5s
+Unit=aurora-edge-access-status.service
+
+[Install]
+WantedBy=timers.target

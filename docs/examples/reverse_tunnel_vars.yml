@@ -1,23 +1,33 @@
 ---
-# Example only. Copy the needed values into an Ansible Vault file or pass them
-# from a secure secrets source. Do not commit real private keys.
+# Example only: public keys and fingerprints. Use a DIFFERENT key set for each
+# cloud. The corresponding private keys remain on their individual edge hosts.
 
 edge_tunnel_server_enabled: true
 
-# Public key used by the edge Linux VMs to open reverse tunnels to data-ocean.
-# The matching private key belongs in GAMB2LE/aurora-edge-infra as
-# edge_reverse_tunnel_private_key_content or edge_reverse_tunnel_private_key_source.
+edge_tunnel_server_manage_sshd_config: true
+edge_tunnel_server_replace_authorized_keys: false
+edge_tunnel_server_status_timer_enabled: true
 edge_tunnel_server_authorized_keys:
-  - name: edge-reverse-tunnel
-    key: "ssh-ed25519 REPLACE_WITH_EDGE_TO_DATA_OCEAN_TUNNEL_PUBLIC_KEY edge-reverse-tunnel"
+  - name: ass-linux-digitalocean
+    key: "ssh-ed25519 REPLACE_WITH_PUBLIC_KEY"
+    listen_ports: ["127.0.0.1:2201", "127.0.0.1:2401"]
+  - name: aps-linux-digitalocean
+    key: "ssh-ed25519 REPLACE_WITH_PUBLIC_KEY"
+    listen_ports: ["127.0.0.1:2202", "127.0.0.1:2402"]
+  - name: ass-proxmox-digitalocean
+    key: "ssh-ed25519 REPLACE_WITH_PUBLIC_KEY"
+    listen_ports: ["127.0.0.1:2211"]
+  - name: aps-proxmox-digitalocean
+    key: "ssh-ed25519 REPLACE_WITH_PUBLIC_KEY"
+    listen_ports: ["127.0.0.1:2212"]
 
-# Optional. Keep false until the reverse tunnels have been verified and soaked.
+# Collect independently through existing trusted access, not ssh-keyscan of the
+# new loopback endpoint. Unconfigured fingerprints remain unverified.
+edge_tunnel_server_expected_host_fingerprints:
+  ass-linux: "SHA256:REPLACE_WITH_TRUSTED_ED25519_FINGERPRINT"
+  aps-linux: "SHA256:REPLACE_WITH_TRUSTED_ED25519_FINGERPRINT"
+  ass-proxmox: "SHA256:REPLACE_WITH_TRUSTED_ED25519_FINGERPRINT"
+  aps-proxmox: "SHA256:REPLACE_WITH_TRUSTED_ED25519_FINGERPRINT"
+
+# Recovery access does not switch production data transport.
 edge_source_sync_use_reverse_tunnels: false
-
-# Private key used by data-ocean source-sync jobs after
-# edge_source_sync_use_reverse_tunnels=true. The matching public key belongs in
-# GAMB2LE/aurora-edge-infra as edge_source_sync_authorized_keys.
-edge_source_sync_ssh_private_key_content: |
-  -----BEGIN OPENSSH PRIVATE KEY-----
-  REPLACE_WITH_DATA_OCEAN_SOURCE_SYNC_PRIVATE_KEY
-  -----END OPENSSH PRIVATE KEY-----

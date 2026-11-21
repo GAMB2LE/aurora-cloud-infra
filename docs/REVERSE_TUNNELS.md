@@ -1,158 +1,77 @@
-# Edge Reverse Tunnels
+# Edge recovery SSH and NoMachine transports
 
-This is the Tailscale-independent SSH fallback for reaching the ASS and APS
-Linux VMs through `data-ocean.gamb2le.co.uk` when the Starlink or 5G WAN path
-is reachable but direct inbound SSH is not.
+The optional `edge_tunnel_server` role supports independent recovery endpoints on
+`aurora-cloud-droplet` (DigitalOcean) and `aurora-cloud` (JASMIN). Each of the four
+field machines opens its own outbound SSH session to each cloud server. A guest
+failure therefore does not remove its Proxmox host's own recovery connection.
+The clients are managed in `GAMB2LE/aurora-edge-infra`.
 
-The active design is:
+| Listener on either cloud server | Field destination |
+| --- | --- |
+| `127.0.0.1:2201` | ASS Linux SSH, `127.0.0.1:22` |
+| `127.0.0.1:2202` | APS Linux SSH, `127.0.0.1:22` |
+| `127.0.0.1:2211` | ASS Proxmox SSH, `127.0.0.1:22` |
+| `127.0.0.1:2212` | APS Proxmox SSH, `127.0.0.1:22` |
+| `127.0.0.1:2401` | ASS Linux NoMachine, `127.0.0.1:4000` |
+| `127.0.0.1:2402` | APS Linux NoMachine, `127.0.0.1:4000` |
 
-| Edge host | data-ocean bind | Edge target |
-| --- | --- | --- |
-| `ass-proxmox-linux` | `127.0.0.1:2201` | `127.0.0.1:22` |
-| `aps-proxmox-linux` | `127.0.0.1:2202` | `127.0.0.1:22` |
+The operator starts from an existing cloud shell or desktop. These listeners are
+loopback only; no recovery port is opened to the public network. The two clouds
+receive independent field connections. Source-sync transport, data writers,
+Tailscale, field routing, existing cloud ingress and public firewalls are not
+changed by this role. Field power, Internet egress and cloud availability remain
+requirements.
 
-The reverse tunnel clients live in `GAMB2LE/aurora-edge-infra`. The data-ocean
-server-side account and SSH restrictions live in this repo.
+## Server configuration
 
-Source-sync failover support is also present in this repo, but it is disabled by
-default. The live source-sync hosts and ports remain the Tailscale values until
-`edge_source_sync_use_reverse_tunnels=true` is set.
+The role remains disabled by default. Enabling it requires explicit named public
+keys and the managed SSH restrictions. Each key entry has `name`, `key` (ED25519
+public key only) and `listen_ports` (an exact subset of the six loopback endpoints).
+Use a separate key for each machine/cloud pair. A Linux key receives its SSH and
+NX listener; a Proxmox key receives only its own SSH listener. Arbitrary key
+options and non-loopback listeners are rejected.
 
-Use the [Reverse Tunnel Rollout](REVERSE_TUNNEL_ROLLOUT.md) checklist for the
-live deployment sequence.
+The `aurora-tunnel` account has no shell/session channel, password, PTY, agent,
+X11, StreamLocal or tunnel-device access. Only remote TCP forwarding is allowed;
+local forwarding is forbidden. Server-side alive checks are 30 seconds with a
+count of three. `Match all` closes the restriction block so later configuration
+is not accidentally scoped to the tunnel user.
 
-## Server role
+The role backs up changed configuration and authorized-key files. It validates
+the full `sshd` configuration and effective tunnel-user restrictions before
+activating them. Failed validation restores the previous fragment without
+reloading SSH. A validated SSH reload happens before new keys are installed,
+including on retries, and does not flush unrelated Ansible handlers.
 
-The `edge_tunnel_server` role is wired into `playbooks/site.yml` but disabled by
-default:
+`edge_tunnel_server_replace_authorized_keys: false` preserves existing unmanaged
+keys while maintaining an authoritative managed block. Removing an entry revokes
+it from that managed block. After migration acceptance, set the variable to
+`true` to replace the complete file and remove the legacy shared key. Maintain
+at least one authorized machine key while the role is enabled.
 
-```yaml
-edge_tunnel_server_enabled: false
-edge_tunnel_server_allowed_inventory_hosts:
-  - aurora-cloud-droplet
-```
+## Read-only transport status
 
-When enabled on `aurora-cloud-droplet`, it creates a locked
-`aurora-tunnel` system account and installs authorized keys restricted to remote
-port forwarding for `127.0.0.1:2201` and `127.0.0.1:2202`.
+Set `edge_tunnel_server_expected_host_fingerprints` to a map of `ass-linux`,
+`aps-linux`, `ass-proxmox` and `aps-proxmox` to their independently verified
+ED25519 SHA256 fingerprints. Obtain these through existing trusted access;
+never establish trust from the recovery endpoint being tested. Cloned host keys
+must be recorded honestly: a matching fingerprint alone cannot distinguish
+machines sharing that key. Commissioning must separately authenticate and check
+hostname/machine identity.
 
-Use the focused playbook for check/apply work:
+Run `/usr/local/bin/aurora-edge-access-status`. It checks all six loopback
+endpoints concurrently, emits JSON, and uses exit 0 for verified SSH handshakes
+plus open NX TCP paths, 1 for degraded transports, and 2 for invalid configuration.
+Missing fingerprints are unverified. Authentication and rendered desktop access
+are always explicitly `not_tested`. NX checks detect immediate downstream
+connection closure; a silent open TCP path remains application-unverified.
+Separate SSH and NX status fields prevent a stopped NoMachine service from
+misreporting the SSH recovery path as down.
 
-```bash
-ansible-playbook playbooks/edge_tunnel_server.yml --check --diff \
-  -e edge_tunnel_server_enabled=true
-```
+`edge_tunnel_server_status_timer_enabled: true` enables an unprivileged five-minute
+observation timer. The bounded service has a 30-second timeout and records JSON
+in the journal; it holds no login key and does not run an SSH session or desktop.
+Use `journalctl -u aurora-edge-access-status.service` for observation records.
 
-Only run without `--check` after confirming current SSH access to data-ocean is
-healthy and the tunnel public key has been prepared.
-
-The optional sshd `Match User` fragment is also disabled by default:
-
-```yaml
-edge_tunnel_server_manage_sshd_config: false
-```
-
-Only enable that after confirming `/etc/ssh/sshd_config` includes
-`/etc/ssh/sshd_config.d/*.conf`.
-
-## Client role
-
-In `GAMB2LE/aurora-edge-infra`, the `edge_reverse_tunnel` role is attached to
-`linux_vms` and disabled by default:
-
-```yaml
-edge_managed_write_mode: false
-edge_reverse_tunnels_enabled: false
-```
-
-`ass-proxmox-linux` maps to `127.0.0.1:2201` and `aps-proxmox-linux` maps to
-`127.0.0.1:2202`.
-
-## Source-sync tunnel transport
-
-The source-sync scripts can be rendered for either Tailscale SSH or the reverse
-tunnel endpoints:
-
-```yaml
-edge_source_sync_use_reverse_tunnels: false
-```
-
-With the default `false`, source-sync jobs continue to use the Tailscale IPs on
-port `22` and Tailscale SSH authentication.
-
-With `true`, ASS-backed streams use `127.0.0.1:2201`, APS-backed streams use
-`127.0.0.1:2202`, and the scripts use normal SSH key authentication through the
-forwarded edge SSH daemon. That requires a data-ocean private key:
-
-```yaml
-edge_source_sync_ssh_key_path: /home/aurora/.ssh/id_ed25519_edge_source_sync
-edge_source_sync_ssh_private_key_content: ""
-edge_source_sync_ssh_private_key_source: ""
-```
-
-The matching public key must be authorized for the `aurora` user on
-`ass-proxmox-linux` and `aps-proxmox-linux` before switching source-sync jobs to
-the tunnel transport. In `GAMB2LE/aurora-edge-infra`, put that public key in
-`edge_source_sync_authorized_keys`.
-
-## SSH access
-
-After both sides are enabled and the tunnel services are running, connect
-through data-ocean. Replace `root` with whichever admin account you normally use
-to reach the droplet:
-
-```bash
-ssh -J root@data-ocean.gamb2le.co.uk -p 2201 aurora@127.0.0.1
-ssh -J root@data-ocean.gamb2le.co.uk -p 2202 aurora@127.0.0.1
-```
-
-From a shell already on data-ocean:
-
-```bash
-ssh -p 2201 aurora@127.0.0.1
-ssh -p 2202 aurora@127.0.0.1
-```
-
-Equivalent `~/.ssh/config` aliases:
-
-```sshconfig
-Host ass-proxmox-linux-tunnel
-  HostName 127.0.0.1
-  User aurora
-  Port 2201
-  ProxyJump root@data-ocean.gamb2le.co.uk
-
-Host aps-proxmox-linux-tunnel
-  HostName 127.0.0.1
-  User aurora
-  Port 2202
-  ProxyJump root@data-ocean.gamb2le.co.uk
-```
-
-## Safe rollout
-
-1. Generate one dedicated edge-to-data-ocean SSH keypair for the tunnel clients.
-2. Add the public key to `edge_tunnel_server_authorized_keys` for
-   `aurora-cloud-droplet`.
-3. Run `playbooks/edge_tunnel_server.yml` in check mode first.
-4. Apply this repo only after confirming the sshd config include path and
-   current SSH access are healthy.
-5. Add the private key to the edge repo through Ansible Vault.
-6. Add the data-ocean source-sync public key to the edge repo as
-   `edge_source_sync_authorized_keys`.
-7. Run the edge repo with `edge_managed_write_mode=true` and
-   `edge_reverse_tunnels_enabled=true`.
-8. Verify listeners on data-ocean:
-
-   ```bash
-   ss -ltn '( sport = :2201 or sport = :2202 )'
-   ssh -p 2201 aurora@127.0.0.1 hostname
-   ssh -p 2202 aurora@127.0.0.1 hostname
-   ```
-9. After a soak period, switch source sync in this repo with
-   `edge_source_sync_use_reverse_tunnels=true` and a configured
-   `edge_source_sync_ssh_key_path`.
-
-Do not switch source-sync jobs from Tailscale to these tunnel endpoints until
-the tunnels have survived a soak period and the change has been checked against
-current operations.
+See [rollout and rollback](REVERSE_TUNNEL_ROLLOUT.md) and the
+[nonsecret variables example](examples/reverse_tunnel_vars.yml).

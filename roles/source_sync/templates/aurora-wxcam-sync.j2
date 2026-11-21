@@ -20,7 +20,8 @@ overlap_seconds={{ wxcam_source_overlap_seconds | int }}
 mtime_grace_seconds={{ wxcam_source_mtime_grace_seconds | int }}
 known_hosts=/home/{{ aurora_service_user }}/.ssh/known_hosts
 lock_file={{ aurora_state_root | quote }}/wxcam-sync.lock
-rsync_base=(rsync -a --partial --timeout=120)
+# Empty camera outputs are incomplete and must never overwrite archived media.
+rsync_base=(rsync -a --min-size=1 --partial --timeout=120)
 
 mkdir -p "$destination" "$(dirname "$state_file")" "$(dirname "$known_hosts")" "$(dirname "$lock_file")"
 

@@ -6,6 +6,20 @@ if [[ "{{ 'true' if aurora_standby_replication_enabled | bool else 'false' }}" !
   exit 0
 fi
 
+{% if (aurora_standby_history_layout_guard_enabled | default(false) | bool) and aurora_standby_replication_effective_paths | selectattr('name', 'equalto', 'state') | list | length > 0 %}
+# Keep state-history layout stable for the complete pull, including rsync children.
+if [[ "${1:-all}" == all || "${1:-all}" == state ]]; then
+  history_control=/data/aurora-preserved-operational-history/relocation-control-20261110
+  if ! mountpoint -q /data || [[ -e "$history_control/maintenance.hold" ]]; then
+    echo "Standby history relocation is held or /data is unavailable." >&2
+    exit 75
+  fi
+  exec 7<"$history_control/lock"
+  flock --shared --nonblock 7 || exit 75
+  /usr/local/lib/aurora-standby-history-layout-check.py check-layout >/dev/null || exit 75
+fi
+{% endif %}
+
 site_env={{ aurora_site_env | quote }}
 requested_stage="${1:-all}"
 canonical_power_guard_enabled={{ 'true' if aurora_standby_canonical_power_guard_enabled | default(false) | bool else 'false' }}
@@ -105,7 +119,6 @@ rsync_common=(
   --numeric-ids
   --partial
   --protect-args
-  --human-readable
   --stats
   --timeout=120
   --delay-updates

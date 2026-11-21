@@ -40,6 +40,10 @@ ssh_opts=(
 
 rsync_opts=(
   -aH
+{% if item.group_writable | default(false) %}
+  --chmod=Dg+rwx,Dg+s,Fg+rw
+  --chown={{ (':' ~ gws_group) | quote }}
+{% endif %}
 {% if item.copy_links | default(false) %}
   -L
 {% endif %}

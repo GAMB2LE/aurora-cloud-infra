@@ -21,6 +21,7 @@ import sqlite3
 import subprocess
 import tempfile
 import time
+import uuid
 from typing import Iterable, Sequence
 
 
@@ -533,9 +534,15 @@ def write_status(config: dict, connection: sqlite3.Connection) -> dict:
     status = build_status(config, connection)
     path = Path(config["status_path"])
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(status, indent=2) + "\n", encoding="utf-8")
-    temporary.replace(path)
+    # Multiple enqueue and worker processes may publish at the same time.
+    # Each owns its temporary file until the atomic replacement completes.
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        with temporary.open("x", encoding="utf-8") as output:
+            output.write(json.dumps(status, indent=2) + "\n")
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
     return status
 
 

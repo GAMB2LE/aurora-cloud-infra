@@ -1,0 +1,3 @@
+{% for item in edge_tunnel_server_authorized_keys %}
+restrict,port-forwarding{% for endpoint in item.listen_ports %},permitlisten="{{ endpoint }}"{% endfor %} {{ item.key.split()[0] }} {{ item.key.split()[1] }} {{ item.name }}
+{% endfor %}
