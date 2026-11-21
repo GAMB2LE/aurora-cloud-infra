@@ -232,7 +232,9 @@ class ObjectStoreUnitTests(unittest.TestCase):
 
         lock = source.index("with inventory_lock(catalog):")
         read = source.index('args.report.read_text(encoding="utf-8")')
-        publish = source.index("publish_result(args.result, payload)")
+        # The read-only confirmation branch has its own publication; this
+        # assertion covers the legacy locked read/copy/publication sequence.
+        publish = source.index("publish_result(args.result, payload)", read)
         self.assertIn('Path(catalog["manifest_root"]) / ".inventory.lock"', source)
         self.assertIn('lock_path.open("r", encoding="utf-8")', source)
         self.assertIn("fcntl.LOCK_EX", source)
