@@ -17,6 +17,7 @@ OBJECT = Path({{ object_store_manifest_root | to_json }}) / "latest/comparison.j
 INVENTORY_PROGRESS = Path({{ object_store_manifest_root | to_json }}) / "progress.json"
 RECOVERY_ENABLED = {{ 'True' if object_store_recovery_enabled | bool else 'False' }}
 RECOVERY_STATUS = Path({{ object_store_recovery_root | to_json }}) / "status.json"
+REPAIR_RESULT = Path({{ object_store_repair_state_root | to_json }}) / "result.json"
 DISPATCH = Path({{ archive_dispatch_state_root | to_json }}) / "status.json"
 DISPATCH_DATABASE = Path({{ archive_dispatch_state_root | to_json }}) / "queue.sqlite"
 MENAPIA_FLIGHT_STATUS = Path({{ menapia_flight_status_path | to_json }})
@@ -492,6 +493,63 @@ def settled_source_status(gws: dict, streams: list[dict], current=None, max_age_
     }
 
 
+def verified_product_repairs(report: dict, result: dict, max_age_hours: float = 36) -> dict:
+    """Display-only resolution of exact findings, never a parity certificate."""
+    import datetime as _dt
+    from pathlib import Path as _Path, PurePosixPath as _Relative
+
+    try:
+        current = _dt.datetime.now(_dt.timezone.utc)
+        receipts = {item['job']: item.get('product_verification', {}) for item in result.get('jobs', [])}
+        counts = {'missing': 0, 'mismatch': 0}
+        for name, job in report.get('jobs', {}).items():
+            comparison = job.get('source_vs_s3') or {}
+            missing = set(comparison.get('missing_from_right', []))
+            mismatched = set(comparison.get('size_mismatch', []))
+            paths = missing | mismatched
+            if comparison.get('checksum_mismatch'):
+                return {}
+            if not paths:
+                continue
+            receipt = receipts.get(name, {})
+            if (name not in {'products', 'products-wxcam'} or
+                    receipt.get('state') != 'verified' or not job.get('verification_id') or
+                    receipt.get('verification_id') != job['verification_id'] or
+                    receipt.get('source') != job.get('source') or
+                    receipt.get('destination') != job.get('s3') or
+                    set(receipt.get('paths', {})) != paths):
+                return {}
+            started = _dt.datetime.fromisoformat(job['evidence_started_at'].replace('Z', '+00:00'))
+            checked = _dt.datetime.fromisoformat(receipt['verified_at'].replace('Z', '+00:00'))
+            if not started <= checked <= current or (current - started).total_seconds() > max_age_hours * 3600:
+                return {}
+            source = _Path(job['source'])
+            root = source.resolve(strict=True)
+            root_stat = root.stat()
+            for relative in paths:
+                part = _Relative(relative)
+                if part.is_absolute() or not part.parts or '..' in part.parts:
+                    return {}
+                path = source.joinpath(*part.parts)
+                resolved = path.resolve(strict=True)
+                resolved.relative_to(root)
+                stat = path.stat()
+                if not path.is_file() or path.is_symlink():
+                    return {}
+                identity = {'root': str(root), 'root_device': root_stat.st_dev,
+                    'root_inode': root_stat.st_ino, 'path': str(resolved),
+                    'device': stat.st_dev, 'inode': stat.st_ino, 'size': stat.st_size,
+                    'mtime_ns': stat.st_mtime_ns, 'ctime_ns': stat.st_ctime_ns}
+                confirmed = receipt['paths'][relative]
+                if confirmed.get('source_identity') != identity or confirmed.get('remote_size') != stat.st_size:
+                    return {}
+            counts['missing'] += len(missing)
+            counts['mismatch'] += len(mismatched)
+        return counts if any(counts.values()) else {}
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return {}
+
+
 def operator_status(
     failures: list[str],
     metrics: dict[str, object],
@@ -500,6 +558,7 @@ def operator_status(
     raw_evidence_max_age_hours: float = 8,
     product_evidence_max_age_hours: float = 36,
     recovery: dict | None = None,
+    product_repairs: dict | None = None,
 ) -> dict[str, object]:
     """Translate the fail-closed pruning gate into actionable operations state."""
     def metric_count(key: str) -> int:
@@ -631,6 +690,24 @@ def operator_status(
             "pruning_paused": pruning_paused,
         }
     if not measured_gap_free:
+        # Only soften the exact confirmed product findings. Keep raw evidence,
+        # delivery failures, recovery failures and every unrelated alert intact.
+        repair_only_failures = all(
+            item == 'object_store_stable_parity=false'
+            or item.startswith(('object_store_all_missing=', 'object_store_all_mismatch='))
+            for item in failures
+        )
+        if (product_repairs and product_repairs.get('missing') == object_missing
+                and product_repairs.get('mismatch') == object_mismatch
+                and not (gws_missing or gws_mismatch or stream_gws_issues or settled_gaps)
+                and repair_only_failures and raw_ready and not delivery_red
+                and not (recovery and recovery.get('active_alert'))
+                and progress.get('state') in {'running', 'publishing'}):
+            return {'level': 'amber', 'title': 'Repair verified; full audit continuing',
+                    'detail': 'The previously reported product copies were checked individually and match unchanged local files. '
+                              'The full audit must finish before archive parity can be certified. '
+                              'Pruning controls remain unchanged.',
+                    'pruning_paused': pruning_paused}
         details: list[str] = []
         if object_missing:
             noun = "file" if object_missing == 1 else "files"
@@ -1338,6 +1415,7 @@ def main() -> int:
         RAW_EVIDENCE_MAX_AGE_HOURS,
         OBJECT_REPORT_MAX_AGE_HOURS,
         recovery,
+        product_repairs=verified_product_repairs(object_report, read(REPAIR_RESULT), OBJECT_REPORT_MAX_AGE_HOURS),
     )
     metrics["archive_pruning_paused_state"] = int(
         bool(presentation["pruning_paused"])

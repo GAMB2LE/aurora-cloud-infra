@@ -3,6 +3,19 @@
 I check delivery, verification and permission to delete separately. A successful
 copy, a fresh dashboard and a clean archive report answer different questions.
 
+For `products` and `products-wxcam`, a successful exact-path repair also checks
+the reported objects individually for presence and size. Confirmation is
+recorded in the existing repair-result JSON and bound to the family audit ID
+and unchanged local files. If every reported gap is confirmed and no other
+failure requires red, the dashboard shows amber: **Repair verified; full audit
+continuing**. A newer audit, changed source or expired evidence invalidates
+that confirmation. This display status does not certify parity or change
+pruning permission. Checksum findings still require the full audit.
+
+To check an already-repaired product without another copy or queue change, use
+`aurora-object-store-repair-from-report --verify-only --job products`. This
+publishes the same bounded confirmation; it does not run a full audit.
+
 ## Where the copies go
 
 | Copy | Location | Purpose |

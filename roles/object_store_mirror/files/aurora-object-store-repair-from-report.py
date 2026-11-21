@@ -20,6 +20,7 @@ from pathlib import PurePosixPath
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Iterator
 
 
@@ -55,6 +56,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--catalog", type=Path, default=DEFAULT_CATALOG)
     parser.add_argument("--result", type=Path, default=DEFAULT_RESULT)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--verify-only", action="store_true",
+                        help="Check existing product findings without copying or changing the recovery queue.")
     parser.add_argument(
         "--job",
         action="append",
@@ -160,6 +163,75 @@ def read_local_evidence(report: Path, name: str) -> dict[str, dict]:
     return result
 
 
+def source_identity(source: Path, relative: str) -> dict:
+    """Bind display-only confirmation to unchanged physical source bytes."""
+    part = PurePosixPath(relative)
+    if part.is_absolute() or not part.parts or ".." in part.parts:
+        raise ValueError("invalid relative source path")
+    root = source.resolve(strict=True)
+    path = source.joinpath(*part.parts)
+    resolved = path.resolve(strict=True)
+    resolved.relative_to(root)
+    stat = path.stat()
+    if not path.is_file() or path.is_symlink():
+        raise ValueError("not an ordinary source file")
+    root_stat = root.stat()
+    return {"root": str(root), "root_device": root_stat.st_dev,
+            "root_inode": root_stat.st_ino, "path": str(resolved),
+            "device": stat.st_dev, "inode": stat.st_ino, "size": stat.st_size,
+            "mtime_ns": stat.st_mtime_ns, "ctime_ns": stat.st_ctime_ns}
+
+
+def verify_product_findings(name: str, job: dict, values: dict, catalog: dict,
+                            evidence: dict[str, dict]) -> dict:
+    """Confirm only current reported paths; never publish audit/parity evidence."""
+    result = {"state": "unverified"}
+    comparison = values.get("source_vs_s3") or {}
+    paths = sorted(set(comparison.get("missing_from_right", [])) |
+                   set(comparison.get("size_mismatch", [])))
+    if (name not in {"products", "products-wxcam"} or not paths or
+            len(paths) > 64 or comparison.get("checksum_mismatch") or
+            not values.get("verification_id")):
+        return result
+    try:
+        source = Path(job["source"])
+        ready, deferred = settled_paths(source, set(paths),
+            duration_seconds(verification_settle_age(job)), False, evidence)
+        if deferred or set(ready) != set(paths):
+            return result
+        identities = {path: source_identity(source, path) for path in paths}
+        verified = {}
+        deadline = time.monotonic() + 60
+        for path in paths:
+            if time.monotonic() >= deadline:
+                return result
+            remote = (f"{catalog['remote']}:{catalog['bucket']}/"
+                      f"{job['destination'].strip('/')}/{path}")
+            response = subprocess.run(
+                [RCLONE, "lsjson", remote, f"--config={catalog['rclone_config']}",
+                 "--contimeout=5s", "--timeout=10s", "--retries=1", "--low-level-retries=1"],
+                capture_output=True, text=True, timeout=min(20, max(0.1, deadline - time.monotonic())), check=False)
+            if response.returncode:
+                return result
+            rows = json.loads(response.stdout)
+            if (not isinstance(rows, list) or len(rows) != 1 or
+                    rows[0].get("IsDir") is not False or
+                    rows[0].get("Path") != PurePosixPath(path).name or
+                    type(rows[0].get("Size")) is not int or
+                    rows[0]["Size"] != identities[path]["size"]):
+                return result
+            verified[path] = {"source_identity": identities[path], "remote_size": rows[0]["Size"]}
+        # Recheck every source after all remote reads, including earlier paths.
+        if any(source_identity(source, path) != identities[path] for path in paths):
+            return result
+        return {"state": "verified", "verification_id": values["verification_id"],
+                "source": str(source), "destination": values.get("s3"),
+                "verified_at": dt.datetime.now(dt.timezone.utc).isoformat(), "paths": verified}
+    except (OSError, ValueError, TypeError, KeyError, subprocess.TimeoutExpired):
+        # A failed read must not change copy success or expose credential errors.
+        return result
+
+
 def repair_job(
     name: str,
     job: dict,
@@ -223,10 +295,29 @@ def repair_job(
             command.append("--dry-run")
         completed = subprocess.run(command, check=False)
         result["returncode"] = completed.returncode
+    if not dry_run and result["returncode"] == 0 and name in {"products", "products-wxcam"}:
+        result["product_verification"] = verify_product_findings(name, job, report_job, catalog, evidence or {})
     return result
 
 
 def repair_latest(args: argparse.Namespace, catalog: dict) -> dict:
+    if getattr(args, "verify_only", False) is True:
+        if args.dry_run:
+            raise ValueError("--verify-only cannot be combined with --dry-run")
+        sys.path.insert(0, '/usr/local/lib/aurora-object-store')
+        from aurora_object_store_evidence import read_snapshot
+        jobs = {job['name']: job for job in catalog['jobs']}
+        selected = set(args.job or {"products", "products-wxcam"})
+        if not selected <= (set(jobs) & {"products", "products-wxcam"}):
+            raise ValueError("verify-only supports configured product families only")
+        with read_snapshot(catalog) as snapshot:
+            results = [{"job": name, "ready": 0, "returncode": 0,
+                        "product_verification": verify_product_findings(name, jobs[name], snapshot.report['jobs'][name], catalog,
+                            read_local_evidence(snapshot.path / 'comparison.json', name))}
+                       for name in sorted(selected)]
+            payload = {"report": snapshot.report['generated_at'], "jobs": results, "verify_only": True}
+            publish_result(args.result, payload)
+            return payload
     if catalog.get('recovery_enabled'):
         return repair_recovery_latest(args, catalog)
     jobs = {job["name"]: job for job in catalog["jobs"]}
@@ -320,8 +411,13 @@ def repair_recovery_latest(args: argparse.Namespace, catalog: dict) -> dict:
                         continue
                     accepted = queue.invalidate(name, repair_id)
                     previous = queue.db.execute('SELECT completed FROM repair_requests WHERE repair_id=? AND job=?', (repair_id,name)).fetchone()
-                    if not accepted and previous and previous['completed']:
-                        continue
+                    already_completed = not accepted and previous and previous['completed']
+                if already_completed:
+                    # Remote reads, like copies, must stay outside the commit lock.
+                    if name in {"products", "products-wxcam"}:
+                        results.append({'job': name, 'ready': 0, 'returncode': 0,
+                            'product_verification': verify_product_findings(name, jobs[name], values, catalog, evidence)})
+                    continue
                 # The family generation is invalid now. Interrupted copies are
                 # idempotently resumed by this same immutable repair identity.
                 try:
