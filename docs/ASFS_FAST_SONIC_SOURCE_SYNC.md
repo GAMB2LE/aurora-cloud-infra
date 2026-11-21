@@ -23,17 +23,10 @@ The source sync intentionally rescans a rolling ten-day window on each run.
 That catches in-place updates to recent CRD chunks instead of relying only on a
 single monotonic timestamp cursor.
 
-## Authentication
+## Access
 
-The sync uses Tailscale SSH over the tailnet. The rsync remote shell is regular
-`ssh` with identity keys disabled:
-
-- `IdentitiesOnly=yes`
-- `IdentityFile=none`
-- `PubkeyAuthentication=no`
-- `StrictHostKeyChecking=accept-new`
-
-No private key is installed for this source.
+Use the [source-access check](OPERATOR_QUICKSTART.md#source-access). These
+syncs use Tailscale SSH without an installed source private key.
 
 ## Timers
 
@@ -46,11 +39,10 @@ Processing timer:
 
 - `aurora-asfs-fast-sonic-append.timer`
 
-## Backup and retention
+## Archives
 
-Only the fast-sonic filename family described above is verified for this
-stream, although it shares `/asfs/crd` with science and fast-gas files. The
-matching raw files are archived additively to GWS and object storage and kept
-on ASS for at least seven days. Deletion requires an exact signed permit backed
-by cloud, GWS, and object-store proof. The derived Zarr is not raw-retention
-evidence. See [Backups and Archive Services](ARCHIVE_SERVICES.md).
+Only this stream's filename family is checked, even when it shares a raw
+folder with other streams. GWS and object copies are additive. ASS keeps raw
+files for at least seven days; deletion needs an exact signed permit backed
+by all three copies. A derived Zarr is not raw-retention proof. See
+[ASS retention](ASS_BACKUP_AND_RETENTION.md).

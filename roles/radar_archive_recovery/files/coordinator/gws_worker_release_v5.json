@@ -1,0 +1,31 @@
+{
+  "bundle_root": "/var/lib/aurora-recovery/repair-20261026/archive-first-implementation-20261027/direct-staged-gzip-v5-vm01-lanes",
+  "continuity_acceptance": {
+    "path": "/var/lib/aurora-recovery/repair-20261026/archive-first-implementation-20261027/direct-staged-v1/released-radar-acceptance.json",
+    "sha256": "f0edc78e2d99775dff9eff914f8eadd053e98b57f4e8346b8add8953d651f238"
+  },
+  "continuity_verifier": {
+    "path": "/var/lib/aurora-recovery/repair-20261026/archive-first-implementation-20261027/direct-staged-v1/verify_released_radar_continuity.py",
+    "sha256": "a956e6c556dbf9a57c85983d1878c92d4bbd8cd3b7508957245f18f2caea44d7"
+  },
+  "endpoint": "rrniii@xfer-vm-01.jasmin.ac.uk",
+  "fence_launcher": "/var/lib/aurora-recovery/repair-20261026/archive-first-implementation-20261027/direct-staged-gzip-v5-vm01-lanes/gws_fence_recovery_launcher_vm01.py",
+  "hostname": "xfer-vm-01.jasmin.ac.uk",
+  "id": "gzip-v5-vm01-lanes",
+  "launcher": "/var/lib/aurora-recovery/repair-20261026/archive-first-implementation-20261027/direct-staged-gzip-v5-vm01-lanes/direct_staged_launcher_gzip.py",
+  "pins": {
+    "/var/lib/aurora-recovery/repair-20261026/archive-first-implementation-20261027/direct-staged-gzip-v5-vm01-lanes/compressed_source_stream.py": "4608017870d92e1095b5b13f49d8a746317f3f323dc110c257aedd5b953d0a55",
+    "/var/lib/aurora-recovery/repair-20261026/archive-first-implementation-20261027/direct-staged-gzip-v5-vm01-lanes/direct_stage_pipeline.py": "45e81ded6b9296f20fc20724991d6156aa03dccd6115d314558e93bb074abffb",
+    "/var/lib/aurora-recovery/repair-20261026/archive-first-implementation-20261027/direct-staged-gzip-v5-vm01-lanes/direct_staged_cloud_adapter.py": "59e64995d49da4cb462389c514dede7a6b57523dc4347f5800f3f64ee46b6450",
+    "/var/lib/aurora-recovery/repair-20261026/archive-first-implementation-20261027/direct-staged-gzip-v5-vm01-lanes/direct_staged_launcher_gzip.py": "53f84c46dd02be01793f71de649d864c8bdc5a83d4d7091eee02815d999c3f2f",
+    "/var/lib/aurora-recovery/repair-20261026/archive-first-implementation-20261027/direct-staged-gzip-v5-vm01-lanes/direct_staged_recovery_refresh.py": "3e7804141a668e333569b29680e282f457da5028affad4d2a601af9866416c4b",
+    "/var/lib/aurora-recovery/repair-20261026/archive-first-implementation-20261027/direct-staged-gzip-v5-vm01-lanes/gws_fence_cloud_adapter.py": "8cfb1f8713eca2eeca609dcbdd9d1928cdad2fbc805e484386884b3be6fa8f13",
+    "/var/lib/aurora-recovery/repair-20261026/archive-first-implementation-20261027/direct-staged-gzip-v5-vm01-lanes/gws_fence_recovery_launcher_vm01.py": "161fbdd6851719fc62515bd286e3a228d44dff378f13bacdfd42c5e9eb17fb84",
+    "/var/lib/aurora-recovery/repair-20261026/archive-first-implementation-20261027/direct-staged-gzip-v5-vm01-lanes/gws_gzip_stage.py": "c7f4b8f2ba27aa99a1ab47a5fadcf5d8e7e6c6b1454fe2ce5fce3204dac083da",
+    "/var/lib/aurora-recovery/repair-20261026/archive-first-implementation-20261027/direct-staged-gzip-v5-vm01-lanes/gzip_gws_cloud_adapter.py": "4ef9046b32144a1d6eb4779b8229be196b4002413cdff6c2566ac6f915985b55",
+    "/var/lib/aurora-recovery/repair-20261026/archive-first-implementation-20261027/direct-staged-gzip-v5-vm01-lanes/lane_recovery_locks.py": "cf63f02838a82ae299976764f885f073eb3d41306877da955c99f4b41d92f322"
+  },
+  "receiver_sha256": "521eeb16d10d59926435935092c9eb4b1523fca0b5be28f1fbd16f1887dd6e37",
+  "resume_template": "resume_stage_launcher_vm01_lanes.py",
+  "resume_template_sha256": "004bb535d2d618e3c07402c1bb7475b02207b3226afb4fb97f316961b1f68273"
+}

@@ -1,419 +1,62 @@
 # Archive follow-up, 24 October 2026
 
-These are dated checks during the primary restoration. They do not declare the
-archive clean or authorize retention. Native radar backfill and retention remain
-held while the separate capacity and archive gates are completed.
-
-## Raw source metadata
-
-The old raw verification error named
-`asfs/crd/aurora_asfs_data_sci_202610231530.dat`. By 06:37 that file had been
-repaired by normal source delivery. A read-only check found valid modification
-time and identical SHA-256 on ASS and JASMIN. Its companion fast-sonic file also
-matched. The 07:24 raw verification moved past ASFS and found the next blocker;
-the aggregate status file retained the earlier error until the next coordinator
-tick. Use `aurora-object-store-recovery status` and the individual worker journal
-when diagnosing a retry.
-
-A complete scan found exactly three remaining files with invalid modification
-times, all empty HATPRO files at the raw archive root:
-
-| Flat filename suffix | Complete dated source and cloud SHA-256 |
-| --- | --- |
-| `261023_204709.ATN` | `8cd9f0eb81bb825c2fa72add568098a8ae474859acd99750cd3b0430a3dd9013` |
-| `261024_024708.ATN` | `07132c06fa37d6a166fd7fa83e4af855009b3ba72aa916e923ad48f424ebe93c` |
-| `261024_034708.ATN` | `eba9de2cbe3731cce37e1573207fee61334f75719544b4d904fb23cc2115949f` |
-
-Each filename begins `HATPROG5-AURORA-ICELAND_`. The flat files had size zero and
-mtime zero after the quota failure. Each dated counterpart was 1,571,057 bytes;
-the corresponding flat path was absent on ASS. No observation timestamp was
-invented to satisfy the verifier.
-
-At 07:30:09–11, the three empty placeholders were preserved by same-filesystem
-rename to `/project/aurora/recovery/hatpro-empty-placeholders-20261024/`. The
-operation held the existing shared HATPRO live/backfill lock, checked that no
-process held an open file descriptor, repeated the source absence and dated
-source/cloud SHA checks immediately before each move, and fsynced its manifest
-and both directories. It retained each inode, owner, mode, zero mtime and extended
-attributes. No observations were deleted and no timer was stopped.
-
-The durable manifest is `manifest.json` in that recovery directory, SHA-256
-`310d8e71951a998666b6735834acfca8148ac2ee7b3cea14f1a98c08470f9595`.
-The existing recovery queue accepted a fresh raw retry as generation 12 at
-07:30:47, and its worker started at 07:30:48. That launch is not yet a completed
-clean comparison. Manual correction also restarts the separate recovery
-acceptance window; it does not waive the required independent confirmations.
-
-## Native radar delivery debt
-
-The refreshed source/cloud comparison found 42 missing native files totalling
-50,991,223,097 bytes: 14 each of LV0, LV0 NetCDF and native LV1. All available LV1
-NetCDF files in the recovered interval were present. The GWS snapshot also had
-three LV1 NetCDF files awaiting its normal raw transfer. Those are dated delivery
-counts, not a reason to discard source files or weaken a verifier.
-
-The live LV1 lane and complete native archive have deliberately separate capacity
-and freshness checks. The [radar recovery record](2026-10-24-primary-restoration.md)
-records source-to-product/API evidence and the remaining historical product gap.
-
-## Object-store reports and the camera race
-
-The last complete comparison reported 27,559 settled missing objects, but its raw
-observation started at 14:58 on 23 October and its products observation at 03:23 on
-24 October. The entries comprised 36 WX JPEGs totalling 11,720,753 bytes and 27,523
-product objects totalling 2,776,220 bytes, mostly small Power Zarr objects. Read-only
-S3 probes of one reported WX JPEG and one Power metadata object found both already
-present at their expected sizes. The old count cannot establish the current debt;
-fresh complete family observations are needed.
-
-The 07:04 raw copy ended at 07:09 with exit 6 after rclone tried to stat a temporary
-receiver file that had disappeared:
-`auroracam/radar-cam/2026-10-24/.radar-cam_2026-10-24_03-09.jpg.WOG86N`.
-It had already copied 3,266 files. This failure is distinct from the empty HATPRO
-metadata and from a missing final observation.
-
-The installed rclone 1.53.3 local backend calls `lstat` before file filters, and
-records a missing directory entry as a non-retry error. A camera filename
-exclusion alone therefore cannot close this race. See the
-[upstream implementation](https://github.com/rclone/rclone/blob/v1.53.3/backend/local/local.go#L395-L414).
-Do not treat all exit-6 failures as success. A focused receiver change would need
-to keep temporary files outside the archived tree on the same filesystem, preserve
-partial transfers, and prove interrupted-transfer and atomic-promotion behaviour.
-No such receiver change was deployed during these checks.
-
-The existing raw writer already reserves an eight-minute recent slice and a
-22-minute historical slice. The exact-report repair copies only named settled
-paths and rechecks their source evidence, but its service allows up to 12 hours
-and has no independent byte or file-count cap. Do not launch every old reported
-product gap as an assumed bounded repair. Correct the metadata blocker, obtain
-fresh evidence, and use the existing family queue before considering further work.
-
-## ASFS storage estimate is stale, 07:41–07:46 UTC
-
-The collector's exact read-only SSH route to ASS succeeded. The source file
-`/home/aurora/data/asfs/logger_storage_health.json` was generated at
-`2026-10-21T13:31:32.424153+00:00`, so it is outside the collector's two-hour
-freshness limit. Its old estimate of 65,256 directory slots is not a current card
-measurement or evidence of today's capacity. The ASS data filesystem had about
-2.61 TB free during this check. The read succeeded; the unavailable estimate
-comes from its age and absent producer, not a failed SSH fetch.
-
-The current `/home/aurora/scripts/asfs/asfssync.py` is a 3,240-byte FTP mirror with
-mtime `2026-10-21T14:58:42.143040+00:00` and SHA-256
-`967a5a9b9b0b05324025bc677cfc66bb606b582d8e0c12dfdafe478f9226814d`.
-It has no storage-health writer. The old `asfssync.service` and timer were not
-loaded, and their journal had no entries for this morning. Updating the cloud
-collector cannot refresh a file its source no longer produces.
-
-Current source observations were still arriving: science file
-`aurora_asfs_data_sci_202610240730.dat` contained 25,167 bytes, fast gas
-`aurora_asfs_data_fast_gas_202610240730.dat` contained 1,950,930 bytes, and fast
-sonic `aurora_asfs_data_fast_sonic_202610240701.dat` contained 331,961 bytes. Their
-source mtimes were 07:31:00–07:31:05 on 24 October. These are collection evidence,
-not a replacement storage estimate. I left field acquisition and current data
-untouched. Restoring the estimate producer is separate follow-up work.
-
-
-## Fresh raw comparison and persistent retention hold, 07:58–08:03 UTC
-
-The fresh raw observation completed at 07:58:03 and published at 07:58:05. It
-compared 893,083 settled local observations with S3: all matched, with zero missing,
-size-mismatched or checksum-mismatched entries. S3 contained 1,867 additional
-entries, which were retained. This is 100% coverage for that settled local scope.
-The separate canonical-source/GWS comparison matched 317,849 of 317,888 entries:
-39 native radar entries were missing, with zero size or checksum mismatches.
-Its 572,115 additional GWS entries reflect the wider archive scope and were kept.
-The unsettled window contained 17 missing and two size-different entries; those
-are pending transfer evidence, not settled failures.
-
-The raw worker finished successfully at 07:58:08 and queued its next independent
-confirmation. Overall clean/stable parity and raw retention readiness were still
-false. The separate products observation was still running; the older 27,523
-missing-product count does not describe its unfinished result. The normal raw
-copy retry from 07:34:40 completed successfully at 07:57:44 without another camera
-temporary-file error.
-
-Both native-backfill and retention timers were disabled while inactive at 07:55;
-the live LV1 timer stayed enabled and active. Their failed service states were
-preserved. Disabling the retention timer was not sufficient because archive
-workers can directly request the service. PR 84, main `a625538`, added an independent
-persistent service condition. The focused apply at 08:02:43–44 reported six tasks
-ok, three changed and no failures. The hold and condition are root-owned.
-
-Before and after that apply, retention remained `failed`, result `exit-code`, with
-MainPID zero and unchanged previous start/exit times of 23 October 14:55:56 and
-14:58:20. A read-only systemd condition evaluation rejected activation while held.
-A separate disposable service had already proved held, released and held-again
-behaviour. No production pruning run was used as a test and no failed-state evidence
-was reset. The hold remains until both inventory switches are explicitly enabled
-and the independent archive and capacity checks pass.
-
-The four-day relocation's 617,088,629,797-byte reserve covers future seven-day
-arrivals, not the existing 50,991,223,097-byte native debt. Four days alone leave
-about 20.2 GB less than the required post-backlog headroom. Backfill remains held;
-any additional lossless relocation needs a separate reviewed capacity calculation.
-
-
-## Revised capacity plan and temporary reader barrier, 08:06 UTC
-
-A read-only source comparison restricted to 23–24 October found 44 missing native
-files, 51,015,441,637 bytes, and no missing or size-different LV1 NetCDF files.
-The missing types were 15 LV0, 14 LV0 NetCDF and 15 native LV1. The two additional
-small native files explain the change from the earlier 42-file snapshot.
-
-The reviewed plan adds only 13 May to the four days already staging. It contains
-64 regular files, 16 of each native type, and 61,415,642,624 allocated bytes. Its
-identities were unchanged between 08:04:39 and 08:05:11, with no links, submounts,
-open descriptors or process mappings. The latest file mtime was 14 May 01:02:43.
-This is a partial historical acquisition day, not a claim of 96-file completeness.
-The separate exact-count override preserves all four original 96-file checks.
-
-At 08:06 the projection left 58,176,908,800 bytes on `/data` after all copies, and
-658,248,127,771 on `/project` after the known backlog. Those exceed the separate
-40 GiB destination reserve and 617,088,629,797-byte future growth target by 15.23 GB
-and 41.16 GB respectively. The preparation plan now includes the existing backlog
-in its 668,104,071,434-byte primary requirement. It still needs a fresh capacity
-check before sequential D13 staging, before cutover and before backfill. This is
-plan evidence, not completed copying or a released original.
-
-The raw-reader audit identified three additional launch paths: raw recovery worker,
-shared repair and recheck-after-repair. A temporary persistent launch barrier now
-covers twelve named consumers in the reviewed code. The recovery coordinator and
-its timer are separately paused during the brief barrier; existing product
-workers and immutable manifest uploads continue. Live full and raw incremental
-inventory commands were verified to enqueue requests only. Regression coverage
-shows a condition-skipped raw launch preserves durable debt, epoch and attempt
-count across reopening the queue and ordinary replay. A disposable systemd unit
-proved held, released and held-again behaviour without touching production readers.
-No production relocation hold or mount cutover had been activated for these tests.
-
-
-## Inactive relocation guards commissioned, 08:14 UTC
-
-PR 85 reached main as `498c94454f0e1518f85a4e2760327ec6f0451a30` after all four
-checks and independent review. Its focused preparation reported 12 tasks ok,
-four changed and no failures. At 08:14:42, all twelve actual loaded systemd
-condition lists contained the negative relocation-hold condition, and no daemon
-reload remained pending. The temporary hold and production active record were
-both absent. The persistent retention hold remained present.
-
-The original four-day stage retained MainPID 3753660. Retention remained failed
-with no process; retention and native backfill timers stayed disabled/inactive.
-The live LV1 and recovery timers stayed enabled/active. D03 completed its 96-file
-SHA/metadata proof at 08:08:41; its manifest SHA-256 is
-`c2ae17045cb110cbd9657f02b1ce945544e3174f51eb8450fd1b390520f30524`.
-D04 then began. D13 had not started, and no original or production path moved.
-
-The installed helper SHA-256 is
-`632140eaf217bdd78dee6d1623f396a99cb831acf505c6b0420698f934847817`;
-the five-day plan SHA-256 is
-`59042dd5b155b3d197e1e78ebddb0895f98a10521e0d6b6cab2c1bb95b57d5c6`.
-The receipt includes all consumer and launcher states, loaded conditions, sender
-processes and locks. Those observations must be repeated at cutover.
-
-Review accepted using fresh, unchanged stage proofs for reversible cutover rather
-than rereading the same two copies first. Stage already hashes both sides, compares
-metadata and checks whole-day identity maps before publishing its durable proof.
-Cutover repeats the identity/file-set and six-hour checks under its exclusive lock.
-This avoids an estimated 60–100 minutes and 861.42 GB of repeated reads. Full
-verification through the mounted logical paths before any duplicate-original
-release remains mandatory and is now an explicit release gate in the helper.
-
-
-The mounted-proof helper passed a disposable real-bind sequence at 08:22 UTC.
-Staging alone and an atomically recreated active record with identical plan JSON
-both rejected release. Missing or wrong binds and an interrupted logical read
-left the prior proof unchanged. A deliberately wrong mount introduced during the
-read was rejected; rollback then restored the preserved original despite having
-no usable bind. After restaging, a new full mounted verification allowed release
-of only the 56-byte test duplicate while its logical copy remained readable.
-Equivalent same-target remounts with unchanged file identities were accepted.
-Production stage PID 3753660 stayed unchanged and no production active record was
-created. The tiny test trees and receipts remain outside the raw archive.
-
-At 08:22:20 the normal health report had cleared `source_metadata_invalid` in both
-recovery and evidence. The earlier label was stale, not a continuing metadata
-failure. At 08:22:41 the raw second confirmation was running with no error and one
-confirmation remaining; products were still in a fresh inventory with no error.
-D02 and D03 had completed staging; D04 had 48.86 GB copied. D05 and D13 had not
-started. `/project` had 278,476,619,776 bytes free and `/data` had 249,869,500,416.
-These are progress observations, not archive acceptance or completed relocation.
-
-
-## Mounted-release guard installed, 08:26 UTC
-
-PR 86 reached main as `dae3041c37af09f91cf5cd47cbdf24065f7722af` after all four
-checks and two independent reviews. The focused checksum-guarded helper update
-at 08:26:40 reported three tasks ok, one changed and no failures. It did not reload
-systemd, change the plan or interrupt staging. The previous helper was preserved
-as `/usr/local/lib/aurora-radar-relocation.py.4006647.2026-10-24@08:26:40~`.
-
-The new helper SHA-256 is
-`2bc5b16ed2a5c1f03830785829c5ba12bc11c523e888d1eedaec782438afe57f`.
-At 08:26:47, the plan retained SHA-256
-`59042dd5b155b3d197e1e78ebddb0895f98a10521e0d6b6cab2c1bb95b57d5c6`,
-and the original four-day stage retained MainPID 3753660 and its 07:23:04 start.
-The production active record and temporary relocation hold were absent. The
-persistent retention hold stayed present; retention and native-backfill timers
-were disabled/inactive, their failed-service evidence was unchanged, and live LV1
-sync remained enabled. This installs the release safeguard; it does not authorize
-cutover, release a duplicate original or resume native backfill.
-
-The next ordinary DO raw-radar sender ran at 08:28:19–22 through the installed
-helper and completed successfully. Its existing timer remained active, and the
-stage receipt recorded two seconds and zero changed bytes. This confirms the
-inactive-guard sender path after installation; mount acceptance still awaits the
-reviewed cutover and full mounted verification.
-
-
-## Fresh archive confirmations and storage gate, 08:35–08:53 UTC
-
-D04 completed its 96-file SHA/metadata proof at 08:35:06, with manifest SHA-256
-`96ee0384d6611784b413f556c8071c111fa09810fb42f3a6e116a19ae3c5cb7b`.
-D05 then continued under the original stage process. After the user resumed work,
-the 08:53 readback found D02–D04 manifests unchanged, D05 at 52.295 GB allocated
-and D13 unstarted. The production active record and temporary hold were absent.
-
-The products observation completed at 08:26:02: all 1,384,637 settled local objects
-matched both GWS and S3, with zero missing, size or checksum differences. GWS's
-137,474 and S3's 108,927 additional entries were retained. Its unsettled window
-contained 2,302 missing and 935 size-different objects. This supersedes the older
-27,523 settled missing-product count; it is not permission to discard extra objects.
-
-The second raw observation completed at 08:39:03. All 893,307 settled local objects
-matched S3, with zero missing or mismatched entries and 1,907 retained extras.
-The separate canonical-source/GWS comparison matched 318,046 of 318,088 entries;
-42 native radar files remained missing, with zero size or checksum differences.
-The pending window contained 21 missing and two size-different entries.
-
-At 08:53, the raw queue was idle with no confirmation remaining or error, and its
-independent retention gate was ready. The persistent service hold still blocked
-pruning: retention had MainPID zero and its previous failed state, with both loaded
-conditions present. Retention and bulk-backfill timers remained disabled/inactive.
-Products still needed its second confirmation; unattended acceptance remained
-under validation, including native delivery debt and the existing Operations alert.
-
-The fresh five-day capacity projection included 54,622,066,409 bytes of native debt.
-It left 654,477,925,143 bytes on `/project` after that backlog, above the separate
-617,088,629,797-byte future seven-day target. `/data` projected 58,282,516,480 bytes
-after copying, only 4,595,425,280 above archive recovery's existing 50 GiB floor.
-The earlier relocation-only 40 GiB reserve was insufficient as the shared floor;
-the reviewed plan and preparation guard now preserve the stricter requirement.
-
-Other `/data` usage had grown about 1.591 GB since staging started, after excluding
-allocated stage bytes. It had peaked near 2.284 GB and then fallen as existing
-archive work completed. The recent 08:38–08:53 interval grew about 0.123 GB. Keeping
-the initial conservative 2.3 GB/hour allowance for the remaining copy, a 100-minute
-mounted verification and ten-minute drain exceeded the 08:53 spare margin by about
-0.65–0.81 GB. D13 remained held pending a fresh admissible projection. No reserve
-was lowered, no observation was removed and no cache cleanup was assumed.
-
-## Four days complete; D13 admitted at 09:07 UTC
-
-D05 completed its 96-file SHA/metadata proof at 09:02:56, with manifest SHA-256
-`3e47216c7bd2596f9e88ce82429312427fe1919cce6c13c8c59ba61a9b8e797d`.
-The original four-day staging unit exited successfully. Only after it was inactive
-with no PID, the reviewed plan-only update raised the live `/data` floor to
-53,687,091,200 bytes and the dated primary minimum to 671,710,696,206 bytes.
-The old plan was backed up. The helper, services, timers and holds were unchanged.
-
-The [completed recovery-bundle move](2026-10-24-partial-recovery-storage.md)
-restored about 1.708 GB of `/data` capacity while preserving every recovery file.
-The 09:07:18 admission read measured 121,848,270,848 bytes free on `/data` and
-278,350,790,656 on `/project`. Native debt was now 54,646,797,466 bytes, so the
-fresh pre-backfill requirement was 671,735,427,263 bytes. The projection after
-all five releases and delivery of that debt left 654,415,445,350 bytes on
-`/project`, above the separate 617,088,629,797-byte future seven-day target.
-
-The remaining D13 copy reserved 61,415,755,776 bytes, rounded to destination
-blocks. At 45 MB/s, with 100 minutes for mounted verification, ten minutes for
-draining and 2.3 GB/hour of other growth, the remaining allowance was
-5,088,618,755 bytes. Projected `/data` free space after that window was
-55,343,896,317 bytes: 1,656,805,117 above the unchanged 50 GiB floor. Both actual
-configured reserve floors were read again; neither was replaced with a weaker
-hard-coded value. This is dated admission evidence, not a promise of future space.
-
-D13 metadata inventories at 09:04:48 and 09:07:18 matched exactly. The second
-scan checked 5,880 descriptors and mappings, with no open users, permission errors
-or mounts. The four completed stage proofs also passed unchanged-identity checks.
-Only D13 then started under `aurora-radar-relocation-stage-d13-20261024.service`
-at 09:07:48. Its 64-file expectation remains specific to that historical day.
-
-At 09:08, raw verification was idle with two clean independent confirmations and
-no queue error. Products' second confirmation was still running without an error.
-The persistent retention hold remained present. No production relocation hold,
-active mount record, cutover or duplicate-original release had occurred. Fresh
-capacity, consumer-state and mounted-verification gates still apply.
-
-## Five days staged; cutover deferred and schedules restored, 09:17–09:32 UTC
-
-D13 finished successfully at 09:17:40. Its 64-file SHA/metadata proof has manifest
-SHA-256 `6012c1d719a1c6e558811af2a849ff83b3d4f665bf42dd2e3a4f71c2fea49e9f`.
-All five days are staged: 448 files, with 430,711,452,160 allocated bytes still
-present at their original paths. Fresh identity checks passed for every source
-and destination. The closure scan included descriptors, mappings, working
-directories and process roots, matching both paths and device/inode aliases.
-It found no open user or incomplete scan.
-
-The 09:22:53 check measured 60,023,238,656 bytes available on `/data` and
-278,258,515,968 on `/project`. Native delivery debt had grown to 58,263,009,908
-bytes. Releasing all five verified duplicate originals would leave
-650,706,958,220 bytes on `/project` after that debt, above the separate
-617,088,629,797-byte future seven-day target. The 110-minute verification/drain
-allowance at 2.3 GB/hour also passed the immediate 50 GiB `/data` floor.
-
-That short window did not establish durable `/data` headroom. The 2.3 GB/hour
-allowance was conservative recovery planning, not a measured long-term baseline.
-The newly active relocation guard would make twelve consumers depend on that
-reserve, while releasing the originals frees `/project` only. The 09:28 block
-check found that `/data` already used the whole 999 GiB `/dev/vdb` device: there
-was no allocated but unexpanded filesystem space. Ext4's reserved blocks were
-left unchanged and were not counted as spare capacity. I therefore deferred
-cutover pending a sustained capacity plan for both volumes.
-
-Operation `cutover-20261024T092315Z` had created its temporary launch barrier at
-09:23:15 and paused only eight previously active primary timers, followed by
-the recorded DO raw-radar timer at 09:23:22. Existing services were allowed to
-finish naturally. Product workers continued. No active relocation record,
-quarantine rename, bind mount, mounted-verification receipt or original release
-was created.
-
-Before restoring the schedules, the helper and plan checksums, all five stage
-identities, absent mount/quarantine paths and exact owned hold identity/content
-were checked again. The durable receipt recorded deferral before the owned hold
-was removed and its directory fsynced. The eight primary timers were restored
-at 09:29:52 and the DO timer at 09:31:26. The normal recovery coordinator and
-shared repair replayed successfully. No service was force-stopped and no failed
-state was reset. Native backfill and retention stayed disabled/inactive; the
-separate persistent retention service hold stayed present.
-
-The next ordinary primary live sync completed at 09:29:53, appender at 09:29:56
-and quicklooks at 09:30:13. The Zarr frontier remained 08:59:52.150 UTC; there
-were no newer complete candidate samples in that cycle. The DO selected-scope
-sender completed at 09:31:28 with zero deletions or changed bytes. These are
-restored-cycle receipts, not evidence that native backlog has been delivered.
-
-The raw object-store copy completed successfully at 09:27:21. GWS raw transfer
-was still retrying: its first endpoint returned exit 23 at 09:17:17 after receiver
-`.~tmp~` rename failures affecting current ASFS/WXcam files. The fallback began
-at 09:17:18 and reported further auroracam rename failures at 09:30:28. It was
-still active at the 09:32 readback. That current transfer issue remains open;
-the earlier clean settled archive evidence does not prove this retry complete.
-
-At 09:32:35, raw verification remained idle with two clean confirmations and no
-queue error. Its latest completed comparison was still the 08:39 report above.
-Products' second confirmation was progressing through object-store inventory,
-838 of 920 shards, with no error and one confirmation remaining. Unattended
-acceptance remained under validation. The persistent retention hold is an
-operator inventory decision and cannot be cleared by those dynamic readiness
-results.
-
-The durable host receipts are
-`/var/lib/aurora-cloud/radar-relocation-20261024/cutover-20261024T092315Z-barrier.json`
-on primary and the matching `cutover-20261024T092315Z-ocean.json` on DO. Local
-evidence under `output/primary-cleanup-20261024/` includes
-`radar-cutover-deferred-restoration.json`, `ocean-cutover-deferred-restoration.json`,
-`primary-after-deferred-cycles.txt`, `ocean-after-deferred-cycle.txt` and
-`archive-summary-cutover-deferred.json`. Keep the originals and all staged copies.
-Any later cutover needs fresh capacity, closure and stage-proof admission, and
-full mounted verification remains mandatory before duplicate-original release.
+I checked the archive blockers during primary restoration. All five radar days
+finished staging, but I deferred cutover because sustained `/data` headroom
+was unresolved. This is a dated result, not permission to resume retention.
+
+## Archive findings
+
+- Normal delivery repaired the ASFS file named by the old report. Its source
+  and cloud SHA-256 matched; the aggregate report was still catching up.
+- Three empty, zero-mtime HATPRO placeholders had no matching flat source path.
+  Their complete dated counterparts matched the source. I preserved the empty
+  files by rename under the shared HATPRO lock and requested a fresh raw check.
+  No observation timestamp was invented.
+- Old object-store counts were stale: sampled objects were already present.
+  Fresh complete comparisons were required before estimating repair debt.
+- A raw copy hit rclone's temporary-camera-file race. A blanket exit-6 success
+  rule would hide real errors; no receiver fix was deployed in these checks.
+- ASS storage-health metadata was stale because its source producer was absent.
+  Current science files were still arriving. Fetching the old JSON successfully
+  did not make its capacity estimate current.
+
+## Staging and deferred cutover
+
+D02–D05 and the explicitly partial D13 finished staging: 448 files and
+430,711,452,160 allocated bytes. SHA proofs and fresh identities passed. Originals
+remained at their existing paths; there was no quarantine rename, bind mount,
+mounted-verification receipt or duplicate-original release.
+
+At 09:22:53 UTC, `/data` had 60,023,238,656 bytes available and `/project` had
+278,258,515,968. Native debt was 58,263,009,908 bytes. The short copy/drain window
+passed the 50 GiB `/data` floor, but did not establish sustained headroom.
+`/data` already occupied its whole 999 GiB device. Reserved filesystem blocks
+were left unchanged. Releasing primary originals would free `/project`, not
+solve `/data` growth, so I held the cutover.
+
+The owned temporary barrier was removed after unchanged checks. Eight primary
+timers were restored at 09:29:52 and the selected DO radar timer at 09:31:26.
+Recovery and shared repair replayed successfully. Nothing was force-stopped or
+reset. Native backfill and retention stayed disabled/inactive, with the separate
+persistent retention hold present.
+
+## Final readback, 09:32 UTC
+
+- Live sync, append and quicklooks completed; the product frontier remained
+  08:59:52.150 UTC because that cycle had no newer complete candidate.
+- The DO selected mirror succeeded with no deletion or changed bytes.
+- Raw object copying completed at 09:27:21. GWS raw transfer was still retrying
+  receiver rename failures; it was not complete.
+- Raw verification had two clean independent confirmations. Products' second
+  confirmation was still running. Unattended acceptance remained under review.
+
+The host receipts are `cutover-20261024T092315Z-barrier.json` under
+`/var/lib/aurora-cloud/radar-relocation-20261024/` on primary and the matching
+`cutover-20261024T092315Z-ocean.json` on DO. Keep the originals and staged copies.
+A later cutover needs fresh capacity, closure and stage proofs; release still
+requires full mounted verification.
+
+The [full original record](https://github.com/GAMB2LE/aurora-cloud-infra/blob/7f25708/docs/records/2026-10-24-archive-follow-up.md)
+retains all measurements, hashes and intermediate checks. Current procedures
+are in [archive recovery](../ARCHIVE_RECOVERY.md) and
+[radar relocation](../RADAR_RAW_RELOCATION.md).

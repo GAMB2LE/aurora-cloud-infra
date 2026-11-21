@@ -31,7 +31,7 @@ class MirrorVerifierDeploymentTests(unittest.TestCase):
                       and any(isinstance(t, ast.Name) and t.id == "CONFIG" for t in n.targets))
         self.assertEqual(ast.get_source_segment(candidate, config), self.assignment)
 
-    def test_only_three_audited_functions_can_change(self):
+    def test_only_audited_reader_functions_can_change(self):
         old = self.deployed.replace('if "/" in relpath or relpath in source_entries', 'if "/" in relpath')
         candidate = patch.render(old, self.template)
         self.assertEqual(candidate, self.deployed)
@@ -42,8 +42,20 @@ class MirrorVerifierDeploymentTests(unittest.TestCase):
         ):
             with self.subTest(change=change[-80:]):
                 self.assertNotEqual(change, self.template)
-                with self.assertRaisesRegex(ValueError, "outside the three"):
+                with self.assertRaisesRegex(ValueError, "outside the audited"):
                     patch.render(self.deployed, change)
+
+    def test_old_reader_can_gain_the_audited_native_pending_classifier(self):
+        start = self.deployed.index('def native_radar_alert_grace(')
+        end = self.deployed.index('def settled_entries(', start)
+        old = self.deployed[:start] + self.deployed[end:]
+        self.assertEqual(patch.render(old, self.template), self.deployed)
+
+    def test_guarded_entrypoint_requires_a_pinned_payload_release(self):
+        old = self.deployed.replace('raise SystemExit(main())', 'run_python_original("program", "pin", [])')
+        self.assertNotEqual(old, self.deployed)
+        with self.assertRaisesRegex(ValueError, 'pinned-payload release'):
+            patch.render(old, self.template)
 
     def test_invalid_or_executable_configuration_is_rejected_without_execution(self):
         for assignment in (

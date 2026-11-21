@@ -392,6 +392,8 @@ def settled_source_status(gws: dict, streams: list[dict], current=None, max_age_
     if not streams:
         failures.append("settled_source_evidence_stream_catalogue_missing")
     totals = {field: 0 for field in fields}
+    alert_totals = {field: 0 for field in fields}
+    pending_streams = []
     per_stream = {}
     affected = []
     metrics = {}
@@ -408,17 +410,74 @@ def settled_source_status(gws: dict, streams: list[dict], current=None, max_age_
         if not valid:
             failures.append(f"settled_source_evidence_invalid={name}")
         counts = {field: state[field] if valid and evidence_usable else None for field in fields}
-        per_stream[name] = {"state": "current" if valid and evidence_usable else "unavailable", **counts}
+        pending = {"local": 0, "gws": 0}
+        grace = state.get("path_alert_grace") if isinstance(state, dict) else None
+        if name == "rpgfmcw94" and valid and evidence_usable and grace is not None:
+            # Only verifier-bound native paths may receive delivery grace.
+            # Re-evaluate their deadline now, so an old snapshot cannot keep
+            # a genuinely overdue file classified as pending for eight hours.
+            import re
+            try:
+                if not isinstance(grace, dict) or grace.get("policy") != "native-radar-delivery-v1":
+                    raise ValueError("unknown grace policy")
+                if grace.get("settle_seconds") != 2700 or grace.get("transfer_grace_seconds") != 1800:
+                    raise ValueError("unexpected delivery window")
+                raw = grace["raw_missing_counts"]
+                if any(type(raw[d]) is not int or raw[d] != counts[f"{d}_missing_count"] for d in pending):
+                    raise ValueError("grace does not bind raw counts")
+                entries = grace["pending"]
+                if not isinstance(entries, list):
+                    raise ValueError("invalid pending paths")
+                seen = set()
+                bound = {"local": 0, "gws": 0}
+                pattern = r"Y20[0-9]{2}/M[01][0-9]/D[0-3][0-9]/rpgfmcw94-aurora_[0-9]{6}_[0-9]{6}_P01_ZEN\.(?:LV0|LV1|LV0\.NC)"
+                for entry in entries:
+                    destination, path, mtime = entry["destination"], entry["relative_path"], entry["source_mtime"]
+                    if destination not in pending or not isinstance(path, str) or not re.fullmatch(pattern, path):
+                        raise ValueError("grace is not a native radar path")
+                    if type(mtime) is not int or not 0 <= observed.timestamp() - mtime < 4500:
+                        raise ValueError("invalid source age")
+                    if (destination, path) in seen:
+                        raise ValueError("duplicate pending path")
+                    seen.add((destination, path))
+                    bound[destination] += 1
+                    if 0 <= current.timestamp() - mtime < 4500:
+                        pending[destination] += 1
+                if any(bound[d] > raw[d] for d in pending):
+                    raise ValueError("too many pending paths")
+            except (KeyError, TypeError, ValueError, OverflowError):
+                pending = {"local": 0, "gws": 0}
+                failures.append(f"settled_source_alert_grace_invalid={name}")
+        alert_counts = dict(counts)
+        for destination, count in pending.items():
+            field = f"{destination}_missing_count"
+            if alert_counts[field] is not None:
+                alert_counts[field] -= count
+        per_stream[name] = {
+            "state": "current" if valid and evidence_usable else "unavailable", **counts,
+            **{f"alert_{field}": value for field, value in alert_counts.items()},
+            **{f"pending_{d}_missing_count": value for d, value in pending.items()},
+        }
+        if any(pending.values()):
+            pending_streams.append(name)
         for field, value in counts.items():
             metrics[f"settled_source_{name.replace('-', '_')}_{field}"] = value
             if value is not None:
                 totals[field] += value
-        if any(value for value in counts.values() if value is not None):
+        for field, value in alert_counts.items():
+            metrics[f"settled_source_alert_{name.replace('-', '_')}_{field}"] = value
+            if value is not None:
+                alert_totals[field] += value
+        if any(value for value in alert_counts.values() if value is not None):
             affected.append(name)
     # Unknown evidence is never converted to a clean zero. Confirmed counts
     # from other valid streams remain reportable if one stream is unavailable.
     for field, total in totals.items():
         metrics[f"settled_source_{field}"] = total if not failures or total else None
+        metrics[f"settled_source_alert_{field}"] = alert_totals[field] if not failures or alert_totals[field] else None
+    metrics["settled_source_pending_path_count"] = sum(
+        stream.get(f"pending_{d}_missing_count", 0) for stream in per_stream.values() for d in ("local", "gws")
+    )
     metrics["settled_source_affected_streams"] = affected
     metrics["settled_source_evidence_available_state"] = int(not failures)
     return {
@@ -426,6 +485,7 @@ def settled_source_status(gws: dict, streams: list[dict], current=None, max_age_
         "evidence_started_at": observed.isoformat() if observed else None,
         "evidence_expires_at": expires.isoformat() if expires else None,
         "affected_streams": affected,
+        "pending_streams": pending_streams,
         "streams": per_stream,
         "failures": failures,
         "metrics": metrics,
@@ -467,7 +527,11 @@ def operator_status(
     gws_mismatch = metric_count("gws_all_mismatch_count")
     stream_gws_issues = metric_count("streams_gws_issue_count")
     settled_counts = {
-        (destination, kind): metric_count(f"settled_source_{location}_{kind}_count")
+        (destination, kind): metric_count(
+            f"settled_source_alert_{location}_{kind}_count"
+            if f"settled_source_alert_{location}_{kind}_count" in metrics
+            else f"settled_source_{location}_{kind}_count"
+        )
         for destination, location in (("cloud", "local"), ("GWS", "gws"))
         for kind in ("missing", "mismatch")
     }
@@ -734,6 +798,8 @@ def operator_status(
             verification_detail = " A second retention confirmation is pending."
         else:
             verification_detail = ""
+        if metric_count("settled_source_pending_path_count"):
+            verification_detail += " Recent radar files are within their normal delivery window."
         return {
             "level": "green",
             "title": "Archive copies are healthy",
@@ -877,7 +943,7 @@ def main() -> int:
     metrics.update(settled_paths["metrics"])
     failures.extend(settled_paths["failures"])
     for field in ("local_missing_count", "local_mismatch_count", "gws_missing_count", "gws_mismatch_count"):
-        value = metrics[f"settled_source_{field}"]
+        value = metrics[f"settled_source_alert_{field}"]
         if value:
             failures.append(f"settled_source_{field}={value}")
     gws_age = evidence_age_hours(gws.get("generated_at"))

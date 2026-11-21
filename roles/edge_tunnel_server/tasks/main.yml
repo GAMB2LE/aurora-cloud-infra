@@ -1,10 +1,10 @@
 ---
 - name: Skip edge tunnel server role when disabled
   ansible.builtin.debug:
-    msg: "edge_tunnel_server_enabled is false; no data-ocean tunnel server changes made."
+    msg: "edge_tunnel_server_enabled is false; no edge tunnel server changes made."
   when: not edge_tunnel_server_enabled | bool
 
-- name: Require data-ocean tunnel server host when enabled
+- name: Require a named tunnel server host when enabled
   ansible.builtin.assert:
     that:
       - inventory_hostname in edge_tunnel_server_allowed_inventory_hosts
@@ -19,10 +19,38 @@
   ansible.builtin.assert:
     that:
       - edge_tunnel_server_authorized_keys | length > 0
+      - edge_tunnel_server_manage_sshd_config | bool
+      - edge_tunnel_server_user is match('^[a-z_][a-z0-9_-]*$')
+      - edge_tunnel_server_authorized_keys | map(attribute='name') | unique | length == edge_tunnel_server_authorized_keys | length
     fail_msg: >-
       edge_tunnel_server_enabled is true, but no authorized edge tunnel keys are
       configured. Add public keys to edge_tunnel_server_authorized_keys from
-      Ansible Vault or a non-secret vars file.
+      Ansible Vault or a non-secret vars file. The restricted sshd Match policy
+      must be managed whenever the recovery endpoint is enabled.
+  when: edge_tunnel_server_enabled | bool
+
+- name: Validate loopback-only tunnel listener allowlist
+  ansible.builtin.assert:
+    that:
+      - item is match('^127[.]0[.]0[.]1:(2201|2202|2211|2212|2213|2401|2402)$')
+  loop: "{{ edge_tunnel_server_listen_ports }}"
+  when: edge_tunnel_server_enabled | bool
+
+- name: Require exact per-key listeners and nonsecret public keys
+  ansible.builtin.assert:
+    that:
+      - item.name is match('^[a-z0-9][a-z0-9-]*$')
+      - item.key is match('^ssh-ed25519 [A-Za-z0-9+/]+=*( [^\\r\\n]+)?$')
+      - "'\n' not in item.key and '\r' not in item.key"
+      - item.listen_ports is defined
+      - item.listen_ports is sequence and item.listen_ports is not string
+      - item.listen_ports | length > 0
+      - item.listen_ports | difference(edge_tunnel_server_listen_ports) | length == 0
+      - item.key_options is not defined
+    fail_msg: Each named ED25519 key needs an explicit subset of allowed loopback listeners; arbitrary key options are not accepted.
+  loop: "{{ edge_tunnel_server_authorized_keys }}"
+  loop_control:
+    label: "{{ item.name | default('unnamed') }}"
   when: edge_tunnel_server_enabled | bool
 
 - name: Ensure edge tunnel group exists
@@ -53,34 +81,163 @@
     mode: "0700"
   when: edge_tunnel_server_enabled | bool
 
-- name: Install authorized edge tunnel keys
-  ansible.posix.authorized_key:
-    user: "{{ edge_tunnel_server_user }}"
+- name: Validate and install the restricted tunnel policy before authorizing keys
+  when: edge_tunnel_server_enabled | bool
+  block:
+    - name: Validate existing sshd configuration
+      ansible.builtin.command: /usr/sbin/sshd -t
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Inspect existing tunnel sshd fragment for rollback
+      ansible.builtin.stat:
+        path: /etc/ssh/sshd_config.d/90-aurora-edge-tunnel.conf
+      register: edge_tunnel_server_previous_config
+
+    - name: Install backed-up edge tunnel sshd Match config
+      ansible.builtin.template:
+        src: edge-tunnel-sshd.conf.j2
+        dest: /etc/ssh/sshd_config.d/90-aurora-edge-tunnel.conf
+        owner: root
+        group: root
+        mode: "0644"
+        backup: true
+      register: edge_tunnel_server_config
+
+    - name: Validate complete sshd configuration with the new fragment
+      ansible.builtin.command: /usr/sbin/sshd -t
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Read effective tunnel identity policy including all configuration files
+      ansible.builtin.command:
+        argv:
+          - /usr/sbin/sshd
+          - -T
+          - -C
+          - "user={{ edge_tunnel_server_user }},host=localhost,addr=127.0.0.1,laddr=127.0.0.1,lport=22"
+      changed_when: false
+      register: edge_tunnel_server_effective_policy
+      when: not ansible_check_mode
+
+    - name: Reject an absent or overridden tunnel restriction
+      ansible.builtin.assert:
+        that:
+          - item in (edge_tunnel_server_effective_policy.stdout_lines | map('lower') | list)
+        fail_msg: "Effective sshd policy is missing {{ item }}; the previous fragment will be restored without reloading SSH."
+      loop:
+        - authenticationmethods publickey
+        - passwordauthentication no
+        - kbdinteractiveauthentication no
+        - pubkeyauthentication yes
+        - maxsessions 0
+        - allowtcpforwarding remote
+        - allowstreamlocalforwarding no
+        - permitopen none
+        - gatewayports no
+        - allowagentforwarding no
+        - x11forwarding no
+        - permittty no
+        - permittunnel no
+        - clientaliveinterval 30
+        - clientalivecountmax 3
+        - "permitlisten {{ edge_tunnel_server_listen_ports | join(' ') }}"
+      when: not ansible_check_mode
+  rescue:
+    - name: Restore previous tunnel sshd fragment after failed validation
+      ansible.builtin.copy:
+        remote_src: true
+        src: "{{ edge_tunnel_server_config.backup_file }}"
+        dest: /etc/ssh/sshd_config.d/90-aurora-edge-tunnel.conf
+        owner: root
+        group: root
+        mode: "0644"
+      when: edge_tunnel_server_config.backup_file is defined
+
+    - name: Remove newly introduced invalid tunnel fragment
+      ansible.builtin.file:
+        path: /etc/ssh/sshd_config.d/90-aurora-edge-tunnel.conf
+        state: absent
+      when:
+        - edge_tunnel_server_config.changed | default(false)
+        - not edge_tunnel_server_previous_config.stat.exists | default(true)
+
+    - name: Validate the restored sshd configuration
+      ansible.builtin.command: /usr/sbin/sshd -t
+      changed_when: false
+
+    - name: Stop without reloading SSH after tunnel-policy failure
+      ansible.builtin.fail:
+        msg: Tunnel policy validation failed; the previous fragment was restored and SSH was not reloaded. Review the failed policy check before retrying.
+
+- name: Activate validated restrictions before installing new tunnel keys
+  ansible.builtin.include_tasks: reload_sshd.yml
+  when:
+    - edge_tunnel_server_enabled | bool
+    - not ansible_check_mode
+
+- name: Replace the managed tunnel key block while preserving legacy keys
+  ansible.builtin.blockinfile:
     path: "{{ edge_tunnel_server_home }}/.ssh/authorized_keys"
-    key: "{{ item.key }}"
-    key_options: "{{ (item.key_options | default(edge_tunnel_server_default_key_options)) | join(',') }}"
-    comment: "{{ item.name | default(omit) }}"
-    manage_dir: false
-    state: present
-  loop: "{{ edge_tunnel_server_authorized_keys }}"
-  no_log: true
+    create: true
+    owner: "{{ edge_tunnel_server_user }}"
+    group: "{{ edge_tunnel_server_group }}"
+    mode: "0600"
+    backup: true
+    marker: "# {mark} AURORA MANAGED RECOVERY TUNNEL KEYS"
+    block: "{{ lookup('ansible.builtin.template', 'authorized-keys.j2') }}"
+  when:
+    - edge_tunnel_server_enabled | bool
+    - not edge_tunnel_server_replace_authorized_keys | bool
+
+- name: Replace all authorized tunnel keys after migration acceptance
+  ansible.builtin.template:
+    src: authorized-keys.j2
+    dest: "{{ edge_tunnel_server_home }}/.ssh/authorized_keys"
+    owner: "{{ edge_tunnel_server_user }}"
+    group: "{{ edge_tunnel_server_group }}"
+    mode: "0600"
+    backup: true
+  when:
+    - edge_tunnel_server_enabled | bool
+    - edge_tunnel_server_replace_authorized_keys | bool
+
+- name: Install the read-only recovery transport status helper
+  ansible.builtin.copy:
+    src: aurora-edge-access-status.py
+    dest: /usr/local/bin/aurora-edge-access-status
+    owner: root
+    group: root
+    mode: "0755"
   when: edge_tunnel_server_enabled | bool
 
-- name: Install optional edge tunnel sshd Match config
+- name: Install public recovery endpoint fingerprints and status configuration
   ansible.builtin.template:
-    src: edge-tunnel-sshd.conf.j2
-    dest: /etc/ssh/sshd_config.d/90-aurora-edge-tunnel.conf
+    src: edge-access-status.json.j2
+    dest: /etc/aurora-edge-access-status.json
     owner: root
     group: root
     mode: "0644"
-  notify: Reload sshd
-  when:
-    - edge_tunnel_server_enabled | bool
-    - edge_tunnel_server_manage_sshd_config | bool
+  when: edge_tunnel_server_enabled | bool
 
-- name: Validate sshd configuration after optional edge tunnel config
-  ansible.builtin.command: /usr/sbin/sshd -t
-  changed_when: false
+- name: Install optional recovery transport observation units
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - aurora-edge-access-status.service
+    - aurora-edge-access-status.timer
+  when: edge_tunnel_server_enabled | bool
+
+- name: Apply explicit recovery status timer enablement
+  ansible.builtin.systemd:
+    name: aurora-edge-access-status.timer
+    enabled: "{{ edge_tunnel_server_status_timer_enabled | bool }}"
+    state: "{{ 'started' if edge_tunnel_server_status_timer_enabled | bool else 'stopped' }}"
+    daemon_reload: true
   when:
     - edge_tunnel_server_enabled | bool
-    - edge_tunnel_server_manage_sshd_config | bool
+    - not ansible_check_mode

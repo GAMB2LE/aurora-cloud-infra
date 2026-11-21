@@ -81,6 +81,8 @@ aurora_nginx_disabled_sites:
   - data.gamb2le.co.uk
 
 aurora_standby_replication_timer_enabled: true
+# This host has the retained history bind and its installed layout checker.
+aurora_standby_history_layout_guard_enabled: true
 # Root-backed canonical planning-cache bind verified on 2026-10-23. The role
 # rechecks its exact identity and reserves before installing mirror changes.
 # Relocation remains a separate operation; see docs/CANONICAL_POWER_STORAGE.md.

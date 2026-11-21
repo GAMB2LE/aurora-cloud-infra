@@ -1,0 +1,11 @@
+---
+# Shared by the explicit pre-key activation and any future role notification.
+# Do not flush all handlers: site.yml may have unrelated pending service work.
+- name: Validate edge tunnel sshd immediately before reload
+  ansible.builtin.command: /usr/sbin/sshd -t
+  changed_when: false
+
+- name: Reload the SSH daemon with validated configuration
+  ansible.builtin.service:
+    name: ssh
+    state: reloaded

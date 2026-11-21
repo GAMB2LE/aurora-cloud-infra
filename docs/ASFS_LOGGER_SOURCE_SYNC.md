@@ -23,17 +23,10 @@ The dashboard presents this store through the curated **Radiation** instrument
 and through `HK_ASFS` housekeeping quicklooks. The raw `asfs-logger` variable
 picker is not the normal deployed user-facing view.
 
-## Authentication
+## Access
 
-The sync uses Tailscale SSH over the tailnet. The rsync remote shell is regular
-`ssh` with identity keys disabled:
-
-- `IdentitiesOnly=yes`
-- `IdentityFile=none`
-- `PubkeyAuthentication=no`
-- `StrictHostKeyChecking=accept-new`
-
-No private key is installed for this source.
+Use the [source-access check](OPERATOR_QUICKSTART.md#source-access). These
+syncs use Tailscale SSH without an installed source private key.
 
 ## Timers
 
@@ -46,11 +39,10 @@ Processing timers:
 - `aurora-asfs-logger-append.timer`
 - `aurora-asfs-logger-quicklooks.timer`
 
-## Backup and retention
+## Archives
 
-Only the science filename family described above is verified for this stream,
-although it shares `/asfs/crd` with fast-sonic and fast-gas files. The matching
-raw CRD files are archived additively to GWS and object storage and kept on ASS
-for at least seven days. Deletion requires an exact signed permit backed by all
-three checked copies. Derived ASFS Zarrs and quicklooks are not raw-retention
-evidence. See [Backups and Archive Services](ARCHIVE_SERVICES.md).
+Only this stream's filename family is checked, even when it shares a raw
+folder with other streams. GWS and object copies are additive. ASS keeps raw
+files for at least seven days; deletion needs an exact signed permit backed
+by all three copies. A derived Zarr is not raw-retention proof. See
+[ASS retention](ASS_BACKUP_AND_RETENTION.md).

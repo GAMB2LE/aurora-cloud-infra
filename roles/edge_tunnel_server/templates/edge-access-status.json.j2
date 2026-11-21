@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "endpoints": [
+{% for item in edge_tunnel_server_status_endpoints %}
+    {"name": {{ item.name | to_json }}, "kind": {{ item.kind | to_json }}, "port": {{ item.port }}, "expected_fingerprint": {{ edge_tunnel_server_expected_host_fingerprints.get(item.name, '') | to_json }}}{% if not loop.last %},{% endif %}
+{% endfor %}
+  ]
+}

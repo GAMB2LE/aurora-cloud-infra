@@ -1,6 +1,6 @@
 ---
-- name: Configure data-ocean edge tunnel server
-  hosts: aurora-cloud-droplet
+- name: Configure independent edge tunnel servers on the named cloud hosts
+  hosts: aurora-cloud:aurora-cloud-droplet
   become: true
   gather_facts: false
   pre_tasks:
@@ -9,7 +9,7 @@
         that:
           - edge_tunnel_server_enabled | bool
         fail_msg: >-
-          Refusing to manage the data-ocean tunnel server because
+          Refusing to manage the edge tunnel server because
           edge_tunnel_server_enabled is false. Re-run with
           -e edge_tunnel_server_enabled=true only after checking current SSH
           access and preparing authorized tunnel keys.
