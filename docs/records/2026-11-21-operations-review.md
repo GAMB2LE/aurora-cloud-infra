@@ -12,6 +12,7 @@ This review changes repository source. It does not deploy the new review fixes.
 | A full template release could replace a storage-guarded verifier or health entrypoint. | Read-only preflight now refuses guarded programs, unsafe files and symlinks, including in check mode. The patch renderer also refuses a wrapper instead of treating it as the payload. |
 | Fresh lanes required the historical coordinator to remain active after its work finished. | The completion gate accepts only its exact successful service identity, completed frozen cohort and all 581 paired obligations. Failed/incomplete work still blocks admission. |
 | Prior GWS receipts overwrote the saved object-isolation proof in `known_paths`. | Separate variables preserve the proof. Tests cover an ordinary prior receipt, stable isolation and a changed proof. |
+| Forecast CI selected Python 3.14 and could not build pinned `numcodecs`. | Pin the forecast job to the locally verified Python 3.13 environment; production archive checks remain on 3.10. |
 | SSH policy checks assumed lowercase `sshd -T` keys. | Normalize keys on both the role and isolated policy tests; verify another user does not inherit tunnel restrictions. |
 
 The hourly native radar allowance remains pending for 75 minutes from the last

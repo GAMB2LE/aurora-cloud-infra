@@ -1,7 +1,7 @@
 # Archive tests
 
 I run the whole offline test suite before reviewing a release. CI separates
-forecast tests, the production Python 3.10 archive runtime, Ansible checks and
+Python 3.13 forecast tests, the production Python 3.10 archive runtime, Ansible checks and
 the strict documentation build.
 
 ```bash
