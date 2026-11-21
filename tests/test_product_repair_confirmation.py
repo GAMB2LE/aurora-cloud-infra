@@ -71,6 +71,8 @@ class ProductRepairConfirmationTests(unittest.TestCase):
         self.assertEqual(display['title'], 'Repair verified; full audit continuing')
         self.assertEqual(report, original)
         self.assertNotIn('stable_parity', confirmations)
+        for state in ('queued', 'retry_wait'):
+            self.assertEqual(self.presentation(confirmations, progress={'state': state})['level'], 'amber')
 
     def test_missing_wrong_size_wrong_name_or_timeout_do_not_confirm(self):
         for response in (SimpleNamespace(returncode=1, stdout=''),

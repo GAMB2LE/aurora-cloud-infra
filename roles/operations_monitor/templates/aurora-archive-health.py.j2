@@ -702,7 +702,7 @@ def operator_status(
                 and not (gws_missing or gws_mismatch or stream_gws_issues or settled_gaps)
                 and repair_only_failures and raw_ready and not delivery_red
                 and not (recovery and recovery.get('active_alert'))
-                and progress.get('state') in {'running', 'publishing'}):
+                and progress.get('state') in {'running', 'publishing', 'launching', 'queued', 'retry_wait'}):
             return {'level': 'amber', 'title': 'Repair verified; full audit continuing',
                     'detail': 'The previously reported product copies were checked individually and match unchanged local files. '
                               'The full audit must finish before archive parity can be certified. '
