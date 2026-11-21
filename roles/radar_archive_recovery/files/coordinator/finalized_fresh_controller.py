@@ -16,7 +16,7 @@ from per_file_coordinator import BASE, STATE, candidate_identity
 from per_file_queue import Queue
 
 FRESH = BASE / 'fresh-finalized-queue.sqlite'
-R7 = '/var/lib/aurora-radar-coordinator-v1/finalized-coordinator-r12-20261114/coordinator-r12/per_file_coordinator.py'
+R7 = '/var/lib/aurora-radar-coordinator-v1/finalized-coordinator-project-override-v3/coordinator/per_file_coordinator.py'
 
 
 def require_r7():
@@ -24,6 +24,10 @@ def require_r7():
                           '-p', 'SubState', '-p', 'MainPID', '-p', 'ExecStart'], check=True,
                          capture_output=True, text=True, timeout=20).stdout
     props = dict(line.split('=', 1) for line in raw.splitlines() if '=' in line)
+    if props.get('ActiveState') == 'inactive':
+        from completed_coordinator_gate import require_completed
+        require_completed()
+        return
     if (props.get('ActiveState') != 'active' or props.get('SubState') != 'running'
             or not props.get('MainPID', '').isdigit() or int(props['MainPID']) <= 0
             or 'argv[]=/usr/bin/python3 ' + R7 + ' run ' not in props.get('ExecStart', '')):

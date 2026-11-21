@@ -180,7 +180,9 @@ class PolicyTests(unittest.TestCase):
             if "Missing privilege separation directory" in tunnel.stderr:
                 self.skipTest("runner has no OpenSSH privilege separation directory")
             self.assertEqual(tunnel.returncode, 0, tunnel.stderr)
-            policy = dict(line.split(" ", 1) for line in tunnel.stdout.splitlines())
+            # OpenSSH builds differ in the case used by `sshd -T`.
+            policy = {key.lower(): value for key, value in
+                      (line.split(" ", 1) for line in tunnel.stdout.splitlines())}
             expected = dict(maxsessions="0", allowtcpforwarding="remote", permitopen="none", gatewayports="no",
                             allowstreamlocalforwarding="no", permittty="no", authenticationmethods="publickey",
                             clientaliveinterval="30", clientalivecountmax="3")
@@ -188,9 +190,9 @@ class PolicyTests(unittest.TestCase):
                 self.assertEqual(policy[name], value)
             self.assertEqual(policy["permitlisten"].split(), DEFAULTS["edge_tunnel_server_listen_ports"])
             operator = subprocess.run(command + ["user=existing-operator,host=localhost,addr=127.0.0.1"], capture_output=True, text=True, check=True)
-            self.assertIn("maxsessions 10\n", operator.stdout)
-            self.assertIn("allowtcpforwarding yes\n", operator.stdout)
-            self.assertIn("passwordauthentication no\n", operator.stdout)
+            self.assertIn("maxsessions 10\n", operator.stdout.lower())
+            self.assertIn("allowtcpforwarding yes\n", operator.stdout.lower())
+            self.assertIn("passwordauthentication no\n", operator.stdout.lower())
 
     def test_validation_failure_has_a_backup_restore_and_handler_rechecks(self):
         tasks = yaml.safe_load((ROLE / "tasks/main.yml").read_text())

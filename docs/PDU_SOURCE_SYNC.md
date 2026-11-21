@@ -18,10 +18,10 @@ private key is installed.
 - `aurora-pdu-source-sync.timer`
 - `aurora-pdu-append.timer`
 
-## Backup and retention
+## Archives
 
-Matching PDU CSV files are archived additively to GWS and object storage. ASS
-keeps each file for at least seven days; deletion requires an unchanged exact
-path in a signed permit backed by cloud, GWS, and object-store proof. The
-derived `pdu.zarr` is a product and is not raw-retention evidence. See
-[Backups and Archive Services](ARCHIVE_SERVICES.md).
+Only this stream's filename family is checked, even when it shares a raw
+folder with other streams. GWS and object copies are additive. ASS keeps raw
+files for at least seven days; deletion needs an exact signed permit backed
+by all three copies. A derived Zarr is not raw-retention proof. See
+[ASS retention](ASS_BACKUP_AND_RETENTION.md).

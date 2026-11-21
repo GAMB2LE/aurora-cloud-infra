@@ -20,78 +20,45 @@ can restore destination headroom using existing root capacity; it does not
 authorize this cutover. See the
 [dated outcome](records/2026-10-24-archive-follow-up.md).
 
-## The 24 October plan
+## Plan and capacity
 
-The first reviewed candidates are `Y2026/M05/D02` through `D05`: 96 regular files per day,
-384 files in total and 369,295,809,536 allocated bytes (343.94 GiB). At inspection
-they had no symlinks, hard links, submounts or open file descriptors. Their newest
-modification times were 5–6 May; metadata last changed in July. Those observations
-are a reason to consider them closed, not a substitute for the copy-time checks.
+The dated example is `inventory/radar-relocation-20261024.example.yml`:
 
-The plan also includes only `Y2026/M05/D13`, with an explicit 64-file expectation:
-16 files of each native type, 61,415,642,624 allocated bytes. This was a partial
-historical acquisition day; changing its expectation does not weaken the 96-file
-checks for D02–D05. Two source metadata inventories were identical at 08:04:39 and
-08:05:11; the newest file mtime was 14 May. Both open-file and process-map scans
-found no reader, and there were no links or submounts. All five days total
-430,711,452,160 allocated bytes and 448 files. Queue D13 only after the current
-four-day stage finishes; do not run heavy stage copies in parallel.
+| Days | Exact files per day | Total allocated bytes |
+| --- | --- | --- |
+| `Y2026/M05/D02`–`D05` | 96 | 369,295,809,536 |
+| `Y2026/M05/D13` | 64, explicitly partial historical day | 61,415,642,624 |
 
-The destination is `/data/aurora/raw-relocated/rpgfmcw94/<day>`. The temporary
-original is `/project/aurora/recovery/radar-relocation-20261024/<day>`, outside the
-raw archive tree. Archive relative paths and file modification times stay the same.
-The raw GWS rsync, object-store copy and archive dispatch follow these directory
-binds; none uses a one-filesystem restriction. They retain full native archive
-coverage. The DO mirror has a separate, selected scope: its `raw-rpgfmcw94` stage
-excludes `Y2026/**` and `.radar-partials/**`, while the dashboard receives compact
-radar products and quicklooks. Keep those exclusions. This relocation must not
-start a historical native radar copy to DO.
+Only those days are admitted. `expected_files_by_day` changes the exact count
+for a named day; it does not weaken the 96-file default. Stage one day at a time.
+The [full dated plan and measurements](https://github.com/GAMB2LE/aurora-cloud-infra/blob/7f25708/docs/RADAR_RAW_RELOCATION.md)
+remain in Git. They cannot admit a new operation.
 
-The dated plan is `inventory/radar-relocation-20261024.example.yml`. Re-measure both
-volumes before copying and cutover. The recorded arrival rate was 84,856,499,251
-bytes/day; seven future days plus 8 GiB and four largest in-flight files require
-617,088,629,797 free bytes on `/project` after delivery of existing debt. The fresh
-08:06 source comparison found 44 missing native files totalling 51,015,441,637
-bytes. That first plan required 668,104,071,434 bytes before native backfill.
-The four original days alone would not meet this post-backlog headroom gate.
+Copies go to `/data/aurora/raw-relocated/rpgfmcw94/<day>`; originals would move
+to `/project/aurora/recovery/radar-relocation-20261024/<day>`. Logical archive
+paths and mtimes stay unchanged. Raw GWS, object copy and dispatch follow binds.
+The selected DO mirror keeps its `Y2026/**` and `.radar-partials/**` exclusions;
+this operation must not start a historical native copy to DO.
 
-At 08:06, the five-day projection left 709,263,569,408 bytes on `/project`, or
-658,248,127,771 after the known backlog: 41,159,497,974 above the future seven-day
-target. `/data` projected 58,176,908,800 bytes after all remaining copies, exceeding
-its separate 40 GiB reserve by 15,227,235,840 bytes. Already staged allocations were
-subtracted once, including partial D03. These are dated estimates, not permission
-to spend future free space. Recheck allocation, arrival rate, debt, quota and actual
-available bytes before D13 staging, cutover and backfill. Keep backfill held until
-its fresh post-backlog capacity calculation passes.
+Re-measure both volumes, quota, native debt, arrival rate and pending allocation
+before staging, cutover and backfill. Require:
 
-The 08:53 refresh found 54,622,066,409 bytes of native debt, raising the dated
-primary minimum to 671,710,696,206 bytes. The active archive recovery has a stricter
-50 GiB `/data` floor, so the plan now uses that instead of the earlier 40 GiB.
-Preparation rejects a lower reserve when archive recovery is enabled. Re-read its
-actual configured reserve and use the stricter requirement before any copy or cutover.
+- `/project`: existing debt plus seven future days, 8 GiB and four largest
+  in-flight files. The dated future-only target was 617,088,629,797 bytes.
+- `/data`: the stricter live configured reserve, at least the recovery floor
+  of 50 GiB, plus remaining copies and measured growth through drain and full
+  mounted verification. Never substitute the earlier 40 GiB floor.
+- Sustained headroom on both volumes after writers return. Passing the short
+  operation window alone is insufficient.
 
-Also reserve measured non-staging growth for the remaining copy, consumer drain
-and full mounted-verification window. Track `/data` free bytes plus the actual
-allocated stage bytes to distinguish other growth from copying. Sample free space
-after counting pending copy bytes; a concurrent completed copy must not be credited
-against an older free-space reading. Credit source allocation only while every
-selected day remains unmounted on the original `/project` filesystem. After release,
-use actual free space without adding the moved bytes again. If the time allowance
-would cross the reserve, hold the next stage or cutover and report the shortfall.
-Do not weaken the floor or assume future cache cleanup.
+Count already staged allocation once. Read free space after counting pending
+copy bytes; do not combine an old free-space sample with a newly completed copy.
+Credit source allocation only while all selected originals remain unmounted on
+`/project`; after release, use actual free space. Do not assume cache cleanup or
+future retention. ASS pruning frees the edge, not primary `/data`.
 
-The operation window is only one capacity check. Before activating the mounts,
-also establish sustained headroom on both volumes, including restored writers,
-native delivery debt and continuing product growth. The active relocation guard
-would block the twelve named consumers below the destination reserve. Passing
-the `/project` seven-day calculation while `/data` is close to its floor is not
-enough. ASS retention affects the edge system; enabling it does not create primary
-`/data` capacity. If this longer-term gate is unresolved, defer cutover, preserve
-both copies and restore only the schedules recorded by the temporary barrier.
-
-`expected_files_by_day` permits a positive exact count only for an explicitly
-listed day. The reviewed D13 override leaves all other days at 96. No other older
-day is included in this plan.
+If any gate fails, defer cutover, retain both copies and restore only schedules
+owned by the temporary barrier. Keep native backfill and retention held.
 
 ## Prepare and stage
 

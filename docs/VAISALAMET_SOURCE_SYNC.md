@@ -1,50 +1,26 @@
-# Vaisala Met Source Sync
+# Vaisala MET source sync
 
-- Source: `aurora@100.124.55.22:/home/aurora/data/vaisalamet`
-- Target raw directory: `/project/aurora/raw/vaisalamet`
-- Target Zarr: `/data/aurora/products/vaisalamet/vaisalamet.zarr`
-- Quicklooks: `/data/aurora/products/quicklooks/vaisalamet`
+| Data | Path |
+| --- | --- |
+| Source | `aurora@100.124.55.22:/home/aurora/data/vaisalamet` |
+| Production raw | `/project/aurora/raw/vaisalamet` |
+| Product | `/data/aurora/products/vaisalamet/vaisalamet.zarr` |
+| Quicklooks | `/data/aurora/products/quicklooks/vaisalamet` |
 
-The source stores flat CSV-style `.dat` files named
-`vaisala_met_level0_DD-MM-YYYY.dat`. The dashboard pipeline parses every numeric
-column as a 1D time series and stores all variables in a single time-indexed
-Zarr.
+The source writes daily `vaisala_met_level0_DD-MM-YYYY.dat` files. The parser
+keeps numeric columns as one-dimensional time series in one Zarr.
 
-## Authentication
+`aurora-vaisalamet-source-sync.timer` runs `/usr/local/bin/aurora-vaisalamet-sync`.
+With `vaisalamet_source_start_fresh: false`, an absent cursor includes existing
+history. The current file keeps growing, so selection has no fixed upper-mtime
+cutoff. Each run revisits five minutes and queues the exact copied paths for
+both archives.
 
-The sync uses Tailscale SSH over the tailnet. The rsync remote shell is regular
-`ssh` with identity keys disabled:
+Use the [source-access check](OPERATOR_QUICKSTART.md#source-access).
+Processing uses `aurora-vaisalamet-append.timer` and
+`aurora-vaisalamet-quicklooks.timer`. I compare actual source and product sample
+times before calling a stalled stream recovered.
 
-- `IdentitiesOnly=yes`
-- `IdentityFile=none`
-- `PubkeyAuthentication=no`
-- `StrictHostKeyChecking=accept-new`
-
-No private key is installed for this source.
-
-## Timers
-
-`aurora-vaisalamet-source-sync.timer` runs
-`/usr/local/bin/aurora-vaisalamet-sync`. The first run pulls all existing
-matching `.dat` files because `vaisalamet_source_start_fresh` is false.
-
-The current daily file is appended continuously. Selection therefore has no
-fixed upper-mtime boundary: a file that advances while the cloud is building
-its request must still be copied. Each run also revisits the preceding five
-minutes, so a write concurrent with rsync is reconciled on the next cycle.
-The copy remains additive and the exact landed path is queued for both GWS and
-object storage delivery.
-
-Processing timers:
-
-- `aurora-vaisalamet-append.timer`
-- `aurora-vaisalamet-quicklooks.timer`
-
-## Backup and retention
-
-Matching raw `.dat` files are archived additively to the Vaisala MET prefixes
-on both GWS and object storage. ASS keeps them for at least seven days; only an
-unchanged file proven in the cloud and both archives can be removed through a
-signed exact-path permit. The Zarr and quicklooks are separately archived
-products and do not substitute for raw proof. See
-[Backups and Archive Services](ARCHIVE_SERVICES.md).
+Raw files reach GWS and object storage additively. ASS keeps them for at least
+seven days; signed exact-file proof is required for deletion. The product is
+not raw-retention proof. See [ASS retention](ASS_BACKUP_AND_RETENTION.md).

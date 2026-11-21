@@ -4,6 +4,7 @@ These pages record a dated observation or source-integration result. They are
 not proof of the current deployment. Keep credentials, host configuration
 archives and raw operational logs out of public records.
 
+- [21 November 2026: operations code and documentation review](2026-11-21-operations-review.md)
 - [28 October 2026: Grid Power history](2026-10-28-grid-power-history.md)
 - [26 October 2026: Grid Power card](2026-10-26-grid-power-card.md)
 - [26 October 2026: MultiPlus charging indicator](2026-10-26-multiplus-indicator.md)

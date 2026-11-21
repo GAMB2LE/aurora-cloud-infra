@@ -1,121 +1,94 @@
 # Development experiments
 
-These are isolated development workflows. They do not become operational
-products because their code is on `main`, and they are never automatic app
-fallback data. See [Production and Development](PRODUCTION_DEVELOPMENT.md)
-for ownership and [Releases](RELEASES.md) for promotion.
+I keep experimental products separate from operational data. Code on `main`
+does not promote a scientific result. The ordinary development API may show
+candidates; automatic app fallback uses the isolated operational mirror.
+See [Production and development](PRODUCTION_DEVELOPMENT.md) and
+[Releases](RELEASES.md).
 
-Development also runs `aurora-ecmwf-provider-shadow.timer`. This performs a
-read-only comparison of the latest mirrored deterministic ECMWF GRIB with the
-legacy and Earthkit decoders. It writes only
-`/data/aurora/dev-products/power/ecmwf_provider_shadow.json`, appends a shadow
-history, and writes a daily promotion-gate report. The gate requires seven days
-and 50 clean comparisons before it can be reviewed; it never changes the
-configured provider. `aurora-dashboard-health-probe.timer` also compares public
-development and production response times every five minutes and records mirror
-age. A development-versus-production latency delta is an observation only: it
-does not fail the availability probe when both endpoints are healthy.
+## Forecast provider comparison
 
-Development may run advisory forecast writers only in
-`/data/aurora/dev-products/power`; it never modifies the mirrored production
-forecast products. Production runs the same advisory jobs in
-`/data/aurora/products/power`. The operating-scenario service reads the UAS
-MQTT mirror so it can learn effective-tier load evidence. Neither environment
-issues PDU commands.
+`aurora-ecmwf-provider-shadow.timer` compares legacy and Earthkit decoding of
+the latest mirrored deterministic GRIB. It writes only
+`/data/aurora/dev-products/power/ecmwf_provider_shadow.json`, shadow history
+and a daily gate report. Review requires seven days and 50 clean comparisons;
+the gate never changes the configured provider. Production stays on
+`AURORA_ECMWF_PROVIDER=legacy` until parity and resource gates pass.
 
-When issue-driven Power orchestration is enabled on development, one successful
-archive-eligible deterministic issue captures an immutable issue snapshot and
-starts the ENS and 240-hour planning inputs in that order. Only after both
-inputs have been copied into the same staging tree do the deterministic,
-planning, and ENS snapshots pass explicit generation-age, source-cycle-age,
-90-hour coverage, and cycle-compatibility checks. Scenario, display, and
-checksum work then reads only those staged copies. The complete manifest binds
-the three forecast identities, upstream source-manifest digests, and artifact
-hashes into one `sourceManifestDigest` and
-also covers display-energy, the generation-local recommendation archive, and
-CL61 diagnostic products. The scenario generator seeds recommendation history
-and adaptive load-model state from the checksum-verified previous complete
-bundle (or the legacy files for the first generation) only into staging;
-neither an unpublished run nor a failed bundle mutates the legacy development
-learner state or recommendation archive. Completed issue and generation trees
-have their write bits removed before a pointer can expose them. A failed stage
-retains the prior generation and records a fail-closed status with the first
-detailed failure preserved within a distinct attempt ID; the next deterministic
-or cached attempt clears that failure before doing work, so stale errors cannot
-hide a later run's cause.
+Advisory writers use `/data/aurora/dev-products/power` on development and
+`/data/aurora/products/power` on production. They do not change mirrored forecast
+products. Operating scenarios learn load evidence from the UAS MQTT mirror;
+neither site issues PDU commands.
 
-The full-cycle and cached deterministic writers share one exclusive file lock.
-The dev full-cycle runner retains that lock across deterministic issue capture,
-ENS generation, planning generation, and complete staged publication. This
-prevents the three-hour timer or a cached re-anchor from replacing the issue or
-mutable source products between stages. A cached run that finds the full runner
-busy is deferred as a false systemd condition and cannot trigger a publisher
-against stale output. Otherwise its generation and complete staged publication
-occur while it still holds the lock. Manually invoked ENS, planning, and
-full-publication services also take the same lock, while the cached path calls
-the publisher directly under its existing lock and never recursively acquires
-it.
-Cached re-anchors are labelled `independentCycle=false` and never advance the
-`latest-independent` pointer used by candidate evidence. Cached rows remain in
-the forecast archive with
-`ForecastVerificationEligible=false`, so operational re-anchor behavior is
-auditable without entering paired skill or adaptive-learning evidence. The
-independent planning, ENS, scenario, candidate, and display timers are disabled
-on development while this chain is active.
+## Issue-driven forecast publication
 
-Public activation is deliberately two phase. The initial machinery release
-keeps `aurora_power_forecast_publication_active: false`, leaves
-`forecast-bundle/active` absent, and continues serving the established dev
-display without adding a candidate warning to the legacy v10 payload. Once
-`current/generation.json` is a real complete advisory-only bundle, set that
-inventory switch to `true` and re-run the focused release. Only then can a
-missing ready marker report `activation_pending`. Ansible validates the
-manifest from one resolved generation and links `active` directly to that same
-immutable generation; no legacy directory or moving `current` symlink is ever
-presented as the validated activation target. Subsequent successful
-publications advance `current` and
-`active` to the same generation. `current` is internal publisher state; every
-activated consumer resolves its products through the single validated `active`
-pointer so readers cannot mix generations during pointer updates.
+When enabled, the development chain is:
 
-The v12 evaluator receives the deterministic and ENS snapshots from one
-checksum-verified `latest-independent` generation. Its launcher rejects cached,
-incomplete, mismatched, or modified bundles before invoking the candidate.
-Candidate forcing comes from the site-level `ECMWFSolarIrradiance` embedded in
-the immutable deterministic artifact; it never reopens or retains the roughly
-50 MB global-grid GRIB named by historical provenance.
-The launcher atomically records preflight start/failure in the candidate status
-and append-only evaluation history, so an identity, digest, or anchor rejection
-is visible to operations and iOS rather than only in the systemd journal.
-It remains constrained by `MemoryMax=1.5G`, defers while the separate AURORA
-model-evaluation service is active, writes only its candidate tree, and is not a
-dependency of the operational Power bundle. CL61 output remains diagnostic
-shadow intent with `cl61ActuationEnabled=false`; intent and current status live
-only inside each validated bundle. The separate CL61 history remains an
-append-only diagnostic evidence stream and cannot actuate or update a PDU.
-The additive development mobile endpoint reads the status from the validated
-`current` bundle even while public forecast-bundle activation remains off; the
-standalone scenario writer keeps a separate mutable output path and can never
-write into that immutable bundle.
-Production remains on `AURORA_ECMWF_PROVIDER=legacy` until the parity and
-resource gates pass.
+1. Capture one archive-eligible deterministic issue as an immutable snapshot.
+2. Generate ENS, then 240-hour planning inputs. Copy both into the same staging tree.
+3. Check generation age, source-cycle age, 90-hour coverage and cycle compatibility.
+4. Build scenarios/display from those copies, checksum the full bundle, remove
+   write bits and publish its pointer. On failure, retain the previous generation.
 
-Forecast and scenario services use semantic publication signatures. A run with
-unchanged SOC/load anchors, mode, ECMWF cycle, solar calibration, battery
-parameters, and model version updates service state without rewriting the
-public Zarr or adding a duplicate verification issue.
+The manifest binds all three forecast identities, upstream manifest digests and
+artifact hashes into `sourceManifestDigest`. It includes display energy,
+recommendation history and CL61 diagnostics. Learner/history state is seeded
+only in staging from the verified previous complete bundle (legacy files on the
+first run). Failed or unpublished runs cannot mutate legacy state. Each attempt
+has its own status and preserves its first detailed failure; a new attempt clears
+old errors before work starts.
 
-## Development-only display performance work
+One exclusive producer lock covers issue capture, all input generation and
+publication. Cached re-anchors defer as a false systemd condition while it is
+held. Otherwise they publish under that same lock. Manual ENS, planning and
+publication services also take it; the cached runner calls its publisher
+without recursively acquiring it. Independent planning, ENS, scenario, candidate
+and display timers stay disabled while this chain owns the work.
 
-The development host may run bounded presentation experiments that do not
-change raw data, product Zarrs, source synchronization, or writer ownership.
+Cached rows remain auditable with `independentCycle=false` and
+`ForecastVerificationEligible=false`. They do not advance `latest-independent`
+or enter paired skill/adaptive-learning evidence.
 
-`aurora-dashboard-display-manifest.timer` inventories prewarmed Plotly JSON,
-quicklooks, WXcam thumbnails, and daily videos every five minutes. The manifest
-is an atomic, bounded input for a future CDN or object-store publishing job; it
-does not publish raw data and does not move any Zarr store.
+## Public activation
 
-Development expires unused Panel documents after one minute so backgrounded
-phone sessions stop retaining full server-side documents promptly. Production
-uses two minutes. Both hosts check every 15 seconds and retain a 24-hour
-session-token lifetime.
+Keep `aurora_power_forecast_publication_active=false` for the machinery release.
+`forecast-bundle/active` stays absent and the existing v10 display stays available.
+After `current/generation.json` is a complete advisory-only bundle, explicitly
+set the flag true and reapply the focused release. Only this state may report
+`activation_pending` for a missing ready marker.
+
+Ansible resolves and verifies one immutable generation, then links `active`
+directly to it. It never exposes a legacy directory or a moving `current`
+symlink as a validated target. Later publications advance both pointers;
+activated readers resolve through `active` so they cannot mix generations.
+The additive development mobile status can read validated `current` before
+public activation. The standalone scenario writer has its own mutable path and
+cannot write inside a bundle.
+
+## Candidate evaluation
+
+The v12 launcher accepts only checksum-verified deterministic/ENS inputs from
+one `latest-independent` generation. It rejects cached, incomplete, mismatched
+or modified bundles. Candidate forcing uses embedded site-level
+`ECMWFSolarIrradiance`, without reopening the roughly 50 MB historical global GRIB.
+Preflight start/failure is written atomically to candidate status and appended
+to evaluation history. Its 1.5G memory limit, separate candidate tree and deferral
+while model evaluation is active remain in place. It is not an operational
+Power dependency.
+
+CL61 remains diagnostic intent: `cl61ActuationEnabled=false`. Bundle status and
+append-only diagnostic history cannot operate a PDU. Unchanged publication
+signatures update service state without rewriting Zarr or duplicating issues;
+the signature includes SOC/load anchors, mode, ECMWF cycle, calibration, battery
+parameters and model version.
+
+## Display performance
+
+`aurora-dashboard-display-manifest.timer` inventories prewarmed plots,
+quicklooks, WXcam thumbnails and videos every five minutes. This atomic bounded
+manifest is input for future publishing; it does not publish raw data or move Zarrs.
+The health probe also compares public response times and mirror age every five
+minutes. A slower healthy endpoint does not fail availability.
+
+Panel expires unused documents after one minute on development and two on
+production. Both check every 15 seconds and keep a 24-hour session-token lifetime.

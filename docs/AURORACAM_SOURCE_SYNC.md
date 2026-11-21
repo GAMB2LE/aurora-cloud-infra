@@ -43,17 +43,10 @@ The full-resolution JPEGs remain in the raw mirror. The Zarr is intentionally a
 metadata index, not a raw-pixel store, so it can be rebuilt frequently without
 duplicating QXGA image payloads.
 
-## Authentication
+## Access
 
-The sync uses Tailscale SSH over the tailnet. The rsync remote shell is regular
-`ssh` with identity keys disabled:
-
-- `IdentitiesOnly=yes`
-- `IdentityFile=none`
-- `PubkeyAuthentication=no`
-- `StrictHostKeyChecking=accept-new`
-
-No private key is installed for this source.
+Use the [source-access check](OPERATOR_QUICKSTART.md#source-access). These
+syncs use Tailscale SSH without an installed source private key.
 
 ## Timers
 

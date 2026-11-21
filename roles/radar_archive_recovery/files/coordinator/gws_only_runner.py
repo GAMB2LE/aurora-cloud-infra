@@ -85,18 +85,18 @@ def known_paths(*, isolated_candidate=None, object_operation=None, lock_fds=None
     if os.path.lexists(BASE/'gws-first-pair-unresolved.json'):
         raise ValueError('unresolved pairing or object operation requires reconciliation')
     guard = BASE/'gws-pending-object-unresolved.json'
-    proof = None
+    isolation_proof = None
     if os.path.lexists(guard):
         if isolated_candidate is None:
             raise ValueError('unresolved pairing or object operation requires reconciliation')
         from gws_object_isolation import check
-        proof = check(isolated_candidate, object_operation, lock_fds=lock_fds, base=BASE)
-        if proof.get('object_isolated') is not True:
+        isolation_proof = check(isolated_candidate, object_operation, lock_fds=lock_fds, base=BASE)
+        if isolation_proof.get('object_isolated') is not True:
             raise ValueError('object operation is not isolated')
     for prep in BASE.glob('direct-gws-only-preparation-*'):
-        proof = prep / 'captured-gws-evidence' / 'verification.json'
-        if not proof.is_file(): raise ValueError('prior GWS-only preparation requires reconciliation')
-        value = json.loads(proof.read_bytes())
+        verification_path = prep / 'captured-gws-evidence' / 'verification.json'
+        if not verification_path.is_file(): raise ValueError('prior GWS-only preparation requires reconciliation')
+        value = json.loads(verification_path.read_bytes())
         if not (value.get('state') == 'gws-present-verified' and value.get('object_verified') is False
                 and value.get('eviction_authorized') is False and value.get('retention_authorized') is False):
             raise ValueError('prior GWS-only evidence invalid')
@@ -109,7 +109,7 @@ def known_paths(*, isolated_candidate=None, object_operation=None, lock_fds=None
         for table in ('provisional_object_versions', 'provisional_gws_versions'):
             known.update(row[0] for row in db.execute('SELECT DISTINCT relative_path FROM ' + table))
     finally: db.close()
-    if proof is not None and check(isolated_candidate, object_operation, lock_fds=lock_fds, base=BASE) != proof:
+    if isolation_proof is not None and check(isolated_candidate, object_operation, lock_fds=lock_fds, base=BASE) != isolation_proof:
         raise ValueError('object isolation changed while enumerating known paths')
     return known
 

@@ -123,7 +123,7 @@
     - name: Reject an absent or overridden tunnel restriction
       ansible.builtin.assert:
         that:
-          - item in edge_tunnel_server_effective_policy.stdout_lines
+          - item in (edge_tunnel_server_effective_policy.stdout_lines | map('lower') | list)
         fail_msg: "Effective sshd policy is missing {{ item }}; the previous fragment will be restored without reloading SSH."
       loop:
         - authenticationmethods publickey

@@ -206,6 +206,17 @@
     - not ((gws_sync_timer_enabled | bool) and ((gws_sync_ready | default(false)) | bool))
     - not ansible_check_mode
 
+- name: Preserve an installed storage guard before changing the verifier
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - "{{ lookup('file', role_path ~ '/../../scripts/check_python_entrypoint.py') }}"
+      - /usr/local/bin/aurora-mirror-verify
+  changed_when: false
+  check_mode: false
+  when: gws_verification_enabled | bool
+
 - name: Install mirror verification script
   ansible.builtin.template:
     src: aurora-mirror-verify.py.j2

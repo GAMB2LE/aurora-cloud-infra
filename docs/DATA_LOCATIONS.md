@@ -38,7 +38,8 @@ coverage.
 | ASFS fast gas | `aurora@100.124.55.22:/home/aurora/data/asfs/raw/crd` | `/project/aurora/raw/asfs/crd` | `/data/aurora/products/asfs_fast_gas` | `/data/aurora/products/asfs_fast_gas/asfs_fast_gas.zarr` |
 | ASS PDU | `aurora@100.124.55.22:/home/aurora/data/pdu` | `/project/aurora/raw/pdu` | `/data/aurora/products/power` | `/data/aurora/products/power/pdu.zarr` |
 | Power | `aurora@100.81.226.30:/data/power/level1` | `/project/aurora/raw/power/level1` | `/data/aurora/products/power` | `/data/aurora/products/power/power.zarr`; derived display stores under the same directory |
-| Menapia flight data | `s3://menapia-flight-data-corrected/` | `/project/aurora/raw/menapia/drone-uploads` | None; ingestion is raw-only | Source hierarchy continues as `YYYY/MM/DD/<dock-id>/<flight-id>/`; provenance is internal rather than a scientific product |
+| Menapia flight data | `s3://menapia-flight-data-corrected/` | `/project/aurora/raw/menapia/drone-uploads` | `/data/aurora/products/menapia` | `catalog.json`, per-flight JSON/PNG; daily UAS quicklooks under `/data/aurora/products/quicklooks/uas` |
+| BLE enclosure sensors | `aurora@100.124.55.22:/home/aurora/data/blesensors` | `/project/aurora/raw/blesensors` | `/data/aurora/products/blesensors` | `blesensors.zarr`; temperature, humidity and battery are checked per sensor |
 | Ops monitor | local collector output | `/project/aurora/raw/ops_monitor` | `/data/aurora/products/ops_monitor` | `/data/aurora/products/ops_monitor/ops_monitor.zarr`; health output under `/data/aurora/products/ops_monitor/health` |
 | WXcam | `aurora@100.124.55.22:/home/aurora/data/wxcam` | `/project/aurora/raw/wxcam` | `/data/aurora/products/wxcam` | Catalog at `/data/aurora/products/wxcam/wxcam_catalog.sqlite`; daily MP4s under `/data/aurora/products/wxcam/daily_videos`. The dashboard does not require a WXcam pixel Zarr. |
 | AURORACam / MX4 | `aurora@100.124.55.22:/home/aurora/data/mx4` | `/project/aurora/raw/auroracam` | `/data/aurora/products/auroracam` | Metadata Zarr at `/data/aurora/products/auroracam/auroracam.zarr`; JPEGs remain in the raw mirror |
@@ -60,12 +61,10 @@ production host or in Operations.
 | `menapia-flight-manifests` | `/data/aurora/internal/menapia-flight/manifests/` | `/gws/ssde/j25b/gamb2le/data/internal/aurora-cloud/menapia-flight/manifests/` | `s3://gamb2le-o/data/internal/aurora-cloud/menapia-flight/manifests/` |
 | `manifests` | `/data/aurora/internal/mirror_manifests/` | `/gws/ssde/j25b/gamb2le/data/internal/aurora-cloud/manifests/` | `s3://gamb2le-o/data/internal/aurora-cloud/manifests/gws/` |
 
-The object-store inventory runs at `03:20`, `09:20`, `15:20`, and `21:20`
-UTC. Raw files become parity evidence at six hours old; core and WXcam products
-at 30 hours; model-evaluation data at six hours; and manifests at two hours.
-Younger product files are reported as pending uploads, not gaps. See
-[Backups and Archive Services](ARCHIVE_SERVICES.md) for writer cadence,
-exclusions, and verification semantics.
+The recovery coordinator requests raw refresh every three hours, other families
+every twelve hours and the full daily audit at 03:20 UTC. Queueing is not a
+completed comparison. Writer and independent verification ages are listed once
+in [Archive services](ARCHIVE_SERVICES.md#verification-windows).
 
 GWS transfers use rsync over SSH through JASMIN transfer hosts:
 

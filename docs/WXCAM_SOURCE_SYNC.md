@@ -109,17 +109,10 @@ updated raw mirror. Fresh in-flight media are deferred until they have settled.
 Check source, raw, catalogue and rendered-media times separately: a fresh raw
 JPEG does not prove its thumbnail or daily video has been rebuilt yet.
 
-## Authentication
+## Access
 
-The sync uses Tailscale SSH over the tailnet. The rsync remote shell is regular
-`ssh` with identity keys disabled:
-
-- `IdentitiesOnly=yes`
-- `IdentityFile=none`
-- `PubkeyAuthentication=no`
-- `StrictHostKeyChecking=accept-new`
-
-No private key is installed for this source.
+Use the [source-access check](OPERATOR_QUICKSTART.md#source-access). These
+syncs use Tailscale SSH without an installed source private key.
 
 ## Timers
 

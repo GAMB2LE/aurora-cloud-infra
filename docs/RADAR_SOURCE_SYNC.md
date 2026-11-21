@@ -23,15 +23,21 @@ Only `*LV1.NC` files feed the dashboard Zarr and its processing-watermark
 gate. The other native file classes are archived and verified without being
 passed to the LV1 processor.
 
-## Authentication
+## Access and alerts
 
-Radar source sync uses Tailscale SSH over the tailnet IP without private keys.
-The script uses regular `ssh` for rsync compatibility, with identity-file and
-public-key authentication disabled:
+Use the [source-access check](OPERATOR_QUICKSTART.md#source-access).
+The priority lane processes LV1 NetCDF; a fresh dashboard does not prove the
+other native formats reached their archives.
 
-```bash
-sudo -u aurora ssh -o IdentityFile=none -o PubkeyAuthentication=no aurora@100.124.55.22 true
-```
+Missing native `P01_ZEN` LV0, LV1 and LV0.NC paths stay pending for 45 minutes
+settling plus 30 minutes delivery after the source's last write. They alert
+after 75 minutes. Mismatches and failed or stale verification still alert.
+Raw missing counts and retention gates are unchanged. See
+[Archives and alerts](ARCHIVE_SERVICES.md#the-hourly-radar-window).
+
+A completed historical coordinator may be inactive. The fresh controller must
+verify its completed frozen cohort instead of restarting that old job.
+See [Archive recovery](ARCHIVE_RECOVERY.md#historical-radar-helpers).
 
 ## Maintained behavior
 

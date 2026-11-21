@@ -8,6 +8,19 @@
     mode: "0755"
   when: archive_monitor_enabled | bool
 
+- name: Preserve an installed storage guard before changing archive health
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - "{{ lookup('file', role_path ~ '/../../scripts/check_python_entrypoint.py') }}"
+      - /usr/local/bin/aurora-archive-health
+  changed_when: false
+  check_mode: false
+  when: archive_monitor_enabled | bool
+  tags:
+    - wxcam_reconcile
+
 - name: Install archive health collector
   ansible.builtin.template:
     src: aurora-archive-health.py.j2

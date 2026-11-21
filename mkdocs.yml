@@ -37,6 +37,7 @@ nav:
   - Development Experiments: DEVELOPMENT_EXPERIMENTS.md
   - Recovery Records:
       - Index: records/index.md
+      - 21 November Operations Review: records/2026-11-21-operations-review.md
       - 24 October Primary Restoration: records/2026-10-24-primary-restoration.md
       - 24 October SSH Wrapper Cleanup: records/2026-10-24-ssh-wrapper-cleanup.md
       - 23 October Forecast Continuity: POWER_FORECAST_CONTINUITY_INPUTS.md
