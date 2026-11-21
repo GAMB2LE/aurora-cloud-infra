@@ -9,7 +9,7 @@ are rechecked for settle age before transfer.
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 import csv
 import datetime as dt
 import fcntl
@@ -71,6 +71,24 @@ def publish_result(path: Path, payload: dict) -> None:
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     temporary.replace(path)
+
+
+@contextmanager
+def repair_snapshot(catalog: dict):
+    """Tolerate a short audit publication without retrying a repair body."""
+    sys.path.insert(0, '/usr/local/lib/aurora-object-store')
+    from aurora_object_store_evidence import read_snapshot
+    with ExitStack() as stack:
+        for attempt in range(10):
+            try:
+                snapshot = stack.enter_context(read_snapshot(catalog))
+            except BlockingIOError:
+                if attempt == 9:
+                    raise
+                time.sleep(0.2)
+            else:
+                break
+        yield snapshot
 
 
 @contextmanager
@@ -304,13 +322,11 @@ def repair_latest(args: argparse.Namespace, catalog: dict) -> dict:
     if getattr(args, "verify_only", False) is True:
         if args.dry_run:
             raise ValueError("--verify-only cannot be combined with --dry-run")
-        sys.path.insert(0, '/usr/local/lib/aurora-object-store')
-        from aurora_object_store_evidence import read_snapshot
         jobs = {job['name']: job for job in catalog['jobs']}
         selected = set(args.job or {"products", "products-wxcam"})
         if not selected <= (set(jobs) & {"products", "products-wxcam"}):
             raise ValueError("verify-only supports configured product families only")
-        with read_snapshot(catalog) as snapshot:
+        with repair_snapshot(catalog) as snapshot:
             results = [{"job": name, "ready": 0, "returncode": 0,
                         "product_verification": verify_product_findings(name, jobs[name], snapshot.report['jobs'][name], catalog,
                             read_local_evidence(snapshot.path / 'comparison.json', name))}
@@ -354,7 +370,6 @@ def repair_latest(args: argparse.Namespace, catalog: dict) -> dict:
 def repair_recovery_latest(args: argparse.Namespace, catalog: dict) -> dict:
     """Invalidate observations before copies, without locking remote I/O."""
     sys.path.insert(0, '/usr/local/lib/aurora-object-store')
-    from aurora_object_store_evidence import read_snapshot
     from aurora_object_store_recovery import Queue, commit_lock, atomic_json
 
     jobs = {job['name']: job for job in catalog['jobs']}
@@ -366,7 +381,7 @@ def repair_recovery_latest(args: argparse.Namespace, catalog: dict) -> dict:
     queue = Queue(catalog)
     results = []
     try:
-        with read_snapshot(catalog) as snapshot:
+        with repair_snapshot(catalog) as snapshot:
             for name in sorted(selected):
                 values = snapshot.report['jobs'][name]
                 comparison = values['source_vs_s3']

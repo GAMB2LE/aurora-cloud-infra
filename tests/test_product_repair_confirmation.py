@@ -1,5 +1,6 @@
 """Targeted repair confirmation is display evidence, never archive certification."""
 import copy
+from contextlib import contextmanager
 import datetime as dt
 import importlib.util
 import json
@@ -66,6 +67,9 @@ class ProductRepairConfirmationTests(unittest.TestCase):
         original = copy.deepcopy(report)
         confirmations = confirmed(report, result)
         self.assertEqual(confirmations, {'missing': 1, 'mismatch': 0})
+        report['jobs']['products']['source'] += '/'
+        self.assertEqual(confirmed(report, result), confirmations)
+        report['jobs']['products']['source'] = original['jobs']['products']['source']
         display = self.presentation(confirmations)
         self.assertEqual(display['level'], 'amber')
         self.assertEqual(display['title'], 'Repair verified; full audit continuing')
@@ -170,6 +174,23 @@ class ProductRepairConfirmationTests(unittest.TestCase):
             (self.root / 'linked.png').symlink_to(self.path)
             self.assertEqual(repair.verify_product_findings('products', self.job, self.values, self.catalog, self.evidence)['state'], 'unverified')
             query.assert_not_called()
+
+    def test_short_publication_contention_retries_acquisition_only(self):
+        attempts = []
+        @contextmanager
+        def snapshot(catalog):
+            attempts.append(1)
+            if len(attempts) < 3:
+                raise BlockingIOError('publication busy')
+            yield 'pinned'
+        with mock.patch.dict('sys.modules', {'aurora_object_store_evidence': SimpleNamespace(read_snapshot=snapshot)}), \
+                mock.patch.object(repair.time, 'sleep') as pause:
+            with self.assertRaisesRegex(BlockingIOError, 'body must not retry'):
+                with repair.repair_snapshot({}) as pinned:
+                    self.assertEqual(pinned, 'pinned')
+                    raise BlockingIOError('body must not retry')
+        self.assertEqual(len(attempts), 3)
+        self.assertEqual(pause.call_count, 2)
 
 
 if __name__ == '__main__':

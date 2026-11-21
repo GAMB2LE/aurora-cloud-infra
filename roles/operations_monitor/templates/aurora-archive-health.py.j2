@@ -515,7 +515,7 @@ def verified_product_repairs(report: dict, result: dict, max_age_hours: float = 
             if (name not in {'products', 'products-wxcam'} or
                     receipt.get('state') != 'verified' or not job.get('verification_id') or
                     receipt.get('verification_id') != job['verification_id'] or
-                    receipt.get('source') != job.get('source') or
+                    _Path(receipt.get('source', '')) != _Path(job.get('source', '')) or
                     receipt.get('destination') != job.get('s3') or
                     set(receipt.get('paths', {})) != paths):
                 return {}
