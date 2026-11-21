@@ -23,6 +23,24 @@ SPEC.loader.exec_module(dispatch)
 
 
 class ArchiveDispatchTests(unittest.TestCase):
+    def test_gws_uses_shared_priority_helper_and_keeps_errors_visible(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            config = self.config(Path(temporary))
+            config['gws_hosts'] = ['first.example', 'second.example']
+            for code, expected_calls in [(23, 2), (75, 1), (143, 1), (-15, 1)]:
+                with self.subTest(code=code), mock.patch.object(
+                    dispatch.subprocess, 'run',
+                    return_value=mock.Mock(returncode=code, stderr='transfer failed', stdout=''),
+                ) as run:
+                    with self.assertRaises(RuntimeError):
+                        dispatch.deliver_gws(config, config['jobs']['raw'], [], Path('/files.nul'))
+                    self.assertEqual(run.call_count, expected_calls)
+                    command = run.call_args.args[0]
+                    self.assertEqual(command[:3], ['/usr/local/lib/aurora-gws-transfer', 'fast', '--lock-root'])
+                    self.assertEqual(command[3], config['gws_delivery_lock_root'])
+                    self.assertIn('--delay-updates', command)
+                    self.assertIn('--from0', command)
+
     def config(self, root: Path) -> dict:
         source = root / "raw"
         source.mkdir()
@@ -38,6 +56,7 @@ class ArchiveDispatchTests(unittest.TestCase):
             "gws_hosts": ["xfer.example"],
             "gws_key": "/key",
             "gws_known_hosts": "/known_hosts",
+            "gws_delivery_lock_root": str(root / "state/gws-transfer"),
             "limits": {"max_files_per_run": 10, "max_bytes_per_run": 1_000_000},
             "jobs": {
                 "raw": {

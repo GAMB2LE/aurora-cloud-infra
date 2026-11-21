@@ -477,6 +477,61 @@ sudo systemctl start aurora-archive-dispatch.service
 sudo -u aurora /usr/local/bin/aurora-archive-dispatch status
 ```
 
+### Keep the two raw GWS writers from colliding
+
+I keep the full raw scan and newest-first dispatcher, but they now share one
+delivery lock on the primary. The full scan discovers changed paths without
+holding that lock. It selects up to 256 paths or 64 MiB per batch, checking their
+current sizes and rebuilding the actual rsync file list while it holds the lock. A waiting dispatcher goes
+before the next bulk batch. One larger file or hardlink group stays together and
+is logged as an exception; its transfer can make the dispatcher wait longer.
+The byte bound applies when selecting the batch; a live file can still grow
+during transfer. Neither it nor the file-count bound promises a transfer time. The dispatcher keeps its
+waiting priority until the current batch drains, subject to its existing service
+timeout. Bulk work defers instead of queuing ahead of it.
+
+Both writers still use ordinary rsync partial transfers and delayed publication.
+On 24 October, their concurrent transfers used the same `.~tmp~` filenames. The
+dispatcher committed 32 affected files shortly before the full transfer reported
+missing staging files. All 32 final files were present through the three transfer
+hosts and matched source size and modification time. Disposable rsync 3.2.7 tests
+reproduced that exit 23. Separate staging names fixed the collision but still let
+an old delayed copy overwrite a newer one, even with `--update`. Serializing the
+actual transfers prevents both races; the old discovery list supplies names only.
+
+The supported writers are `aurora-gws-rsync-raw` and `aurora-archive-dispatch` on
+the same primary, using `gws_raw_delivery_lock_root`. Switching JASMIN transfer
+hosts does not change this lock. It does not coordinate an independent writer on
+another machine or a manual rsync that bypasses the helper. Keep those out of the
+same raw destination. Product writers use separate roots and are unchanged.
+
+Before deployment, pause new starts and let both old writers finish naturally.
+Install the shared `gws_delivery` dependency, both callers and the dispatch
+configuration together. Do not overwrite an active wrapper or remove partial
+files to clear an error. The helper keeps its lock while its foreground transfer
+and SSH child run; a direct TERM, INT or HUP to the helper is reported after that
+batch drains. Forced process-group termination, host failure and SSH failure
+remain interruption cases, not successful delivery receipts. Before resuming
+after an uncertain interruption, confirm no receiver from that attempt remains.
+
+Exit 23 remains a transfer failure. A busy bulk attempt returns 75 and retries on
+its normal timer; it does not claim a complete full sync or try another host to
+evade the lock. It repeats discovery on that retry; completed destination copies
+remain useful progress, but a busy fast lane can delay the historical scan.
+The existing bulk exit-24 vanished-source warning remains visible, including a
+warning during discovery. The dispatch queue keeps unacknowledged paths pending. Retrying
+performs a fresh source/destination check and can reuse rsync's partial data.
+Archive copies remain additive: no destination deletion is enabled. The `-aH`
+metadata and discovered hardlink groups are retained; an optional `-L` remains
+explicit. Unexpected special entries or encoded filenames stop discovery for
+review rather than being silently skipped. No source observation is removed.
+
+Run `python -m unittest discover -s tests -p test_gws_transfer.py -v` with upstream
+rsync to repeat the disposable race, ordering, metadata, interruption and retry
+checks. macOS openrsync cannot run those rsync regressions; Linux CI must run them.
+
+### Keep rebuildable cache cleanup separate
+
 The rebuildable WXcam pixel cache is a separate cloud-capacity operation. Run
 the command without `--apply` first. The tool refuses both modes unless the
 appender is disabled and strict archive evidence is green; apply mode writes an

@@ -81,11 +81,13 @@ jobs:
             -r roles/object_store_mirror/files/aurora-object-store-recovery-requirements.txt
           python -m pip check
       - name: Compile archive programs for the production Python version
-        run: python -m compileall -q roles/object_store_mirror/files roles/source_sync/files scripts/deploy_hatpro_discovery.py scripts/render_mirror_verifier_patch.py
+        run: python -m compileall -q roles/object_store_mirror/files roles/source_sync/files roles/gws_delivery/files scripts/deploy_hatpro_discovery.py scripts/render_mirror_verifier_patch.py
       - name: Install test-only template and fixture tooling
         run: python -m pip install pytest==8.4.2 Jinja2==3.1.6 PyYAML==6.0.3
       - name: Test archive recovery and existing operational contracts
-        run: python -m pytest -q tests --ignore=tests/forecast
+        run: |
+          rsync --version
+          python -m pytest -q tests --ignore=tests/forecast
       - name: Test protected hardlinks across the root and worker UID boundary
         run: |
           sudo -- "${{ steps.archive-python.outputs.python-path }}" - <<'PY'

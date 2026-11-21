@@ -89,6 +89,11 @@
     mode: "0644"
   when: gws_sshfs_enabled | bool
 
+- name: Prepare shared raw GWS delivery
+  ansible.builtin.include_role:
+    name: gws_delivery
+  when: gws_sync_enabled | bool
+
 - name: Install GWS rsync wrapper scripts
   ansible.builtin.template:
     src: aurora-gws-rsync.sh.j2
