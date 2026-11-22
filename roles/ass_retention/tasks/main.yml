@@ -66,6 +66,10 @@
     - aurora-ass-retention.timer
   when: ass_retention_enabled | bool
 
+- name: Install guarded window control before enabling its schedule
+  ansible.builtin.import_tasks: window.yml
+  when: ass_retention_window_enabled | default(false) | bool
+
 - name: Enable ASS retention timer
   ansible.builtin.systemd:
     name: aurora-ass-retention.timer

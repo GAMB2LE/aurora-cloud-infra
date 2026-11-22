@@ -1,0 +1,28 @@
+---
+- name: Apply bounded retention source policy without scientific writer changes
+  hosts: aurora_cloud
+  become: true
+  tasks:
+    - name: Render the existing signed coordinator with reviewed stream policy
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../roles/ass_retention/templates/aurora-ass-retention.py.j2"
+        dest: "{{ '/var/lib/aurora-retention-return-20261121/rendered-ass-retention.py' if retention_policy_stage_only | default(true) | bool else '/usr/local/bin/aurora-ass-retention' }}"
+        owner: root
+        group: root
+        mode: '0755'
+        backup: true
+      when: retention_policy_stage_only | default(true) | bool
+    - name: Install the scoped policy editor that preserves live guard wrappers
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../roles/ass_retention/files/set-retention-stream-policy.py"
+        dest: /usr/local/lib/aurora-retention-window/set-retention-stream-policy.py
+        owner: root
+        group: root
+        mode: '0755'
+      when: not retention_policy_stage_only | default(true) | bool
+    - name: Apply only the reviewed WXcam pause with exact guarded-child pin refresh
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - /usr/local/lib/aurora-retention-window/set-retention-stream-policy.py
+      when: not retention_policy_stage_only | default(true) | bool

@@ -1014,7 +1014,7 @@ aurora_archive_streams:
     cloud_root: "{{ wxcam_source_destination }}"
     archive_relpath: wxcam
     retention_days: 7
-    prune_enabled: true
+    prune_enabled: "{{ wxcam_retention_prune_enabled | default(true) | bool }}"
   - name: auroracam
     site: ass
     source_sync_stem: auroracam
@@ -1205,6 +1205,9 @@ ass_retention_enabled: "{{ aurora_is_production }}"
 # Held closed until the restricted edge helper is explicitly approved,
 # installed, and its dry-run audit canary has been reviewed.
 ass_retention_timer_enabled: false
+ass_retention_window_enabled: false
+ass_retention_window_python: /opt/aurora-object-store-recovery/venv/bin/python
+ass_retention_window_max_candidates: 500
 ass_retention_schedule: "*-*-* 03:30:00 UTC"
 ass_retention_manifest_max_age_hours: 8
 ass_retention_dry_run: true

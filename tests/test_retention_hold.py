@@ -16,8 +16,8 @@ def test_hold_is_applied_before_any_retention_unit_or_timer_change():
     hold = yaml.safe_load((ROOT / 'roles/ass_retention/tasks/hold.yml').read_text())
     create = next(task for task in hold if task.get('ansible.builtin.copy', {}).get('dest') == '/etc/aurora/ass-retention.hold')
     release = next(task for task in hold if task.get('ansible.builtin.file', {}).get('state') == 'absent')
-    assert create['when'] == 'not ((ass_retention_enabled | bool) and (ass_retention_timer_enabled | bool))'
-    assert release['when'] == '(ass_retention_enabled | bool) and (ass_retention_timer_enabled | bool)'
+    assert create['when'] == 'not ((ass_retention_enabled | bool) and (ass_retention_timer_enabled | bool)) or (ass_retention_window_enabled | default(false) | bool)'
+    assert release['when'] == '(ass_retention_enabled | bool) and (ass_retention_timer_enabled | bool) and not (ass_retention_window_enabled | default(false) | bool)'
     assert all(set(task.get('ansible.builtin.systemd', {})) <= {'daemon_reload'} for task in hold)
 
 

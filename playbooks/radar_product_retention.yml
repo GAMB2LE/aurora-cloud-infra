@@ -1,0 +1,73 @@
+---
+- name: Install bounded archive-verified radar retention
+  hosts: aurora_cloud
+  become: true
+  tasks:
+    - name: Verify production-only deployment
+      ansible.builtin.assert:
+        that: aurora_is_production | bool
+    - name: Prepare controller folder
+      ansible.builtin.file:
+        path: /usr/local/lib/aurora-radar-retention
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+    - name: Install controller and exact-version evidence checks
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../roles/radar_raw_relocation/files/{{ item }}"
+        dest: "/usr/local/lib/aurora-radar-retention/{{ item }}"
+        owner: root
+        group: root
+        mode: '0755'
+        backup: true
+      loop:
+        - aurora-cloud-radar-retention.py
+        - radar_retention_evidence.py
+        - cloud-retention-ready.py
+        - aurora-cloud-radar-retention-preview.py
+        - radar_retention_maintenance.py
+        - install-retention-layout-release.py
+    - name: Expose the read-only operator preview command
+      ansible.builtin.file:
+        src: /usr/local/lib/aurora-radar-retention/aurora-cloud-radar-retention-preview.py
+        dest: /usr/local/sbin/aurora-cloud-radar-retention-preview
+        state: link
+        owner: root
+        group: root
+    - name: Install future bounded-day proof producers
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../scripts/{{ item }}"
+        dest: "/usr/local/lib/aurora-radar-retention/{{ item }}"
+        owner: root
+        group: root
+        mode: '0755'
+        backup: true
+      loop:
+        - stage-retention-radar-image.py
+        - verify-retention-radar-archives.py
+    - name: Install verified cloud retention service and calendar
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../roles/radar_raw_relocation/templates/{{ item }}.j2"
+        dest: "/etc/systemd/system/{{ item }}"
+        owner: root
+        group: root
+        mode: '0644'
+        backup: true
+      loop:
+        - aurora-cloud-radar-retention.service
+        - aurora-cloud-radar-retention.timer
+        - aurora-radar-retention-restore.service
+    - name: Reload cloud retention policy without starting cleanup
+      ansible.builtin.systemd:
+        daemon_reload: true
+    - name: Enable daily cloud retention after initial acceptance
+      ansible.builtin.systemd:
+        name: aurora-cloud-radar-retention.timer
+        enabled: true
+        state: started
+      when: not radar_product_retention_initial_catchup | default(false) | bool
+    - name: Enable interrupted-window recovery at boot
+      ansible.builtin.systemd:
+        name: aurora-radar-retention-restore.service
+        enabled: true

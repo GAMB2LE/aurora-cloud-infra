@@ -1,0 +1,21 @@
+[Unit]
+Description=Retire only verified historical radar duplicates
+After=network-online.target data.mount project.mount aurora-radar-retention-restore.service
+Requires=data.mount project.mount
+OnFailure=aurora-radar-retention-restore.service
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=12h
+TimeoutStopSec=5min
+Restart=on-failure
+RestartPreventExitStatus=1
+RestartSec=15min
+ExecCondition=/usr/bin/python3 /usr/local/lib/aurora-radar-retention/cloud-retention-ready.py
+ExecStart=/usr/bin/python3 /usr/local/lib/aurora-radar-retention/aurora-cloud-radar-retention.py --max-days {{ 2 if radar_product_retention_initial_catchup | default(false) | bool else 1 }}{% if radar_product_retention_initial_catchup | default(false) | bool %} --day Y2026/M05/D02 --day Y2026/M05/D03{% endif %}
+
+ExecStopPost=/usr/bin/python3 /usr/local/lib/aurora-radar-retention/install-retention-layout-release.py --restore

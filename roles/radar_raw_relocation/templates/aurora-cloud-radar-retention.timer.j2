@@ -1,0 +1,14 @@
+[Unit]
+Description=Daily verified historical radar storage retention
+
+[Timer]
+OnCalendar=*-*-* 05:00:00 UTC
+{% if radar_product_retention_initial_catchup | default(false) | bool %}
+OnActiveSec=30s
+{% endif %}
+Persistent=true
+RandomizedDelaySec={{ 0 if radar_product_retention_initial_catchup | default(false) | bool else 600 }}
+Unit=aurora-cloud-radar-retention.service
+
+[Install]
+WantedBy=timers.target

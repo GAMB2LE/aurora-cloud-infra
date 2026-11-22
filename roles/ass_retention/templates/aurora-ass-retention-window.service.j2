@@ -1,0 +1,20 @@
+[Unit]
+Description=Drain archive admissions and run audited signed ASS retention
+After=network-online.target aurora-ass-retention-window-restore.service
+Wants=network-online.target
+RequiresMountsFor=/data/aurora/internal /project/aurora/raw
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+Nice=15
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=60min
+TimeoutStopSec=12min
+Restart=on-failure
+RestartPreventExitStatus=1
+RestartSec=15min
+ExecStart={{ ass_retention_window_python }} /usr/local/lib/aurora-retention-window/aurora-ass-retention-window.py run --max-candidates {{ ass_retention_window_max_candidates }}
+ExecStopPost={{ ass_retention_window_python }} /usr/local/lib/aurora-retention-window/aurora-ass-retention-window.py restore

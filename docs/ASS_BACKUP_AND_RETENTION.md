@@ -4,6 +4,11 @@ This page describes deletion at the ASS source. The complete writer,
 verification, repair, and status model is in
 [Backups and Archive Services](ARCHIVE_SERVICES.md).
 
+The production timer now targets a guarded maintenance window. See
+[Retention operations](RETENTION_OPERATIONS.md) for its current 5,000-candidate
+bound, persistent protection between windows, verification receipts and WXcam
+exclusion. The signed permit contract below still applies within each window.
+
 ## Contract
 
 Files on ASS are retained for **at least** seven days. A file may remain longer
@@ -97,19 +102,22 @@ copied to the edge. On the cloud coordinator it is owned by `root`, readable
 only by the coordinator service group (`0640`), and its parent directory is
 `0750`. Only the derived public key is installed on ASS.
 
-Initial production activation is two-stage. Deploy both sides in live mode
+For an unheld deployment, initial activation is two-stage. Deploy both sides in live mode
 while leaving `aurora-ass-retention.timer` disabled, then run a manual bounded
 canary with `aurora-ass-retention --canary --max-candidates N` (at most 5,000).
 The manual canary requires one fresh globally clean inventory. Only after its
 cloud and edge receipts, exact deletions, continued ingest, archive health, and
-disk recovery are checked should the daily timer be enabled.
+disk recovery are checked should the daily timer be enabled. On the current
+production host, use the guarded-window handover instead: a direct canary does
+not authorize removal of the legacy hold or bypass its radar dependencies.
 
 Normal scheduled retention requires stable raw parity from two distinct clean
 confirmations. The production coordinator considers no more than
-50,000 candidates per daily run, round-robins the oldest eligible files across
+50,000 candidates per unwrapped daily run, round-robins the oldest eligible files across
 streams, and sends permits in batches of at most 500 paths. The edge helper
 also caps each permit at 500 candidates. These are workload bounds, not weaker
-verification rules.
+verification rules. The production guarded window imposes the stricter
+5,000-candidate total bound through its managed service override.
 
 Raw-data proof is independent of the newest derived-product files. A file is
 eligible only when its source-to-cloud, source-to-GWS, and cloud-to-object raw
