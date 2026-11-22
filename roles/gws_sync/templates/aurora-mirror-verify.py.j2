@@ -467,18 +467,19 @@ def native_radar_alert_grace(stream, source_entries, local_missing, gws_missing,
     if stream["name"] != "rpgfmcw94":
         return None
     pattern = r"Y20[0-9]{2}/M[01][0-9]/D[0-3][0-9]/rpgfmcw94-aurora_[0-9]{6}_[0-9]{6}_P01_ZEN\.(?:LV0|LV1|LV0\.NC)"
+    settle_seconds, transfer_seconds = 2700, 4500
     pending = []
     # Match the native producer's 45-minute stability boundary, then allow
-    # 30 minutes for its bounded copy/dispatcher/readback cycle.
+    # 75 minutes for its bounded copy/dispatcher/readback cycle.
     for destination, paths in (("local", local_missing), ("gws", gws_missing)):
         for path in paths:
             mtime = source_entries[path]["mtime"]
-            if re.fullmatch(pattern, path) and 0 <= now_ts - mtime < 4500:
+            if re.fullmatch(pattern, path) and 0 <= now_ts - mtime < settle_seconds + transfer_seconds:
                 pending.append({"destination": destination, "relative_path": path, "source_mtime": mtime})
     return {
-        "policy": "native-radar-delivery-v1",
-        "settle_seconds": 2700,
-        "transfer_grace_seconds": 1800,
+        "policy": "native-radar-delivery-v2",
+        "settle_seconds": settle_seconds,
+        "transfer_grace_seconds": transfer_seconds,
         "raw_missing_counts": {"local": len(local_missing), "gws": len(gws_missing)},
         "pending": pending,
     }

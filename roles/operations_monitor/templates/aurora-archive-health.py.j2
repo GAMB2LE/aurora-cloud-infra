@@ -415,13 +415,14 @@ def settled_source_status(gws: dict, streams: list[dict], current=None, max_age_
         grace = state.get("path_alert_grace") if isinstance(state, dict) else None
         if name == "rpgfmcw94" and valid and evidence_usable and grace is not None:
             # Only verifier-bound native paths may receive delivery grace.
-            # Re-evaluate their deadline now, so an old snapshot cannot keep
-            # a genuinely overdue file classified as pending for eight hours.
+            # Classify absence at observation time. Evidence freshness is checked above.
             import re
             try:
-                if not isinstance(grace, dict) or grace.get("policy") != "native-radar-delivery-v1":
+                policies = {"native-radar-delivery-v1": 1800, "native-radar-delivery-v2": 4500}
+                if not isinstance(grace, dict) or grace.get("policy") not in policies:
                     raise ValueError("unknown grace policy")
-                if grace.get("settle_seconds") != 2700 or grace.get("transfer_grace_seconds") != 1800:
+                transfer = policies[grace["policy"]]
+                if grace.get("settle_seconds") != 2700 or grace.get("transfer_grace_seconds") != transfer:
                     raise ValueError("unexpected delivery window")
                 raw = grace["raw_missing_counts"]
                 if any(type(raw[d]) is not int or raw[d] != counts[f"{d}_missing_count"] for d in pending):
@@ -436,14 +437,13 @@ def settled_source_status(gws: dict, streams: list[dict], current=None, max_age_
                     destination, path, mtime = entry["destination"], entry["relative_path"], entry["source_mtime"]
                     if destination not in pending or not isinstance(path, str) or not re.fullmatch(pattern, path):
                         raise ValueError("grace is not a native radar path")
-                    if type(mtime) is not int or not 0 <= observed.timestamp() - mtime < 4500:
+                    if type(mtime) is not int or not 0 <= observed.timestamp() - mtime < 2700 + transfer:
                         raise ValueError("invalid source age")
                     if (destination, path) in seen:
                         raise ValueError("duplicate pending path")
                     seen.add((destination, path))
                     bound[destination] += 1
-                    if 0 <= current.timestamp() - mtime < 4500:
-                        pending[destination] += 1
+                    pending[destination] += 1
                 if any(bound[d] > raw[d] for d in pending):
                     raise ValueError("too many pending paths")
             except (KeyError, TypeError, ValueError, OverflowError):

@@ -39,7 +39,7 @@ class NativeRadarAlertGraceTests(unittest.TestCase):
         return settled, presentation
 
     def test_normal_window_is_pending_without_changing_raw_evidence(self):
-        for age in (601, 1800, 2700, 4499):
+        for age in (601, 1800, 2700, 4500, 7199):
             with self.subTest(age=age):
                 summary = self.snapshot(age)
                 before = copy.deepcopy(summary)
@@ -52,17 +52,21 @@ class NativeRadarAlertGraceTests(unittest.TestCase):
                 self.assertEqual(summary, before)
 
     def test_overdue_missing_file_alerts(self):
-        for age in (4500, 7200, 86400):
+        for age in (7200, 7201, 86400):
             with self.subTest(age=age):
                 status, alert = self.present(self.snapshot(age))
                 self.assertEqual(status['metrics']['settled_source_alert_local_missing_count'], 1)
                 self.assertEqual(alert['level'], 'red')
                 self.assertEqual(alert['title'], 'Archive paths are incomplete')
 
-    def test_pending_snapshot_expires_without_a_new_scan(self):
-        status, alert = self.present(self.snapshot(1800), self.now + dt.timedelta(seconds=2700))
-        self.assertEqual(status['metrics']['settled_source_alert_local_missing_count'], 1)
-        self.assertEqual(alert['level'], 'red')
+    def test_only_a_new_observation_can_escalate_pending(self):
+        for version, transfer in [('native-radar-delivery-v1', 1800), ('native-radar-delivery-v2', 4500)]:
+            summary = self.snapshot(2700)
+            summary['streams']['rpgfmcw94']['path_alert_grace'].update(policy=version, transfer_grace_seconds=transfer)
+            _, alert = self.present(summary, self.now + dt.timedelta(hours=2))
+            self.assertEqual(alert['level'], 'green')
+            _, stale = self.present(summary, self.now + dt.timedelta(hours=9))
+            self.assertIn('overdue', stale['title'])
 
     def test_mismatch_still_alerts_during_delivery_window(self):
         _, alert = self.present(self.snapshot(local_mismatch_count=1))
@@ -105,7 +109,9 @@ class NativeRadarAlertGraceTests(unittest.TestCase):
         self.assertEqual(status['metrics']['settled_source_gws_missing_count'], 1)
         self.assertEqual(status['metrics']['settled_source_alert_gws_missing_count'], 0)
         self.assertEqual(alert['level'], 'green')
-        _, expired = self.present(summary, self.now + dt.timedelta(seconds=2700))
+        fresh = self.snapshot(7200, local_missing_count=0, gws_missing_count=1)
+        fresh['streams']['rpgfmcw94']['path_alert_grace']['raw_missing_counts'] = {'local': 0, 'gws': 1}
+        _, expired = self.present(fresh)
         self.assertIn('configured GWS', expired['detail'])
 
     def test_full_verifier_preserves_raw_and_retention_counts(self):
