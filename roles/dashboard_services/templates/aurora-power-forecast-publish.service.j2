@@ -13,12 +13,12 @@ OnSuccess=aurora-power-v12-candidate.service
 Type=oneshot
 User={{ aurora_service_user }}
 Group={{ aurora_service_group }}
-WorkingDirectory={{ aurora_app_dir }}
+WorkingDirectory={{ aurora_power_forecast_app_dir }}
 EnvironmentFile=/etc/aurora-dashboard.env
 # Full-cycle publication acquires the producer lock before copying planning and
 # ENS. The cached runner invokes the publisher directly while it already holds
 # this same lock, avoiding a recursive flock/self-deadlock.
-ExecStart=/usr/bin/flock --exclusive --wait 1500 {{ aurora_power_forecast_generator_lock_path }} {{ aurora_venv }}/bin/python /usr/local/bin/aurora-power-forecast-publish --publish
+ExecStart=/usr/bin/flock --exclusive --wait 1500 {{ aurora_power_forecast_generator_lock_path }} {{ aurora_power_forecast_venv }}/bin/python /usr/local/bin/aurora-power-forecast-publish --publish
 Nice=15
 CPUQuota=100%
 CPUWeight=10
@@ -41,5 +41,5 @@ SystemCallArchitectures=native
 CapabilityBoundingSet=
 AmbientCapabilities=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-ReadOnlyPaths={{ aurora_app_dir }} {{ aurora_product_root }} {{ aurora_raw_root }}
+ReadOnlyPaths={{ aurora_power_forecast_app_dir }} {{ aurora_product_root }} {{ aurora_raw_root }}
 ReadWritePaths={{ aurora_power_forecast_root }}

@@ -1,4 +1,4 @@
-#!{{ aurora_venv }}/bin/python
+#!{{ aurora_power_forecast_venv }}/bin/python
 """Fail-closed publisher for one complete development Power forecast bundle."""
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ import pandas as pd
 import xarray as xr
 
 
-APP_DIR = Path({{ aurora_app_dir | to_json }})
-PYTHON = Path({{ (aurora_venv ~ '/bin/python') | to_json }})
+APP_DIR = Path({{ aurora_power_forecast_app_dir | to_json }})
+PYTHON = Path({{ (aurora_power_forecast_venv ~ '/bin/python') | to_json }})
 POWER_ZARR = Path({{ aurora_zarr.power | to_json }})
 PDU_ZARR = Path({{ aurora_zarr.pdu | to_json }})
 ASFS_ZARR = Path({{ aurora_zarr.asfs_logger | to_json }})
