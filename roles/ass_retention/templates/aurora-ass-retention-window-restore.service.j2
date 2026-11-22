@@ -1,0 +1,16 @@
+[Unit]
+Description=Restore radar protection and admissions after an interrupted retention window
+After=local-fs.target network-online.target
+Wants=network-online.target
+Before=aurora-ass-retention.service aurora-ass-retention-window.service aurora-native-settled-backfill.service
+RequiresMountsFor=/var/lib/aurora-cloud/retention-windows
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+TimeoutStartSec=15min
+ExecStart={{ ass_retention_window_python }} /usr/local/lib/aurora-retention-window/aurora-ass-retention-window.py restore
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,16 @@
+[Unit]
+Description=Restore verified radar retention maintenance admissions after interruption
+After=local-fs.target network-online.target aurora-ass-retention-window-restore.service
+Wants=network-online.target
+Before=aurora-native-settled-backfill.service aurora-ass-retention-window.service aurora-radar-source-sync.service aurora-radar-append.service aurora-radar-quicklooks.service aurora-archive-dispatch.service
+RequiresMountsFor=/data/aurora /project/aurora /var/lib/aurora-cloud
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+TimeoutStartSec=15min
+ExecStart=/usr/bin/python3 /usr/local/lib/aurora-radar-retention/install-retention-layout-release.py --restore
+
+[Install]
+WantedBy=multi-user.target

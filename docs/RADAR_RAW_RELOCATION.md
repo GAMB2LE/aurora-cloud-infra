@@ -1,5 +1,11 @@
 # Preserve older radar days on a second volume
 
+The November 2026 [guarded retention policy](RETENTION_OPERATIONS.md) supersedes
+staging/release for the already-relocated historical cohort. Its permanent stage
+withdrawal marker prevents the old helper from recreating retired flat copies.
+The procedure below documents the earlier relocation and must not be used to
+remove that marker or reconstruct the retired staging layout.
+
 I want enough headroom for the live radar and its native archive without removing
 observations. This procedure copies explicitly selected closed days to `/data`,
 verifies every file, and keeps the same paths under `/project/aurora/raw/rpgfmcw94`

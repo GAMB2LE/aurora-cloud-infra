@@ -15,7 +15,7 @@
     owner: root
     group: root
     mode: '0644'
-  when: not ((ass_retention_enabled | bool) and (ass_retention_timer_enabled | bool))
+  when: not ((ass_retention_enabled | bool) and (ass_retention_timer_enabled | bool)) or (ass_retention_window_enabled | default(false) | bool)
 
 - name: Prepare the retention condition directory
   ansible.builtin.file:
@@ -38,7 +38,7 @@
   ansible.builtin.file:
     path: /etc/aurora/ass-retention.hold
     state: absent
-  when: (ass_retention_enabled | bool) and (ass_retention_timer_enabled | bool)
+  when: (ass_retention_enabled | bool) and (ass_retention_timer_enabled | bool) and not (ass_retention_window_enabled | default(false) | bool)
 
 - name: Load the retention condition without starting or resetting a service
   ansible.builtin.systemd:

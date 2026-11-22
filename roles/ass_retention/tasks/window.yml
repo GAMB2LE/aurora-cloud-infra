@@ -1,0 +1,90 @@
+---
+- name: Restrict guarded retention windows to the production coordinator
+  ansible.builtin.assert:
+    that:
+      - aurora_is_production | bool
+      - ass_retention_enabled | bool
+      - ass_retention_window_enabled | bool
+      - ass_retention_window_max_candidates | int >= 1
+      - ass_retention_window_max_candidates | int <= 5000
+
+- name: Prepare root-owned retention window control directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: /usr/local/lib/aurora-retention-window, mode: '0755'}
+    - {path: /var/lib/aurora-cloud/retention-windows, mode: '0700'}
+    - {path: /etc/systemd/system/aurora-ass-retention.timer.d, mode: '0755'}
+
+- name: Install guarded window and independent readback tools
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/usr/local/lib/aurora-retention-window/{{ item }}"
+    owner: root
+    group: root
+    mode: '0755'
+    backup: true
+  loop:
+    - aurora-ass-retention-window.py
+    - retention_candidate_readback.py
+    - retention_window_gate.py
+
+- name: Install guarded window and interrupted-window recovery units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+  loop:
+    - aurora-ass-retention-window.service
+    - aurora-ass-retention-window-restore.service
+
+- name: Render the guarded target in the base timer unit
+  ansible.builtin.template:
+    src: aurora-ass-retention.timer.j2
+    dest: /etc/systemd/system/aurora-ass-retention.timer
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+  register: retention_window_timer_unit
+
+- name: Remove the superseded duplicate timer target override
+  ansible.builtin.file:
+    path: /etc/systemd/system/aurora-ass-retention.timer.d/80-guarded-window.conf
+    state: absent
+  register: retention_window_timer_override
+
+- name: Stop the schedule before loading a changed trigger target
+  ansible.builtin.systemd:
+    name: aurora-ass-retention.timer
+    state: stopped
+  when:
+    - retention_window_timer_unit.changed or retention_window_timer_override.changed
+    - not ansible_check_mode
+
+- name: Load guarded retention units without starting a deletion window
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: not ansible_check_mode
+
+- name: Enable boot recovery without running retention
+  ansible.builtin.systemd:
+    name: aurora-ass-retention-window-restore.service
+    enabled: true
+  when: not ansible_check_mode
+
+- name: Enable the reviewed daily schedule after commissioning
+  ansible.builtin.systemd:
+    name: aurora-ass-retention.timer
+    enabled: true
+    state: started
+  when:
+    - ass_retention_timer_enabled | bool
+    - not ansible_check_mode

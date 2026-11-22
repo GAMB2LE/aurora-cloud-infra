@@ -100,14 +100,19 @@ def test_transfer_failure_never_advances_success(tmp_path):
     assert orphan == 'must remain'
 
 
-def test_recovery_inventory_keeps_deletion_and_retention_off():
+def test_recovery_inventory_keeps_standby_deletion_off_and_bounds_production_retention():
     group = yaml.safe_load((ROOT / 'inventory/group_vars/aurora_cloud.yml').read_text())
     production = yaml.safe_load((ROOT / 'inventory/host_vars/aurora-cloud.yml').read_text())
     mirror = yaml.safe_load((ROOT / 'inventory/host_vars/aurora-cloud-droplet.yml').read_text())
     assert group['aurora_standby_replication_delete'] is False
     assert group['aurora_standby_replication_reconciling'] is True
     assert group['aurora_standby_replication_delete_stages'] == []
-    assert production['ass_retention_timer_enabled'] is False
+    for key in ('ass_retention_timer_enabled', 'ass_retention_window_enabled'):
+        assert group[key] is False
+        assert mirror.get(key, group[key]) is False
+        assert production[key] is True
+    assert production['ass_retention_window_max_candidates'] == 5000
+    assert production['wxcam_retention_prune_enabled'] is False
     assert mirror['aurora_standby_raw_relocation_guard'] is True
 
 

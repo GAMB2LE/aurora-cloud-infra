@@ -1,0 +1,73 @@
+"""Verify the historical radar cohort across legacy binds and registered images."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import runpy
+import stat
+import types
+
+import verify_relocated_may_d13_mount as compressed
+
+CONTROL = Path('/etc/aurora/radar-relocation-active.json')
+PLAN_SHA = 'e9534ca975fd24517bc0db56fcb9a5bb268c2e16b5d07ce29a5b9fa6621d8bcb'
+DAY = compressed.stage.DAY
+RETENTION_HELPER = Path('/usr/local/lib/aurora-radar-retention-layout.py')
+RETENTION_HELPER_SHA = '{{ retention_layout_sha256 }}'
+
+
+def retention_module():
+    before = RETENTION_HELPER.lstat()
+    if (RETENTION_HELPER.resolve() != RETENTION_HELPER or not stat.S_ISREG(before.st_mode)
+            or before.st_uid or before.st_mode & 0o022 or before.st_nlink != 1):
+        raise ValueError('unsafe radar retention layout helper')
+    raw = RETENTION_HELPER.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != RETENTION_HELPER_SHA:
+        raise ValueError('radar retention layout helper pin differs')
+    module = types.ModuleType('radar_retention_layout')
+    module.__file__ = str(RETENTION_HELPER)
+    exec(compile(raw, str(RETENTION_HELPER), 'exec'), module.__dict__)
+    return module
+
+
+def verify_layout(additional_bytes=0, *, route=None):
+    if type(additional_bytes) is not int or additional_bytes < 0:
+        raise ValueError('negative or invalid reservation')
+    helper_path = compressed.stage.HELPER
+    if compressed.stage.digest(helper_path) != compressed.stage.HELPER_SHA:
+        raise ValueError('pinned relocation helper differs')
+    if compressed.stage.digest(CONTROL) != PLAN_SHA:
+        raise ValueError('historical relocation descriptor differs')
+    helper = runpy.run_path(str(helper_path))
+    plan = helper['load'](CONTROL)
+    retention = retention_module()
+    selected, registry_pin = retention.routes()
+    if set(selected) - set(plan['days']) or DAY in selected:
+        raise ValueError('registered retention routes escape the historical cohort')
+    replacements = {day: retention.guard(day, record) for day, record in sorted(selected.items())}
+    if route is None and os.path.lexists(compressed.ROUTE):
+        route = compressed.root_control(compressed.ROUTE)
+    result = {}
+    omitted = set(selected)
+    if route is not None:
+        if plan['days'].count(DAY) != 1 or plan['expected_files_by_day'].get(DAY) != 64:
+            raise ValueError('prior relocation layout does not contain the designated day')
+        omitted.add(DAY)
+        result['compressed_route'] = compressed.guard(route)
+    remaining = [day for day in plan['days'] if day not in omitted]
+    overrides = {day: count for day, count in plan['expected_files_by_day'].items() if day not in omitted}
+    helper['guard'](dict(plan, days=remaining, expected_files_by_day=overrides), additional_bytes=additional_bytes)
+    result['legacy_bind_days'] = len(remaining)
+    if replacements:
+        result['retention_compressed_routes'] = replacements
+    if retention.routes() != (selected, registry_pin) or compressed.stage.digest(CONTROL) != PLAN_SHA:
+        raise ValueError('radar layout controls changed during validation')
+    return result
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--additional-bytes', type=int, default=0)
+    args = parser.parse_args()
+    print(json.dumps(verify_layout(args.additional_bytes), sort_keys=True))

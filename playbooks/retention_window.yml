@@ -1,0 +1,9 @@
+---
+- name: Install guarded retention without redeploying scientific writers or archive monitors
+  hosts: aurora_cloud
+  become: true
+  tasks:
+    - name: Install the production guarded retention window
+      ansible.builtin.import_role:
+        name: ass_retention
+        tasks_from: window.yml

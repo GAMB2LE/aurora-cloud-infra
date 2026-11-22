@@ -17,8 +17,14 @@ aurora_nginx_rate_limits: true
 aurora_dashboard_session_check_ms: 15000
 aurora_dashboard_unused_session_lifetime_ms: 120000
 ass_retention_dry_run: false
-# Recovery hold: require two fresh complete archive reports before restoring pruning.
-ass_retention_timer_enabled: false
+# Fresh five-file signed commissioning and independent archive/edge audits passed.
+# Keep the radar-layout hold between scheduled drain-and-lock retention windows.
+ass_retention_timer_enabled: true
+ass_retention_window_enabled: true
+ass_retention_window_max_candidates: 5000
+# The upstream WXcam push refills retired HDR paths. Preserve these copies until
+# sender-side exact retirement exclusions are available; other streams proceed.
+wxcam_retention_prune_enabled: false
 # Native radar backlog stays held until seven-day headroom is demonstrated.
 # The independent LV1 live timer remains enabled for current observations.
 radar_backfill_timer_enabled: false
